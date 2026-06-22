@@ -1,0 +1,39 @@
+const mongoose = require('mongoose');
+
+const MatchedRubricSchema = new mongoose.Schema({
+  symptom: String,              // Original patient symptom text
+  rubricId: { type: mongoose.Schema.Types.ObjectId, ref: 'Rubric' },
+  chapter: { en: String, hi: String },
+  rubric: { en: String, hi: String },
+  subrubric: { en: String, hi: String },
+  modalities: {
+    aggravation: [String],
+    amelioration: [String],
+  },
+  medicines: { type: Map, of: Number },
+  confidence: { type: Number, default: 0 },   // 0-100 from AI
+  reasoning: { type: String, default: '' },   // AI explanation
+}, { _id: false });
+
+const MedicineDistributionSchema = new mongoose.Schema({
+  name: String,
+  totalScore: Number,
+  rubricsCount: Number,
+  grades: [Number],
+  rank: Number,
+}, { _id: false });
+
+const AnalysisSchema = new mongoose.Schema({
+  patientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Patient', default: null },
+  patientName: { type: String, default: 'Anonymous' },
+  repertoryId: { type: mongoose.Schema.Types.ObjectId, ref: 'Repertory', required: true },
+  repertoryName: { type: String, default: '' },
+  symptoms: [{ type: String }],               // Up to 5 patient symptoms
+  matchedRubrics: [MatchedRubricSchema],
+  medicineDistribution: [MedicineDistributionSchema],
+  aiUsed: { type: Boolean, default: false },
+  prescriptionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Prescription', default: null },
+  status: { type: String, enum: ['pending', 'complete', 'prescribed'], default: 'complete' },
+}, { timestamps: true });
+
+module.exports = mongoose.model('Analysis', AnalysisSchema);
