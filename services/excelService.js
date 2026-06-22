@@ -341,7 +341,9 @@ const parseExcel = (buffer) => {
   // Write Excel structure debug to excel_debug.json for all sheets
   try {
     const fs = require('fs');
-    fs.writeFileSync('/Users/amritdeependrachand/homo/excel_debug.json', JSON.stringify({
+    const path = require('path');
+    const debugPath = path.join(__dirname, '..', '..', 'excel_debug.json');
+    fs.writeFileSync(debugPath, JSON.stringify({
       sheetNames: workbook.SheetNames,
       totalRowsAcrossSheets,
       distinctChaptersInExcel: allDistinctChapters,
