@@ -30,6 +30,12 @@ io.on('connection', (socket) => {
     console.log(`User with ID: ${socket.id} joined room: ${roomId}`);
   });
 
+  // Join doctor notification room for symptom submissions
+  socket.on('join_doctor_notifications', (doctorId) => {
+    socket.join(`doctor_${doctorId}`);
+    console.log(`Doctor ${doctorId} joined notification room`);
+  });
+
   // When a message is sent
   socket.on('send_message', async (data) => {
     try {
@@ -49,6 +55,36 @@ io.on('connection', (socket) => {
 
     // Broadcast to everyone in the room except the sender
     socket.to(data.roomId).emit('receive_message', data);
+  });
+
+  // When a patient submits new symptoms
+  socket.on('submit_patient_symptoms', async (data) => {
+    try {
+      console.log('📝 New patient symptom submission:', data);
+      
+      // Broadcast to all doctors (in real applications, you'd target specific doctors)
+      io.emit('new_symptom_submission', {
+        id: data.id,
+        patientId: data.patientId,
+        patientName: data.patientName,
+        age: data.age,
+        submittedAt: data.submittedAt,
+        symptoms: data.symptoms,
+        fullSymptomText: data.fullSymptomText,
+        language: data.language,
+        status: 'Pending',
+        assignedDoctorId: data.assignedDoctorId,
+        assignedDoctorName: data.assignedDoctorName
+      });
+
+      // Also send to specific assigned doctor if available
+      if (data.assignedDoctorId) {
+        io.to(`doctor_${data.assignedDoctorId}`).emit('urgent_patient_symptom', data);
+      }
+
+    } catch (err) {
+      console.error('Failed to handle symptom submission:', err);
+    }
   });
 
   socket.on('disconnect', () => {
