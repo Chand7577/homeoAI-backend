@@ -192,7 +192,9 @@ const login = async (req, res) => {
     console.error('Login error:', error);
     res.status(500).json({
       success: false,
-      message: 'Login failed. Please try again.'
+      message: 'Login failed. Please try again.',
+      debug: error.message,           // TEMP: remove after debugging
+      debugCode: error.code || null,  // TEMP: for duplicate key errors
     });
   }
 };
