@@ -100,25 +100,38 @@ const login = async (req, res) => {
 
     // Check for admin credentials
     if (email === 'admin@gmail.com' && password === 'admin') {
-      // Create or find admin user
       let adminUser = await User.findOne({ email: 'admin@gmail.com' });
-      
+
       if (!adminUser) {
+        // Create fresh admin user
         adminUser = new User({
           name: 'System Administrator',
           email: 'admin@gmail.com',
           phone: '+91 99999 99999',
-          password: 'admin1',   // must be ≥ 6 chars to pass schema validation
+          password: 'admin1',
           role: 'Admin',
           status: 'Approved'
         });
         await adminUser.save();
+      } else {
+        // Patch any stale data from old schema (old role:'admin', missing phone)
+        // Use updateOne with runValidators:false to avoid crashing on legacy docs
+        await User.updateOne(
+          { email: 'admin@gmail.com' },
+          {
+            $set: {
+              role: 'Admin',
+              status: 'Approved',
+              phone: adminUser.phone || '+91 99999 99999',
+              lastLogin: new Date(),
+            },
+            $inc: { loginCount: 1 },
+          },
+          { runValidators: false }
+        );
+        // Reload with updated fields
+        adminUser = await User.findOne({ email: 'admin@gmail.com' });
       }
-
-      // Update login tracking
-      adminUser.lastLogin = new Date();
-      adminUser.loginCount += 1;
-      await adminUser.save();
 
       const token = generateToken(adminUser._id);
       const { password: _, ...userResponse } = adminUser.toObject();
