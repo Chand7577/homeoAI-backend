@@ -108,7 +108,7 @@ const login = async (req, res) => {
           name: 'System Administrator',
           email: 'admin@gmail.com',
           phone: '+91 99999 99999',
-          password: 'admin',
+          password: 'admin1',   // must be ≥ 6 chars to pass schema validation
           role: 'Admin',
           status: 'Approved'
         });
