@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const errorHandler = require('./middleware/errorHandler');
 
+const authRoutes         = require('./routes/authRoutes');
 const repertoryRoutes    = require('./routes/repertoryRoutes');
 const rubricRoutes       = require('./routes/rubricRoutes');
 const analysisRoutes     = require('./routes/analysisRoutes');
@@ -35,6 +36,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Routes
+app.use('/api/auth',          authRoutes);
 app.use('/api/repertories',   repertoryRoutes);
 app.use('/api/rubrics',       rubricRoutes);
 app.use('/api/analysis',      analysisRoutes);

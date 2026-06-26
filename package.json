@@ -14,11 +14,13 @@
   "type": "commonjs",
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^4.22.2",
     "express-async-errors": "^3.1.1",
     "express-async-handler": "^1.2.0",
+    "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.7.1",
     "multer": "^2.2.0",
     "pdf-lib": "^1.17.1",
