@@ -31,7 +31,13 @@ const uploadPDF = multer({
 // GET /api/repertories
 const getRepertories = async (req, res) => {
   const filter = { isActive: true };
-  if (req.query.type) filter.type = req.query.type;
+  if (req.query.type) {
+    if (req.query.type === 'Repertory') {
+      filter.$or = [ { type: 'Repertory' }, { type: { $exists: false } } ];
+    } else {
+      filter.type = req.query.type;
+    }
+  }
   
   const repertories = await Repertory.find(filter).sort({ createdAt: -1 });
   res.json({ success: true, data: repertories });
