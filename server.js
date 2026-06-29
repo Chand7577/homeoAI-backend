@@ -1,5 +1,7 @@
 require('dotenv').config();
 const http = require('http');
+const path = require('path');
+const fs = require('fs');
 const { Server } = require('socket.io');
 const app = require('./app');
 const connectDB = require('./config/db');
@@ -37,12 +39,12 @@ io.on('connection', (socket) => {
   });
 
   // When a message is sent
-  socket.on('send_message', async (data) => {
+  socket.on('send_message', async (data, callback) => {
     try {
       const parts = data.roomId.split('_');
       const receiverId = parts.find(p => p !== data.senderId) || '';
       
-      await Message.create({
+      const created = await Message.create({
         senderId: data.senderId,
         receiverId: receiverId,
         text: data.text || '',
@@ -52,12 +54,50 @@ io.on('connection', (socket) => {
         attachmentName: data.attachmentName || null,
         attachmentType: data.attachmentType || null
       });
+
+      const responseData = {
+        ...data,
+        _id: created._id
+      };
+
+      // Broadcast to everyone in the room except the sender
+      socket.to(data.roomId).emit('receive_message', responseData);
+
+      // Acknowledge back to sender with created database _id
+      if (typeof callback === 'function') {
+        callback({ success: true, _id: created._id });
+      }
     } catch (err) {
       console.error('Failed to save message to DB:', err);
+      if (typeof callback === 'function') {
+        callback({ success: false, error: err.message });
+      }
     }
+  });
 
-    // Broadcast to everyone in the room except the sender
-    socket.to(data.roomId).emit('receive_message', data);
+  // When a message is deleted
+  socket.on('delete_message', async (data) => {
+    try {
+      const message = await Message.findById(data.messageId);
+      if (message) {
+        if (message.attachmentUrl) {
+          const filename = path.basename(message.attachmentUrl);
+          const filePath = path.join(__dirname, 'uploads', filename);
+          if (fs.existsSync(filePath)) {
+            try {
+              fs.unlinkSync(filePath);
+            } catch (err) {
+              console.error('Error removing attachment file via socket:', err);
+            }
+          }
+        }
+        await Message.findByIdAndDelete(data.messageId);
+      }
+      // Broadcast deletion notification to the other users in the room
+      socket.to(data.roomId).emit('message_deleted', { messageId: data.messageId });
+    } catch (err) {
+      console.error('Failed to delete message from DB:', err);
+    }
   });
 
   // When a patient submits new symptoms

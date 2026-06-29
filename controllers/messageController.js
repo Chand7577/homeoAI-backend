@@ -61,9 +61,30 @@ const uploadAttachmentFile = async (req, res) => {
   });
 };
 
+const deleteMessage = async (req, res) => {
+  const { id } = req.params;
+  const message = await Message.findById(id);
+  if (message) {
+    if (message.attachmentUrl) {
+      const filename = path.basename(message.attachmentUrl);
+      const filePath = path.join(__dirname, '../uploads', filename);
+      if (fs.existsSync(filePath)) {
+        try {
+          fs.unlinkSync(filePath);
+        } catch (err) {
+          console.error('Error removing attachment file:', err);
+        }
+      }
+    }
+    await Message.findByIdAndDelete(id);
+  }
+  res.json({ success: true, message: 'Message deleted successfully' });
+};
+
 module.exports = {
   getMessagesByRoom,
   createMessage,
   uploadAttachment,
-  uploadAttachmentFile
+  uploadAttachmentFile,
+  deleteMessage
 };
