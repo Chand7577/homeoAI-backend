@@ -11,6 +11,7 @@ const RepertorySchema = new mongoose.Schema({
   pdfUrl: { type: String, default: '' },         // path to the PDF on server
   pdfName: { type: String, default: '' },        // original uploaded filename
   chapterPages: { type: Map, of: Number, default: {} }, // map of chapter -> page number
+  type: { type: String, enum: ['Repertory', 'Reference'], default: 'Repertory' }, // separates analysis data from reading material
 }, { timestamps: true });
 
 module.exports = mongoose.model('Repertory', RepertorySchema);

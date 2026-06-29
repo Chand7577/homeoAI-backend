@@ -30,7 +30,10 @@ const uploadPDF = multer({
 
 // GET /api/repertories
 const getRepertories = async (req, res) => {
-  const repertories = await Repertory.find({ isActive: true }).sort({ createdAt: -1 });
+  const filter = { isActive: true };
+  if (req.query.type) filter.type = req.query.type;
+  
+  const repertories = await Repertory.find(filter).sort({ createdAt: -1 });
   res.json({ success: true, data: repertories });
 };
 
@@ -43,9 +46,9 @@ const getRepertory = async (req, res) => {
 
 // POST /api/repertories
 const createRepertory = async (req, res) => {
-  const { name, nameHi, author, description } = req.body;
+  const { name, nameHi, author, description, type } = req.body;
   if (!name) { res.status(400); throw new Error('Repertory name is required'); }
-  const repertory = await Repertory.create({ name, nameHi, author, description });
+  const repertory = await Repertory.create({ name, nameHi, author, description, type: type || 'Repertory' });
   res.status(201).json({ success: true, data: repertory });
 };
 
