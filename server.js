@@ -45,9 +45,12 @@ io.on('connection', (socket) => {
       await Message.create({
         senderId: data.senderId,
         receiverId: receiverId,
-        text: data.text,
+        text: data.text || '',
         roomId: data.roomId,
-        time: data.time
+        time: data.time,
+        attachmentUrl: data.attachmentUrl || null,
+        attachmentName: data.attachmentName || null,
+        attachmentType: data.attachmentType || null
       });
     } catch (err) {
       console.error('Failed to save message to DB:', err);
