@@ -3,6 +3,7 @@ const router = express.Router();
 const {
   register,
   login,
+  logout,
   getProfile,
   getPendingRegistrations,
   approveUser,
@@ -14,6 +15,7 @@ const { authenticate, requireAdmin } = require('../middleware/auth');
 // Public routes
 router.post('/register', register);
 router.post('/login', login);
+router.post('/logout', logout);
 
 // Protected routes (require authentication)
 router.get('/profile', authenticate, getProfile);

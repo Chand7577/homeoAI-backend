@@ -134,13 +134,21 @@ const login = async (req, res) => {
       }
 
       const token = generateToken(adminUser._id);
+
+      res.cookie('homeo_token', token, {
+        httpOnly: true,
+        secure: true, // HTTPS required for sameSite: 'none'
+        sameSite: 'none',
+        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+      });
+
       const { password: _, ...userResponse } = adminUser.toObject();
 
       return res.json({
         success: true,
         message: 'Admin login successful',
-        user: userResponse,
-        token
+        user: userResponse
+        // No token in response body anymore
       });
     }
 
@@ -192,22 +200,27 @@ const login = async (req, res) => {
     // Generate token
     const token = generateToken(user._id);
 
+    res.cookie('homeo_token', token, {
+      httpOnly: true,
+      secure: true, // HTTPS required for sameSite: 'none'
+      sameSite: 'none',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    });
+
     // Don't include password in response
     const { password: _, ...userResponse } = user.toObject();
 
     res.json({
       success: true,
       message: 'Login successful',
-      user: userResponse,
-      token
+      user: userResponse
+      // No token in response body anymore
     });
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({
       success: false,
-      message: 'Login failed. Please try again.',
-      debug: error.message,           // TEMP: remove after debugging
-      debugCode: error.code || null,  // TEMP: for duplicate key errors
+      message: 'Login failed. Please try again.'
     });
   }
 };
@@ -339,9 +352,33 @@ const getAllUsers = async (req, res) => {
   }
 };
 
+// Logout user (clear cookie)
+const logout = async (req, res) => {
+  try {
+    // Clear the httpOnly cookie
+    res.clearCookie('homeo_token', {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'none'
+    });
+
+    res.json({
+      success: true,
+      message: 'Logged out successfully'
+    });
+  } catch (error) {
+    console.error('Logout error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Logout failed'
+    });
+  }
+};
+
 module.exports = {
   register,
   login,
+  logout,
   getProfile,
   getPendingRegistrations,
   approveUser,
