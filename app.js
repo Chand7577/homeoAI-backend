@@ -5,6 +5,7 @@ const cookieParser = require('cookie-parser');
 const path = require('path');
 const fs = require('fs');
 const errorHandler = require('./middleware/errorHandler');
+const rateLimit = require('express-rate-limit');
 
 const authRoutes         = require('./routes/authRoutes');
 const repertoryRoutes    = require('./routes/repertoryRoutes');
@@ -16,6 +17,36 @@ const medicineRoutes     = require('./routes/medicineRoutes');
 const messageRoutes      = require('./routes/messageRoutes');
 
 const app = express();
+
+// Trust proxy for rate limiting (Render, Heroku, AWS ELB, etc.)
+app.set('trust proxy', 1);
+
+// General rate limiter: max 1000 requests per 15 minutes
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 1000, 
+  message: {
+    success: false,
+    message: 'Too many requests from this IP, please try again after 15 minutes'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Stricter rate limiter for authentication routes: max 50 requests per 15 minutes
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 50,
+  message: {
+    success: false,
+    message: 'Too many authentication attempts. Please try again after 15 minutes'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Apply general api limiter to all api routes
+app.use('/api', apiLimiter);
 
 // Ensure uploads folder exists
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -38,7 +69,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Routes
-app.use('/api/auth',          authRoutes);
+app.use('/api/auth',          authLimiter, authRoutes);
 app.use('/api/repertories',   repertoryRoutes);
 app.use('/api/rubrics',       rubricRoutes);
 app.use('/api/analysis',      analysisRoutes);
