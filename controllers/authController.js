@@ -375,6 +375,42 @@ const logout = async (req, res) => {
   }
 };
 
+// Admin: Delete user account
+const deleteUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Prevent deleting the primary admin account
+    if (user.email === 'admin@gmail.com') {
+      return res.status(403).json({
+        success: false,
+        message: 'Primary admin account cannot be deleted'
+      });
+    }
+
+    await User.findByIdAndDelete(userId);
+
+    res.json({
+      success: true,
+      message: `${user.name} (${user.email}) has been deleted successfully`
+    });
+  } catch (error) {
+    console.error('Delete user error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete user'
+    });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -383,5 +419,6 @@ module.exports = {
   getPendingRegistrations,
   approveUser,
   rejectUser,
-  getAllUsers
+  getAllUsers,
+  deleteUser
 };

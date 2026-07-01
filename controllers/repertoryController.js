@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Repertory = require('../models/Repertory');
 const Rubric = require('../models/Rubric');
 const multer = require('multer');
@@ -160,6 +161,27 @@ const updateChapterPages = async (req, res) => {
   });
 };
 
+// GET /api/repertories/:id/chapters
+const getRepertoryChapters = async (req, res) => {
+  const repertory = await Repertory.findById(req.params.id);
+  if (!repertory) { res.status(404); throw new Error('Repertory not found'); }
+
+  const chapters = await Rubric.aggregate([
+    { $match: { repertoryId: new mongoose.Types.ObjectId(req.params.id) } },
+    {
+      $group: {
+        _id: "$chapter.en",
+        chapterEn: { $first: "$chapter.en" },
+        chapterHi: { $first: "$chapter.hi" },
+        rubricCount: { $sum: 1 }
+      }
+    },
+    { $sort: { chapterEn: 1 } }
+  ]);
+
+  res.json({ success: true, data: chapters });
+};
+
 module.exports = { 
   getRepertories, 
   getRepertory, 
@@ -169,5 +191,6 @@ module.exports = {
   upload, 
   uploadPDF, 
   uploadPDFFile, 
-  updateChapterPages 
+  updateChapterPages,
+  getRepertoryChapters
 };

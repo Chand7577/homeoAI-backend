@@ -8,7 +8,8 @@ const {
   getPendingRegistrations,
   approveUser,
   rejectUser,
-  getAllUsers
+  getAllUsers,
+  deleteUser
 } = require('../controllers/authController');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 
@@ -25,5 +26,6 @@ router.get('/pending', authenticate, requireAdmin, getPendingRegistrations);
 router.put('/approve/:userId', authenticate, requireAdmin, approveUser);
 router.put('/reject/:userId', authenticate, requireAdmin, rejectUser);
 router.get('/users', authenticate, requireAdmin, getAllUsers);
+router.delete('/users/:userId', authenticate, requireAdmin, deleteUser);
 
 module.exports = router;

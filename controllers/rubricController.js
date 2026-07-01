@@ -6,7 +6,7 @@ const getRubrics = async (req, res) => {
   const { repertoryId, chapter, search, page = 1, limit = 50 } = req.query;
   const filter = {};
   if (repertoryId) filter.repertoryId = repertoryId;
-  if (chapter) filter['chapter.en'] = new RegExp(chapter, 'i');
+  if (chapter !== undefined) filter['chapter.en'] = chapter;
   if (search) filter.searchText = new RegExp(search.toLowerCase(), 'i');
 
   const skip = (parseInt(page) - 1) * parseInt(limit);

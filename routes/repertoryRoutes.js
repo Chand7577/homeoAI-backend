@@ -3,10 +3,12 @@ const router = express.Router();
 const {
   getRepertories, getRepertory, createRepertory,
   uploadExcel, deleteRepertory, upload,
-  uploadPDF, uploadPDFFile, updateChapterPages
+  uploadPDF, uploadPDFFile, updateChapterPages,
+  getRepertoryChapters
 } = require('../controllers/repertoryController');
 
 router.get('/',                  getRepertories);
+router.get('/:id/chapters',      getRepertoryChapters);
 router.get('/:id',               getRepertory);
 router.post('/',                 createRepertory);
 router.post('/:id/upload',       upload.single('file'), uploadExcel);
