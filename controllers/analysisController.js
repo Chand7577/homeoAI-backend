@@ -17,7 +17,7 @@ const runAnalysisHandler = async (req, res) => {
   if (!repertory) { res.status(404); throw new Error('Repertory not found'); }
 
   // Run AI analysis
-  const { matchedRubrics, medicineDistribution, aiUsed } = await runAnalysis({
+  const { matchedRubrics, medicineDistribution, aiUsed, stats } = await runAnalysis({
     symptoms: cleanSymptoms,
     repertoryId,
     repertoryName: repertory.name,
@@ -63,6 +63,7 @@ const runAnalysisHandler = async (req, res) => {
       matchedRubrics,
       medicineDistribution,
       aiUsed,
+      stats,
     }
   });
 };

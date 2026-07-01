@@ -203,8 +203,64 @@ const parseExcel = (buffer) => {
 
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
-    // Convert to JSON — use first row as headers
-    const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+    
+    // Check if first row looks like headers or data
+    const range = XLSX.utils.decode_range(sheet['!ref']);
+    const firstRowData = [];
+    for (let col = range.s.c; col <= range.e.c; col++) {
+      const cellAddress = XLSX.utils.encode_cell({ r: range.s.r, c: col });
+      const cell = sheet[cellAddress];
+      firstRowData.push(cell ? String(cell.v).trim() : '');
+    }
+    
+    // Detect if first row is a header row or data row
+    const hasHeaders = firstRowData.some(val => {
+      const lower = val.toLowerCase();
+      return lower.includes('chapter') || 
+             lower.includes('rubric') || 
+             lower.includes('medicine') ||
+             lower.includes('remedy') ||
+             lower.includes('sub') ||
+             lower.includes('aggrav') ||
+             lower.includes('amelior') ||
+             lower.includes('synonym');
+    });
+    
+    let rawRows;
+    let headers;
+    
+    if (hasHeaders) {
+      // Use first row as headers (default behavior)
+      rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+      headers = Object.keys(rawRows[0] || {});
+    } else {
+      // No headers detected - generate generic column names
+      console.log(`⚠️  Sheet "${sheetName}": No headers detected. Using positional columns (A, B, C, D...).`);
+      
+      // Read without headers (header: 1 means use row index as keys)
+      rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false, header: 1 });
+      
+      // Generate column names based on position
+      // Assume: Col A = Chapter, Col B = Rubric, Col C = Subrubric, Rest = Medicines or metadata
+      headers = Object.keys(rawRows[0] || {}).map((key, idx) => {
+        if (idx === 0) return 'Chapter';
+        if (idx === 1) return 'Rubric';
+        if (idx === 2) return 'Sub-Rubric';
+        // Last column is medicine list
+        if (idx === Object.keys(rawRows[0]).length - 1) return 'Medicines';
+        // Other columns might be aggravation, amelioration, etc.
+        return `Column_${String.fromCharCode(65 + idx)}`; // Column_A, Column_B, etc.
+      });
+      
+      // Remap rawRows to use our generated headers
+      rawRows = rawRows.map(row => {
+        const remapped = {};
+        Object.keys(row).forEach((oldKey, idx) => {
+          remapped[headers[idx]] = row[oldKey];
+        });
+        return remapped;
+      });
+    }
 
     if (!rawRows || rawRows.length === 0) {
       continue; // Skip empty sheets
@@ -212,7 +268,7 @@ const parseExcel = (buffer) => {
 
     totalRowsAcrossSheets += rawRows.length;
     
-    const headers = Object.keys(rawRows[0]);
+    // headers already defined above based on header detection
     const { medicineHeaders, metaHeaders } = detectMedicineColumns(headers, rawRows);
 
     // Track distinct chapters in rawRows

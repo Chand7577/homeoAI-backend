@@ -253,7 +253,20 @@ const runAnalysis = async ({ symptoms, repertoryId, repertoryName }) => {
   // Compute medicine distribution
   const medicineDistribution = computeMedicineDistribution(matchedRubrics);
 
-  return { matchedRubrics, medicineDistribution, aiUsed };
+  // Count rubrics with and without medicines for debugging
+  const rubricsWithMedicines = matchedRubrics.filter(r => r.medicines && Object.keys(r.medicines).length > 0).length;
+  const rubricsWithoutMedicines = matchedRubrics.length - rubricsWithMedicines;
+
+  return { 
+    matchedRubrics, 
+    medicineDistribution, 
+    aiUsed,
+    stats: {
+      totalMatched: matchedRubrics.length,
+      withMedicines: rubricsWithMedicines,
+      withoutMedicines: rubricsWithoutMedicines
+    }
+  };
 };
 
 const { GoogleAIFileManager } = require("@google/generative-ai/server");
