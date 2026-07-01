@@ -11,4 +11,6 @@ const MessageSchema = new mongoose.Schema({
   time: { type: String, default: () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
 }, { timestamps: true });
 
+MessageSchema.index({ roomId: 1, createdAt: 1 });
+
 module.exports = mongoose.model('Message', MessageSchema);

@@ -254,26 +254,50 @@ const syncMedicinesFromRubrics = async (req, res) => {
       });
     });
     
-    // Update or create medicine records
+    // Fetch all existing medicines in a single database call
+    const existingMedicines = await Medicine.find({}, 'name');
+    const existingMap = new Map();
+    existingMedicines.forEach(m => {
+      if (m.name) {
+        existingMap.set(m.name.toLowerCase(), m);
+      }
+    });
+
+    const bulkOps = [];
     let created = 0;
     let updated = 0;
     
     for (const [medName, count] of Object.entries(medicineUsage)) {
-      const existingMedicine = await Medicine.findOne({ name: medName });
+      const nameLower = medName.toLowerCase();
+      const existing = existingMap.get(nameLower);
       
-      if (existingMedicine) {
-        await Medicine.findByIdAndUpdate(existingMedicine._id, { rubricsCount: count });
+      if (existing) {
+        bulkOps.push({
+          updateOne: {
+            filter: { _id: existing._id },
+            update: { $set: { rubricsCount: count } }
+          }
+        });
         updated++;
       } else {
-        await Medicine.create({
-          name: medName,
-          description: `Homeopathic remedy found in repertory rubrics.`,
-          descriptionHindi: `रेपरटॉरी रुब्रिक्स में पाई गई होम्योपैथिक दवा।`,
-          rubricsCount: count,
-          createdBy: 'system'
+        bulkOps.push({
+          insertOne: {
+            document: {
+              name: medName,
+              description: `Homeopathic remedy found in repertory rubrics.`,
+              descriptionHindi: `रेपरटॉरी रुब्रिक्स में पाई गई होम्योपैथिक दवा।`,
+              rubricsCount: count,
+              createdBy: 'system'
+            }
+          }
         });
         created++;
       }
+    }
+    
+    // Execute all operations in a single network trip
+    if (bulkOps.length > 0) {
+      await Medicine.bulkWrite(bulkOps);
     }
     
     res.json({

@@ -21,6 +21,20 @@ const app = express();
 // Trust proxy for rate limiting (Render, Heroku, AWS ELB, etc.)
 app.set('trust proxy', 1);
 
+// Response time logger middleware using high-resolution real-time
+app.use((req, res, next) => {
+  const start = process.hrtime();
+  res.on('finish', () => {
+    const diff = process.hrtime(start);
+    const timeInMs = (diff[0] * 1e3 + diff[1] * 1e-6).toFixed(2);
+    // Ignore static files/assets logs if desired, but log all API calls
+    if (req.originalUrl.startsWith('/api')) {
+      console.log(`⏱️ [API] ${req.method} ${req.originalUrl} - Status: ${res.statusCode} - Duration: ${timeInMs}ms`);
+    }
+  });
+  next();
+});
+
 // General rate limiter: max 1000 requests per 15 minutes
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes

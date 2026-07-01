@@ -52,7 +52,7 @@ RubricSchema.pre('save', function(next) {
   next();
 });
 
-RubricSchema.index({ repertoryId: 1, 'chapter.en': 1 });
+RubricSchema.index({ repertoryId: 1, 'chapter.en': 1, 'rubric.en': 1 });
 RubricSchema.index({ searchText: 'text' });
 
 module.exports = mongoose.model('Rubric', RubricSchema);
