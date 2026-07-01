@@ -11,8 +11,11 @@ const connectDB = async () => {
       family: 4, // Use IPv4, skip trying IPv6 for faster connection
     });
     
-    console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
-    console.log(`📊 Connection Pool: ${conn.connection.maxPoolSize} max, ${conn.connection.minPoolSize} min`);
+    // Only log in development
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+      console.log(`📊 Connection Pool: ${conn.connection.maxPoolSize} max, ${conn.connection.minPoolSize} min`);
+    }
     
     // Run background migrations only if not already done
     const hasRun = await checkMigrationStatus();
@@ -65,7 +68,7 @@ const migrateSearchText = async () => {
       ]
     });
     
-    if (unmigrated.length > 0) {
+    if (unmigrated.length > 0 && process.env.NODE_ENV !== 'production') {
       console.log(`🔧 Found ${unmigrated.length} rubrics without pre-computed search text. Migrating...`);
       let count = 0;
       for (const r of unmigrated) {
@@ -82,7 +85,9 @@ const migrateSearchText = async () => {
         await Rubric.updateOne({ _id: r._id }, { $set: { searchText: st } });
         count++;
       }
-      console.log(`✅ Successfully migrated ${count} rubrics search text!`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`✅ Successfully migrated ${count} rubrics search text!`);
+      }
     }
   } catch (err) {
     console.error('❌ Rubric search text migration failed:', err.message);
@@ -94,7 +99,10 @@ const seedMessages = async () => {
   try {
     const count = await Message.countDocuments();
     if (count === 0) {
-      console.log('🔧 Seeding chat messages in MongoDB...');
+      // Only log in development
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('🔧 Seeding chat messages in MongoDB...');
+      }
       const dummyMessages = [
         // dr-jp & pat-amrit
         { senderId: 'dr-jp', receiverId: 'pat-amrit', roomId: 'dr-jp_pat-amrit', text: 'Hello Amrit. How is your headache today?', time: '09:30 AM' },
@@ -115,7 +123,9 @@ const seedMessages = async () => {
         { senderId: 'pat-arav', receiverId: 'dr-jp', roomId: 'dr-jp_pat-arav', text: 'Sent reports of blood test.', time: '2 days ago' }
       ];
       await Message.insertMany(dummyMessages);
-      console.log('✅ Successfully seeded chat messages!');
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('✅ Successfully seeded chat messages!');
+      }
     }
   } catch (err) {
     console.error('❌ Chat message seeding failed:', err.message);

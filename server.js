@@ -24,18 +24,16 @@ const Message = require('./models/Message');
 
 // Socket.IO Connection Handler
 io.on('connection', (socket) => {
-  console.log(`User connected: ${socket.id}`);
+  // User connected (removed console.log for production)
 
   // When a user joins a room (e.g., patient-doctor specific room)
   socket.on('join_room', (roomId) => {
     socket.join(roomId);
-    console.log(`User with ID: ${socket.id} joined room: ${roomId}`);
   });
 
   // Join doctor notification room for symptom submissions
   socket.on('join_doctor_notifications', (doctorId) => {
     socket.join(`doctor_${doctorId}`);
-    console.log(`Doctor ${doctorId} joined notification room`);
   });
 
   // When a message is sent - OPTIMIZED: Non-blocking DB write
@@ -117,7 +115,7 @@ io.on('connection', (socket) => {
   // When a patient submits new symptoms
   socket.on('submit_patient_symptoms', async (data) => {
     try {
-      console.log('📝 New patient symptom submission:', data);
+      // Removed console.log for production
       
       // Broadcast to all doctors (in real applications, you'd target specific doctors)
       io.emit('new_symptom_submission', {
@@ -145,7 +143,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    console.log(`User disconnected: ${socket.id}`);
+    // User disconnected (removed console.log for production)
   });
 });
 
@@ -153,8 +151,11 @@ const start = async () => {
   await connectDB();
   initAI();
   server.listen(PORT, () => {
-    console.log(`🚀 Server running on http://localhost:${PORT}`);
-    console.log(`📋 API docs: http://localhost:${PORT}/api/health`);
+    // Server started (console.log removed for production)
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`🚀 Server running on http://localhost:${PORT}`);
+      console.log(`📋 API docs: http://localhost:${PORT}/api/health`);
+    }
   });
 };
 
