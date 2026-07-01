@@ -1,29 +1,45 @@
 const Patient = require('../models/Patient');
 
-// GET /api/patients
+// GET /api/patients - Optimized with text search
 const getPatients = async (req, res) => {
   const { search, page = 1, limit = 50 } = req.query;
   const filter = {};
+  
   if (search) {
-    filter.$or = [
-      { name: new RegExp(search, 'i') },
-      { contact: new RegExp(search, 'i') },
-      { symptoms: new RegExp(search, 'i') },
-    ];
+    // Use text index for better performance
+    filter.$text = { $search: search };
   }
+  
   const skip = (parseInt(page) - 1) * parseInt(limit);
   const [patients, total] = await Promise.all([
-    Patient.find(filter).sort({ createdAt: -1 }).skip(skip).limit(parseInt(limit)),
+    Patient.find(filter)
+      .select('-analyses -prescriptions') // Exclude large arrays for list view
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .lean(), // Use lean() for faster queries (returns plain JS objects)
     Patient.countDocuments(filter),
   ]);
-  res.json({ success: true, data: patients, total });
+  
+  res.json({ success: true, data: patients, total, page: parseInt(page), limit: parseInt(limit) });
 };
 
-// GET /api/patients/:id
+// GET /api/patients/:id - Optimized with selective population
 const getPatient = async (req, res) => {
   const patient = await Patient.findById(req.params.id)
-    .populate({ path: 'analyses', select: 'repertoryName symptoms medicineDistribution createdAt', options: { sort: { createdAt: -1 }, limit: 10 } })
-    .populate({ path: 'prescriptions', select: 'remedy potency prescribedAt', options: { sort: { createdAt: -1 }, limit: 10 } });
+    .populate({ 
+      path: 'analyses', 
+      select: 'repertoryName symptoms medicineDistribution createdAt', 
+      options: { sort: { createdAt: -1 }, limit: 10 },
+      populate: { path: 'repertoryId', select: 'name' } // Nested populate optimization
+    })
+    .populate({ 
+      path: 'prescriptions', 
+      select: 'remedy potency prescribedAt medicines duration', 
+      options: { sort: { createdAt: -1 }, limit: 10 } 
+    })
+    .lean(); // Faster query
+    
   if (!patient) { res.status(404); throw new Error('Patient not found'); }
   res.json({ success: true, data: patient });
 };

@@ -41,6 +41,12 @@ const UserSchema = new mongoose.Schema({
   phoneVerified: { type: Boolean, default: false },
 }, { timestamps: true });
 
+// Indexes for performance
+UserSchema.index({ email: 1 }, { unique: true });
+UserSchema.index({ status: 1, role: 1 });
+UserSchema.index({ status: 1, requestedAt: -1 }); // For pending approvals
+UserSchema.index({ role: 1, isActive: 1 }); // For role-based queries
+
 // Hash password before saving (Mongoose 9: async hooks use returned Promise, no next())
 UserSchema.pre('save', async function() {
   if (!this.isModified('password')) return;

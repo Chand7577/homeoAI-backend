@@ -67,26 +67,41 @@ const runAnalysisHandler = async (req, res) => {
   });
 };
 
-// GET /api/analysis
+// GET /api/analysis - Optimized with lean and selective population
 const getAnalyses = async (req, res) => {
   const { patientId, limit = 20, page = 1 } = req.query;
   const filter = {};
   if (patientId) filter.patientId = patientId;
+  
   const skip = (parseInt(page) - 1) * parseInt(limit);
   const [analyses, total] = await Promise.all([
-    Analysis.find(filter).sort({ createdAt: -1 }).skip(skip).limit(parseInt(limit))
+    Analysis.find(filter)
+      .select('-matchedRubrics') // Exclude large arrays for list view
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
       .populate('patientId', 'name age gender')
-      .populate('repertoryId', 'name'),
+      .populate('repertoryId', 'name')
+      .lean(), // Faster queries
     Analysis.countDocuments(filter),
   ]);
-  res.json({ success: true, data: analyses, total });
+  
+  res.json({ 
+    success: true, 
+    data: analyses, 
+    total,
+    page: parseInt(page),
+    limit: parseInt(limit)
+  });
 };
 
-// GET /api/analysis/:id
+// GET /api/analysis/:id - Optimized
 const getAnalysis = async (req, res) => {
   const analysis = await Analysis.findById(req.params.id)
     .populate('patientId', 'name age gender contact')
-    .populate('repertoryId', 'name');
+    .populate('repertoryId', 'name')
+    .lean(); // Faster query
+    
   if (!analysis) { res.status(404); throw new Error('Analysis not found'); }
   res.json({ success: true, data: analysis });
 };

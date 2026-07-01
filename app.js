@@ -2,6 +2,7 @@ require('express-async-errors');
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
+const compression = require('compression');
 const path = require('path');
 const fs = require('fs');
 const errorHandler = require('./middleware/errorHandler');
@@ -72,6 +73,7 @@ if (!fs.existsSync(uploadsDir)) {
 app.use('/uploads', express.static(uploadsDir));
 
 // Middleware
+app.use(compression()); // Gzip compression for all responses
 app.use(cors({ origin: true, credentials: true }));
 app.use(cookieParser());
 app.use(express.json({ limit: '10mb' }));

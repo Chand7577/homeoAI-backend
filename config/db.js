@@ -2,15 +2,55 @@ const mongoose = require('mongoose');
 
 const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(process.env.MONGO_URI);
-    console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+    const conn = await mongoose.connect(process.env.MONGO_URI, {
+      // Connection pool settings for high concurrency
+      maxPoolSize: 50, // Maximum number of connections (default: 100, but 50 is more efficient for most apps)
+      minPoolSize: 10, // Minimum number of connections to keep open
+      socketTimeoutMS: 45000, // Close sockets after 45 seconds of inactivity
+      serverSelectionTimeoutMS: 10000, // 10 seconds to select a server
+      family: 4, // Use IPv4, skip trying IPv6 for faster connection
+    });
     
-    // Start background migrations
-    setTimeout(migrateSearchText, 100);
-    setTimeout(seedMessages, 200);
+    console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+    console.log(`📊 Connection Pool: ${conn.connection.maxPoolSize} max, ${conn.connection.minPoolSize} min`);
+    
+    // Run background migrations only if not already done
+    const hasRun = await checkMigrationStatus();
+    if (!hasRun.searchText) {
+      setTimeout(migrateSearchText, 100);
+    }
+    if (!hasRun.messages) {
+      setTimeout(seedMessages, 200);
+    }
   } catch (error) {
     console.error(`❌ MongoDB Connection Error: ${error.message}`);
     process.exit(1);
+  }
+};
+
+// Check if migrations have already run
+const checkMigrationStatus = async () => {
+  try {
+    const Rubric = require('../models/Rubric');
+    const Message = require('../models/Message');
+    
+    const [unmigratedRubrics, messageCount] = await Promise.all([
+      Rubric.countDocuments({
+        $or: [
+          { searchText: "" },
+          { searchText: null },
+          { searchText: { $exists: false } }
+        ]
+      }),
+      Message.countDocuments()
+    ]);
+    
+    return {
+      searchText: unmigratedRubrics === 0,
+      messages: messageCount > 0
+    };
+  } catch (err) {
+    return { searchText: false, messages: false };
   }
 };
 

@@ -67,39 +67,87 @@ const deleteRubric = async (req, res) => {
   res.json({ success: true, message: 'Rubric deleted' });
 };
 
-// GET /api/rubrics/medicines
+// GET /api/rubrics/medicines - Optimized with aggregation
 const getMedicines = async (req, res) => {
-  const rubrics = await Rubric.find({}, 'chapter rubric subrubric medicines');
-  const medicineMap = {};
+  const { limit = 100, page = 1 } = req.query;
+  const skip = (parseInt(page) - 1) * parseInt(limit);
 
-  rubrics.forEach(r => {
-    const meds = r.medicines instanceof Map 
-      ? Object.fromEntries(r.medicines) 
-      : (r.medicines || {});
-    
-    Object.entries(meds).forEach(([medName, grade]) => {
-      const name = medName.trim();
-      if (!name) return;
-      if (!medicineMap[name]) {
-        medicineMap[name] = {
-          name,
-          description: `Homeopathic remedy present in the uploaded repertories.`,
-          descriptionHindi: `अपलोड की गई रेपरटॉरी में मौजूद होम्योपैथिक दवा।`,
-          rubrics: []
-        };
+  // Use aggregation pipeline for better performance
+  const medicines = await Rubric.aggregate([
+    // Only get necessary fields
+    { $project: { 'chapter.en': 1, 'rubric.en': 1, 'subrubric.en': 1, medicines: 1 } },
+    // Unwind medicines map
+    { $project: {
+        chapter: '$chapter.en',
+        rubric: '$rubric.en',
+        subrubric: '$subrubric.en',
+        medicinesArray: { $objectToArray: '$medicines' }
       }
-      
-      const subText = r.subrubric?.en ? `; ${r.subrubric.en}` : '';
-      const rubricText = `${r.chapter.en}: ${r.rubric.en}${subText} (Grade ${grade})`;
-      
-      if (medicineMap[name].rubrics.length < 6) {
-        medicineMap[name].rubrics.push(rubricText);
+    },
+    { $unwind: '$medicinesArray' },
+    // Group by medicine name
+    { $group: {
+        _id: '$medicinesArray.k',
+        rubrics: {
+          $push: {
+            chapter: '$chapter',
+            rubric: '$rubric',
+            subrubric: '$subrubric',
+            grade: '$medicinesArray.v'
+          }
+        },
+        totalRubrics: { $sum: 1 }
       }
-    });
+    },
+    // Sort by name
+    { $sort: { _id: 1 } },
+    // Add pagination
+    { $skip: skip },
+    { $limit: parseInt(limit) },
+    // Format output
+    { $project: {
+        _id: 0,
+        name: '$_id',
+        description: 'Homeopathic remedy present in the uploaded repertories.',
+        descriptionHindi: 'अपलोड की गई रेपरटॉरी में मौजूद होम्योपैथिक दवा।',
+        rubrics: {
+          $map: {
+            input: { $slice: ['$rubrics', 6] }, // Limit to 6 rubrics
+            as: 'r',
+            in: {
+              $concat: [
+                '$$r.chapter', ': ', '$$r.rubric',
+                { $cond: [{ $gt: [{ $strLenCP: '$$r.subrubric' }, 0] }, { $concat: ['; ', '$$r.subrubric'] }, ''] },
+                ' (Grade ', { $toString: '$$r.grade' }, ')'
+              ]
+            }
+          }
+        },
+        totalRubrics: '$totalRubrics'
+      }
+    }
+  ]);
+
+  // Get total count for pagination
+  const totalCount = await Rubric.aggregate([
+    { $project: { medicinesArray: { $objectToArray: '$medicines' } } },
+    { $unwind: '$medicinesArray' },
+    { $group: { _id: '$medicinesArray.k' } },
+    { $count: 'total' }
+  ]);
+
+  const total = totalCount.length > 0 ? totalCount[0].total : 0;
+
+  res.json({ 
+    success: true, 
+    data: medicines,
+    pagination: {
+      total,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      pages: Math.ceil(total / parseInt(limit))
+    }
   });
-
-  const data = Object.values(medicineMap).sort((a, b) => a.name.localeCompare(b.name));
-  res.json({ success: true, data });
 };
 
 module.exports = { getRubrics, getChapters, getMedicines, createRubric, updateRubric, deleteRubric };

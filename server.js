@@ -38,13 +38,29 @@ io.on('connection', (socket) => {
     console.log(`Doctor ${doctorId} joined notification room`);
   });
 
-  // When a message is sent
+  // When a message is sent - OPTIMIZED: Non-blocking DB write
   socket.on('send_message', async (data, callback) => {
     try {
+      // Immediately acknowledge to sender (optimistic UI)
+      const tempId = `temp_${Date.now()}`;
+      const responseData = {
+        ...data,
+        _id: tempId
+      };
+      
+      // Broadcast to room immediately (don't wait for DB)
+      socket.to(data.roomId).emit('receive_message', responseData);
+      
+      // Acknowledge back to sender immediately
+      if (typeof callback === 'function') {
+        callback({ success: true, _id: tempId });
+      }
+
+      // Save to DB asynchronously (non-blocking)
       const parts = data.roomId.split('_');
       const receiverId = parts.find(p => p !== data.senderId) || '';
       
-      const created = await Message.create({
+      Message.create({
         senderId: data.senderId,
         receiverId: receiverId,
         text: data.text || '',
@@ -53,22 +69,20 @@ io.on('connection', (socket) => {
         attachmentUrl: data.attachmentUrl || null,
         attachmentName: data.attachmentName || null,
         attachmentType: data.attachmentType || null
+      }).then(created => {
+        // Emit real DB ID to both sender and receiver for sync
+        io.to(data.roomId).emit('message_synced', {
+          tempId: tempId,
+          realId: created._id.toString()
+        });
+      }).catch(err => {
+        console.error('Failed to save message to DB:', err);
+        // Emit error to sender
+        socket.emit('message_save_failed', { tempId, error: err.message });
       });
-
-      const responseData = {
-        ...data,
-        _id: created._id
-      };
-
-      // Broadcast to everyone in the room except the sender
-      socket.to(data.roomId).emit('receive_message', responseData);
-
-      // Acknowledge back to sender with created database _id
-      if (typeof callback === 'function') {
-        callback({ success: true, _id: created._id });
-      }
+      
     } catch (err) {
-      console.error('Failed to save message to DB:', err);
+      console.error('Failed to handle message:', err);
       if (typeof callback === 'function') {
         callback({ success: false, error: err.message });
       }

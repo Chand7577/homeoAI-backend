@@ -19,6 +19,9 @@ uploads/
 # Migrations (one-time scripts)
 migrations/
 
+# Scratch/test files
+scratch/
+
 # OS files
 .DS_Store
 Thumbs.db

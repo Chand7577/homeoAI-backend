@@ -24,9 +24,9 @@ const MedicineDistributionSchema = new mongoose.Schema({
 }, { _id: false });
 
 const AnalysisSchema = new mongoose.Schema({
-  patientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Patient', default: null },
+  patientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Patient', default: null, index: true },
   patientName: { type: String, default: 'Anonymous' },
-  repertoryId: { type: mongoose.Schema.Types.ObjectId, ref: 'Repertory', required: true },
+  repertoryId: { type: mongoose.Schema.Types.ObjectId, ref: 'Repertory', required: true, index: true },
   repertoryName: { type: String, default: '' },
   symptoms: [{ type: String }],               // Up to 5 patient symptoms
   matchedRubrics: [MatchedRubricSchema],
@@ -35,5 +35,10 @@ const AnalysisSchema = new mongoose.Schema({
   prescriptionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Prescription', default: null },
   status: { type: String, enum: ['pending', 'complete', 'prescribed'], default: 'complete' },
 }, { timestamps: true });
+
+// Compound indexes for common queries
+AnalysisSchema.index({ patientId: 1, createdAt: -1 });
+AnalysisSchema.index({ repertoryId: 1, createdAt: -1 });
+AnalysisSchema.index({ status: 1, createdAt: -1 });
 
 module.exports = mongoose.model('Analysis', AnalysisSchema);
