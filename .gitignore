@@ -16,6 +16,9 @@ yarn-error.log*
 # Uploads folder
 uploads/
 
+# Migrations (one-time scripts)
+migrations/
+
 # OS files
 .DS_Store
 Thumbs.db
