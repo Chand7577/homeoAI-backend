@@ -1,3 +1,4 @@
+
 const mongoose = require('mongoose');
 const Repertory = require('../models/Repertory');
 const Rubric = require('../models/Rubric');
@@ -29,7 +30,7 @@ const diskStorage = multer.diskStorage({
 
 const uploadPDF = multer({
   storage: diskStorage,
-  limits: { fileSize: 100 * 1024 * 1024 }
+  limits: { fileSize: 200 * 1024 * 1024 } // 200MB limit
 });
 
 // GET /api/repertories

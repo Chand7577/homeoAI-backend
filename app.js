@@ -79,8 +79,8 @@ app.use('/uploads', express.static(uploadsDir));
 app.use(compression()); // Gzip compression for all responses
 app.use(cors({ origin: true, credentials: true }));
 app.use(cookieParser());
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '200mb' }));
+app.use(express.urlencoded({ extended: true, limit: '200mb' }));
 
 // Health check
 app.get('/api/health', (req, res) => {

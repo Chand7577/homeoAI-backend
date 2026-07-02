@@ -42,7 +42,7 @@ const UserSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Indexes for performance
-UserSchema.index({ email: 1 }, { unique: true });
+// Note: email already has unique: true in schema, no need to redefine
 UserSchema.index({ status: 1, role: 1 });
 UserSchema.index({ status: 1, requestedAt: -1 }); // For pending approvals
 UserSchema.index({ role: 1, isActive: 1 }); // For role-based queries
