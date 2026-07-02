@@ -127,50 +127,39 @@ const deleteRepertory = async (req, res) => {
 
 // POST /api/repertories/:id/upload-pdf
 const uploadPDFFile = async (req, res) => {
-  const { uploadPDFToCloudinary, deleteFromCloudinary } = require('../services/uploadService');
-  
   const repertory = await Repertory.findById(req.params.id);
   if (!repertory) { res.status(404); throw new Error('Repertory not found'); }
   if (!req.file) { res.status(400); throw new Error('No PDF file uploaded'); }
 
   try {
-    // Upload to Cloudinary with optimizations
-    const uploadResult = await uploadPDFToCloudinary(req.file.path, req.file.originalname);
+    // Store PDF on server (not Cloudinary due to file size limits)
+    const relativePath = `/uploads/${req.file.filename}`;
+    const fullUrl = `${req.protocol}://${req.get('host')}${relativePath}`;
     
-    // Delete old Cloudinary file if exists
-    if (repertory.cloudinaryPdfPublicId) {
-      await deleteFromCloudinary(repertory.cloudinaryPdfPublicId);
+    // Delete old local file if exists
+    if (repertory.pdfUrl && repertory.pdfUrl.includes('/uploads/')) {
+      const oldFilename = path.basename(repertory.pdfUrl);
+      const oldPath = path.join(__dirname, '../uploads', oldFilename);
+      if (fs.existsSync(oldPath)) {
+        fs.unlinkSync(oldPath);
+      }
     }
     
-    // Update repertory with Cloudinary URLs
-    repertory.cloudinaryPdfUrl = uploadResult.url;
-    repertory.cloudinaryPdfPublicId = uploadResult.publicId;
+    // Update repertory with server URLs
+    repertory.pdfUrl = relativePath; // Store relative path for iframe
     repertory.pdfName = req.file.originalname;
-    
-    // Legacy field for backward compatibility
-    repertory.pdfUrl = uploadResult.url;
-
-    // Run LLM Chapter/Remedy index extraction
-    let extractionSuccess = false;
-    try {
-      // Note: For Cloudinary files, we'd need to download temporarily for AI processing
-      // For now, we'll skip AI extraction if using Cloudinary
-      // You can implement temporary download if needed
-      console.log('⚠️ Chapter extraction from Cloudinary PDFs not yet implemented');
-    } catch (err) {
-      console.error('⚠️ Could not extract chapters from PDF using Gemini:', err.message);
-    }
+    repertory.cloudinaryPdfUrl = ''; // Clear Cloudinary fields
+    repertory.cloudinaryPdfPublicId = '';
 
     await repertory.save();
 
     res.json({
       success: true,
-      message: 'PDF uploaded to Cloudinary successfully',
+      message: 'PDF uploaded successfully',
       data: {
-        pdfUrl: uploadResult.url,
-        pdfPublicId: uploadResult.publicId,
+        pdfUrl: relativePath,
         pdfName: req.file.originalname,
-        bytes: uploadResult.bytes,
+        bytes: req.file.size,
         chapterPages: repertory.chapterPages
       }
     });
