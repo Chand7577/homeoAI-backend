@@ -17,10 +17,10 @@ const uploadPDFToCloudinary = async (filePath, originalName) => {
       folder: 'homeo-repertory-pdfs',
       resource_type: 'raw',
       public_id: `${timestamp}-${sanitizedName}`,
-      // Optimizations
-      eager: [{ format: 'pdf' }], // Pre-generate transformations
-      eager_async: false, // Wait for transformations
-      invalidate: true, // Invalidate CDN cache
+      // Optimizations for faster upload
+      upload_preset: undefined, // Use default
+      chunk_size: 6000000, // 6MB chunks for faster upload
+      timeout: 600000, // 10 minute timeout
     });
 
     // Delete local file after successful upload
