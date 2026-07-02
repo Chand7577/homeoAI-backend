@@ -337,37 +337,47 @@ const extractChaptersFromPdf = async (filePath, fileName) => {
   const model = getModel();
 
   const prompt = `
-You are analyzing a Homeopathic Materia Medica PDF (e.g. Boericke's Pocket Manual).
+You are analyzing a Homeopathic Materia Medica PDF to extract medicine names and their starting page numbers.
 
-TASK: Extract ALL medicine names and their starting page numbers by scanning page headers.
+INSTRUCTIONS:
+1. Carefully examine the ENTIRE Materia Medica section (typically pages 15-620)
+2. Look for the FIRST page where each medicine's main description begins
+3. Medicine names are usually in ALL CAPS or bold at the start of their section
+4. Each medicine typically has: 
+   - A main heading with the full name (e.g., "ACONITUM NAPELLUS")
+   - Then sections: MIND, HEAD, EYES, STOMACH, etc. describing symptoms
+5. Page headers may show the medicine name, but you must verify it's the FIRST page by checking for the main heading
 
-METHOD:
-1. Look at the TOP of each page in the Materia Medica section (typically pages 15-620)
-2. Most Materia Medica books print the current medicine name as a header on every page
-3. When you see a NEW medicine name appear in the header, record that page number as the start
-4. Continue scanning ALL pages to find EVERY medicine
+METHODOLOGY:
+- Scan page by page through the Materia Medica section
+- When you see a NEW medicine name as a main heading (not just in header), record that page
+- Verify it's the start by checking if previous pages had a different medicine
+- Be precise - wrong page numbers will confuse users
 
-EXAMPLE:
-- Page 16-22: Headers show "ACONITUM NAPELLUS" → Record: "ACONITUM NAPELLUS": 16
-- Page 23-29: Headers show "AESCULUS HIPPOCASTANUM" → Record: "AESCULUS HIPPOCASTANUM": 23
-- Page 30-35: Headers show "AGARICUS MUSCARIUS" → Record: "AGARICUS MUSCARIUS": 30
-... continue for ALL medicines
+EXAMPLE ANALYSIS:
+Page 34: Main heading "ACONITUM NAPELLUS" with introduction text → START PAGE: 34
+Pages 35-40: Continues ACONITUM NAPELLUS symptoms → Skip
+Page 41: Main heading "ACTAEA RACEMOSA" with introduction text → START PAGE: 41
+Pages 42-45: Continues ACTAEA RACEMOSA symptoms → Skip
 
-OUTPUT: Return ONLY a JSON object with medicine names and starting pages:
+OUTPUT FORMAT (JSON only):
 {
   "ABIES CANADENSIS": 15,
-  "ABIES NIGRA": 17,
   "ABROTANUM": 19,
-  "ACONITUM NAPELLUS": 23,
-  "AESCULUS HIPPOCASTANUM": 30,
-  ... (continue for ALL 100-300+ medicines found in page headers)
+  "ACONITUM NAPELLUS": 34,
+  "ACTAEA RACEMOSA": 41,
+  "AESCULUS HIPPOCASTANUM": 47,
+  ... (ALL medicines, typically 100-300+)
 }
 
-REQUIREMENTS:
-- Extract ALL medicines by scanning page headers, not just examples
-- Return ABSOLUTE page numbers (as shown in PDF reader)
-- Return ONLY valid JSON, no markdown formatting, no explanatory text
-- Focus ONLY on the Materia Medica section, ignore Repertory chapters
+CRITICAL REQUIREMENTS:
+- Verify each page number is correct by checking for the main heading
+- Extract ALL medicines in alphabetical order
+- Use absolute PDF page numbers (as shown in PDF reader)
+- Return ONLY valid JSON, no markdown, no explanations
+- Be thorough - scan the entire Materia Medica section
+
+Take your time and be accurate. Wrong page numbers are worse than missing entries.
 `;
 
   try {
