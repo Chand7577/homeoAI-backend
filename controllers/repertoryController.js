@@ -151,16 +151,36 @@ const uploadPDFFile = async (req, res) => {
     repertory.cloudinaryPdfUrl = ''; // Clear Cloudinary fields
     repertory.cloudinaryPdfPublicId = '';
 
+    // Try AI extraction of chapter/medicine mappings
+    let extractionSuccess = false;
+    try {
+      const { extractChaptersFromPdf } = require('../services/aiService');
+      console.log('🤖 Attempting AI extraction of chapters/medicines from PDF...');
+      const mappings = await extractChaptersFromPdf(req.file.path, req.file.originalname);
+      
+      if (mappings && Object.keys(mappings).length > 0) {
+        repertory.chapterPages = mappings;
+        extractionSuccess = true;
+        console.log(`✅ AI extraction successful! Found ${Object.keys(mappings).length} chapters/medicines`);
+      }
+    } catch (err) {
+      console.error('⚠️ AI extraction failed:', err.message);
+      console.log('User can manually map chapters using the UI');
+    }
+
     await repertory.save();
 
     res.json({
       success: true,
-      message: 'PDF uploaded successfully',
+      message: extractionSuccess 
+        ? 'PDF uploaded and chapters extracted automatically!' 
+        : 'PDF uploaded successfully. You can map chapters manually.',
       data: {
         pdfUrl: relativePath,
         pdfName: req.file.originalname,
         bytes: req.file.size,
-        chapterPages: repertory.chapterPages
+        chapterPages: repertory.chapterPages,
+        aiExtracted: extractionSuccess
       }
     });
   } catch (error) {
