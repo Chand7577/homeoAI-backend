@@ -337,38 +337,41 @@ const extractChaptersFromPdf = async (filePath, fileName) => {
   const model = getModel();
 
   const prompt = `
-You are analyzing a pocket manual of Homeopathic Materia Medica & Repertory (e.g. Boericke's manual).
-Based on the table of contents, index of remedies, and the repertory section intro pages in the PDF:
+You are analyzing a Homeopathic Materia Medica PDF (e.g. Boericke's Pocket Manual).
 
-1. Identify the two main parts of this book:
-   - Part 1: Materia Medica (contains alphabetical remedies starting from page 15-30 onwards).
-   - Part 2: Repertory (contains anatomical/system chapters like Mind, Head, Eye, Ear, Nose, Face, Throat, Stomach, Abdomen, Rectum, Urinary, Male, Female, Respiratory, Back, Extremities, Sleep, Fever, Skin, Generalities, etc.).
-   
-2. Extract the start page numbers for the major chapters. Specifically, look for:
-   - "Materia Medica" start page
-   - "Repertory" start page
-   - Major Repertory Chapters: "MIND", "HEAD", "EYES", "EARS", "NOSE", "FACE", "MOUTH", "THROAT", "STOMACH", "ABDOMEN", "RECTUM", "URINARY ORGANS", "MALE SEXUAL ORGANS", "FEMALE SEXUAL ORGANS", "RESPIRATORY ORGANS", "CIRCULATORY ORGANS", "BACK", "EXTREMITIES", "SLEEP", "FEVER", "SKIN", "GENERALITIES", "MODALITIES".
-   - Alphabetical Materia Medica remedies (e.g., Aconite, Belladonna, Bryonia, Calcarea Carb, Lachesis, Lycopodium, Nux Vomica, Pulsatilla, Sulphur, etc.) and their starting page numbers.
+TASK: Extract ALL medicine names and their starting page numbers by scanning page headers.
 
-3. DO NOT rely blindly on the Table of Contents. You MUST locate the actual headings in the document text and return the ABSOLUTE PDF PAGE NUMBERS (from 1 to the end of the PDF file) where the actual chapter/remedy text begins.
+METHOD:
+1. Look at the TOP of each page in the Materia Medica section (typically pages 15-620)
+2. Most Materia Medica books print the current medicine name as a header on every page
+3. When you see a NEW medicine name appear in the header, record that page number as the start
+4. Continue scanning ALL pages to find EVERY medicine
 
-Your output MUST be a valid JSON object mapping each chapter/section/remedy name to its starting page number in the PDF (adjusting for PDF reader page numbering if there is an offset).
-For example:
+EXAMPLE:
+- Page 16-22: Headers show "ACONITUM NAPELLUS" → Record: "ACONITUM NAPELLUS": 16
+- Page 23-29: Headers show "AESCULUS HIPPOCASTANUM" → Record: "AESCULUS HIPPOCASTANUM": 23
+- Page 30-35: Headers show "AGARICUS MUSCARIUS" → Record: "AGARICUS MUSCARIUS": 30
+... continue for ALL medicines
+
+OUTPUT: Return ONLY a JSON object with medicine names and starting pages:
 {
-  "Materia Medica": 15,
-  "Repertory": 640,
-  "MIND": 642,
-  "HEAD": 680,
-  "EYES": 710,
-  "ACONITUM NAPELLUS": 16,
-  "BELLADONNA": 115
+  "ABIES CANADENSIS": 15,
+  "ABIES NIGRA": 17,
+  "ABROTANUM": 19,
+  "ACONITUM NAPELLUS": 23,
+  "AESCULUS HIPPOCASTANUM": 30,
+  ... (continue for ALL 100-300+ medicines found in page headers)
 }
 
-Return ONLY a valid JSON object. Do not wrap it in markdown block tags (no \`\`\`json, no \`\`\`), and do not write any introductory or concluding text. Just raw JSON.
+REQUIREMENTS:
+- Extract ALL medicines by scanning page headers, not just examples
+- Return ABSOLUTE page numbers (as shown in PDF reader)
+- Return ONLY valid JSON, no markdown formatting, no explanatory text
+- Focus ONLY on the Materia Medica section, ignore Repertory chapters
 `;
 
   try {
-    console.log("🤖 Running Gemini Analysis to extract chapters...");
+    console.log("🤖 Running Gemini Analysis to extract medicine names from page headers...");
     const result = await model.generateContent([
       {
         fileData: {
