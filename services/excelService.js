@@ -149,8 +149,8 @@ const resolveFields = (row, headers, metaHeaders) => {
   const chapterEnRaw = get('chapter (english)', 'chapter_en', 'chapter') || get('section');
   const chapterHiRaw = get('chapter (hindi)', 'chapter_hi');
   
-  const rubricEnRaw  = get('rubric (english)', 'rubric_en', 'rubric');
-  const rubricHiRaw  = get('rubric (hindi)', 'rubric_hi');
+  const rubricEnRaw  = get('rubric (english – verb + action)', 'rubric (english)', 'rubric_en', 'rubric');
+  const rubricHiRaw  = get('rubric (hindi – क्रिया आधारित)', 'rubric (hindi)', 'rubric_hi');
 
   const subrubricRaw = get('sub-rubric', 'sub rubric', 'subrubric_en', 'subrubric');
 
