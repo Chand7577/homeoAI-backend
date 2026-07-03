@@ -63,21 +63,35 @@ const uploadAttachmentFile = async (req, res) => {
 
 const deleteMessage = async (req, res) => {
   const { id } = req.params;
+  const { senderId } = req.body; // Who is trying to delete
+  
   const message = await Message.findById(id);
-  if (message) {
-    if (message.attachmentUrl) {
-      const filename = path.basename(message.attachmentUrl);
-      const filePath = path.join(__dirname, '../uploads', filename);
-      if (fs.existsSync(filePath)) {
-        try {
-          fs.unlinkSync(filePath);
-        } catch (err) {
-          console.error('Error removing attachment file:', err);
-        }
+  
+  if (!message) {
+    res.status(404);
+    throw new Error('Message not found');
+  }
+  
+  // Check if the person deleting is the sender
+  if (message.senderId !== senderId) {
+    res.status(403);
+    throw new Error('You can only delete your own messages');
+  }
+  
+  // Delete attachment file if exists
+  if (message.attachmentUrl) {
+    const filename = path.basename(message.attachmentUrl);
+    const filePath = path.join(__dirname, '../uploads', filename);
+    if (fs.existsSync(filePath)) {
+      try {
+        fs.unlinkSync(filePath);
+      } catch (err) {
+        console.error('Error removing attachment file:', err);
       }
     }
-    await Message.findByIdAndDelete(id);
   }
+  
+  await Message.findByIdAndDelete(id);
   res.json({ success: true, message: 'Message deleted successfully' });
 };
 

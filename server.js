@@ -112,6 +112,25 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Typing indicator events
+  socket.on('typing', (data) => {
+    // Broadcast typing status to others in the room (not to sender)
+    socket.to(data.roomId).emit('user_typing', {
+      userId: data.userId,
+      userName: data.userName,
+      isTyping: true
+    });
+  });
+
+  socket.on('stop_typing', (data) => {
+    // Broadcast stop typing status to others in the room
+    socket.to(data.roomId).emit('user_typing', {
+      userId: data.userId,
+      userName: data.userName,
+      isTyping: false
+    });
+  });
+
   // When a patient submits new symptoms
   socket.on('submit_patient_symptoms', async (data) => {
     try {
