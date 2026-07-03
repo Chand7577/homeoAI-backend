@@ -151,36 +151,38 @@ const uploadPDFFile = async (req, res) => {
     repertory.cloudinaryPdfUrl = ''; // Clear Cloudinary fields
     repertory.cloudinaryPdfPublicId = '';
 
-    // Try AI extraction of chapter/medicine mappings
-    let extractionSuccess = false;
+    // Extract medicine names and page numbers using AI (page-by-page text extraction)
+    let extractedMappings = {};
     try {
+      console.log('🤖 Starting AI extraction of medicine names and page numbers...');
       const { extractChaptersFromPdf } = require('../services/aiService');
-      console.log('🤖 Attempting AI extraction of chapters/medicines from PDF...');
-      const mappings = await extractChaptersFromPdf(req.file.path, req.file.originalname);
+      extractedMappings = await extractChaptersFromPdf(req.file.path, req.file.originalname);
       
-      if (mappings && Object.keys(mappings).length > 0) {
-        repertory.chapterPages = mappings;
-        extractionSuccess = true;
-        console.log(`✅ AI extraction successful! Found ${Object.keys(mappings).length} chapters/medicines`);
+      if (extractedMappings && Object.keys(extractedMappings).length > 0) {
+        repertory.chapterPages = extractedMappings;
+        repertory.markModified('chapterPages');
+        console.log(`✅ AI extracted ${Object.keys(extractedMappings).length} medicine mappings`);
+      } else {
+        console.warn('⚠️ AI extraction returned no mappings');
       }
-    } catch (err) {
-      console.error('⚠️ AI extraction failed:', err.message);
-      console.log('User can manually map chapters using the UI');
+    } catch (aiError) {
+      console.error('⚠️ AI extraction failed:', aiError.message);
+      console.log('Users can manually map medicine names using the UI');
     }
-
+    
     await repertory.save();
 
     res.json({
       success: true,
-      message: extractionSuccess 
-        ? 'PDF uploaded and chapters extracted automatically!' 
-        : 'PDF uploaded successfully. You can map chapters manually.',
+      message: extractedMappings && Object.keys(extractedMappings).length > 0
+        ? `PDF uploaded successfully! AI extracted ${Object.keys(extractedMappings).length} medicine mappings. You can edit them in "Map Chapters" mode.`
+        : 'PDF uploaded successfully. Click "Map Chapters" to add medicine names and page numbers.',
       data: {
         pdfUrl: relativePath,
         pdfName: req.file.originalname,
         bytes: req.file.size,
         chapterPages: repertory.chapterPages,
-        aiExtracted: extractionSuccess
+        aiExtractedCount: Object.keys(extractedMappings).length
       }
     });
   } catch (error) {

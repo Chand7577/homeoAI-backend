@@ -275,113 +275,154 @@ const path = require('path');
 const fs = require('fs');
 
 const extractChaptersFromPdf = async (filePath, fileName) => {
-  if (!process.env.GEMINI_API_KEY) {
-    throw new Error('GEMINI_API_KEY is not set. Cannot run LLM parsing.');
+  if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'NEW_GEMINI_KEY_HERE') {
+    console.warn('⚠️ GEMINI_API_KEY not configured. Skipping AI extraction.');
+    console.log('💡 Users can manually map medicine names in the UI, which is accurate and reliable.');
+    return {};
   }
 
-  let uploadPath = filePath;
-  let tempOutputPath = null;
-
-  let originalTotalPages = 0;
-  let sliceEndStart = 0;
-
-  try {
-    const { PDFDocument } = require('pdf-lib');
-    const sourceBytes = fs.readFileSync(filePath);
-    const sourceDoc = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
-    originalTotalPages = sourceDoc.getPageCount();
-
-    if (originalTotalPages > 950) {
-      console.log(`✂️ PDF has ${originalTotalPages} pages (exceeds Gemini limit). Slicing PDF to fit...`);
-      tempOutputPath = path.join(__dirname, '../uploads', `temp-index-${Date.now()}.pdf`);
+  console.log('📄 Parsing PDF structure...');
+  
+  const pdfParse = require('pdf-parse');
+  const pdfBuffer = fs.readFileSync(filePath);
+  
+  // Get full PDF data with proper options
+  const pdfData = await pdfParse(pdfBuffer, {
+    // No max limit - parse entire PDF
+    max: 0
+  });
+  const totalPages = pdfData.numpages;
+  const fullText = pdfData.text;
+  
+  console.log(`📚 PDF has ${totalPages} pages, ${fullText.length} characters`);
+  
+  // If text extraction failed (very small text), warn and skip
+  if (fullText.length < 10000) {
+    console.warn('⚠️ PDF text extraction yielded very little text. PDF may be image-based or encrypted.');
+    console.log('💡 Manual mapping recommended for accuracy.');
+    return {};
+  }
+  
+  // Split text into lines and identify page breaks
+  // pdf-parse doesn't give us page-by-page, so we'll use form feeds and heuristics
+  const lines = fullText.split('\n');
+  
+  // Build a simplified representation: find medicine names (ALL CAPS lines) and their approximate positions
+  const medicineMatches = [];
+  const medicinePattern = /^[A-Z][A-Z\s\-\.]{3,50}$/; // Match ALL CAPS words 4-50 chars
+  
+  let currentLine = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    
+    // Skip empty lines and page headers/footers
+    if (!line || line.length < 4) continue;
+    
+    // Check if this looks like a medicine name (ALL CAPS, reasonable length)
+    if (medicinePattern.test(line)) {
+      // Look at surrounding context to confirm it's a medicine heading
+      const nextLines = lines.slice(i + 1, i + 5).join(' ').toLowerCase();
+      const prevLines = lines.slice(Math.max(0, i - 3), i).join(' ').toLowerCase();
       
-      // Keep first 50 pages (TOC/Index) and the last ~900 pages (Repertory section)
-      sliceEndStart = Math.max(50, originalTotalPages - 900);
-      await extractPageRanges(filePath, tempOutputPath, [
-        { start: 0, end: 49 },
-        { start: sliceEndStart, end: originalTotalPages - 1 }
-      ]);
-      uploadPath = tempOutputPath;
+      // Medicine headings are typically followed by descriptive text or sections like "mind", "head"
+      const hasMedicalContext = nextLines.includes('mind') || nextLines.includes('head') || 
+                                 nextLines.includes('dose') || nextLines.includes('fever') ||
+                                 nextLines.includes('common') || nextLines.includes('syno');
+      
+      // Skip if it's likely a section heading we want to filter out
+      const isRepertorySection = ['MIND', 'HEAD', 'EYES', 'EARS', 'NOSE', 'FACE', 'MOUTH', 
+                                   'THROAT', 'STOMACH', 'ABDOMEN', 'CHEST', 'BACK', 
+                                   'EXTREMITIES', 'SKIN', 'SLEEP', 'FEVER'].includes(line);
+      
+      if (!isRepertorySection && (hasMedicalContext || line.length > 10)) {
+        medicineMatches.push({
+          name: line,
+          lineNumber: i,
+          context: nextLines.substring(0, 100)
+        });
+      }
     }
-  } catch (err) {
-    console.error('Error while checking/slicing PDF pages:', err);
-    // Proceed with original file if slicing fails, but it might hit the 1000 page limit
   }
-
+  
+  console.log(`🔍 Found ${medicineMatches.length} potential medicine headings`);
+  
+  if (medicineMatches.length === 0) {
+    console.warn('⚠️ No medicine names detected in PDF text');
+    return {};
+  }
+  
+  // Now use Gemini File API to get accurate page numbers
+  const { GoogleAIFileManager } = require("@google/generative-ai/server");
   const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY);
   
   console.log(`📤 Uploading PDF to Gemini File API: ${fileName}...`);
-  const uploadResult = await fileManager.uploadFile(uploadPath, {
+  const uploadResult = await fileManager.uploadFile(filePath, {
     mimeType: "application/pdf",
     displayName: fileName,
   });
 
   console.log(`Uploaded file: ${uploadResult.file.uri}`);
 
-  // Wait for the uploaded file to become active (important for large PDFs)
+  // Wait for the uploaded file to become active
   let fileState = await fileManager.getFile(uploadResult.file.name);
   let pollAttempts = 0;
   while (fileState.state === "PROCESSING" && pollAttempts < 30) {
-    console.log(`⏳ PDF is still processing... waiting 3 seconds... (Attempt ${pollAttempts + 1}/30)`);
+    console.log(`⏳ PDF processing... (${pollAttempts + 1}/30)`);
     await new Promise((resolve) => setTimeout(resolve, 3000));
     fileState = await fileManager.getFile(uploadResult.file.name);
     pollAttempts++;
   }
 
   if (fileState.state !== "ACTIVE") {
-    throw new Error(`Uploaded PDF processing failed or timed out with state: ${fileState.state}`);
+    throw new Error(`PDF processing failed with state: ${fileState.state}`);
   }
-  console.log("✅ PDF processing complete! Sending request to Gemini...");
+  console.log("✅ PDF ready for analysis");
 
   const { getModel } = require('../config/aiConfig');
   const model = getModel();
 
+  // Give AI the list of medicine names we found, ask it to find their EXACT page numbers
+  const medicineNames = medicineMatches.map(m => m.name);
+  
   const prompt = `
-You are analyzing a Homeopathic Materia Medica PDF to extract medicine names and their starting page numbers.
+You are analyzing a Homeopathic Materia Medica PDF to find EXACT page numbers for medicine names.
 
-INSTRUCTIONS:
-1. Carefully examine the ENTIRE Materia Medica section (typically pages 15-620)
-2. Look for the FIRST page where each medicine's main description begins
-3. Medicine names are usually in ALL CAPS or bold at the start of their section
-4. Each medicine typically has: 
-   - A main heading with the full name (e.g., "ACONITUM NAPELLUS")
-   - Then sections: MIND, HEAD, EYES, STOMACH, etc. describing symptoms
-5. Page headers may show the medicine name, but you must verify it's the FIRST page by checking for the main heading
+I have identified ${medicineNames.length} medicine names in this PDF:
+${medicineNames.slice(0, 100).map((name, i) => `${i + 1}. ${name}`).join('\n')}
 
-METHODOLOGY:
-- Scan page by page through the Materia Medica section
-- When you see a NEW medicine name as a main heading (not just in header), record that page
-- Verify it's the start by checking if previous pages had a different medicine
-- Be precise - wrong page numbers will confuse users
+YOUR TASK:
+For EACH medicine name above, find the FIRST page number where that medicine's main description begins.
 
-EXAMPLE ANALYSIS:
-Page 34: Main heading "ACONITUM NAPELLUS" with introduction text → START PAGE: 34
-Pages 35-40: Continues ACONITUM NAPELLUS symptoms → Skip
-Page 41: Main heading "ACTAEA RACEMOSA" with introduction text → START PAGE: 41
-Pages 42-45: Continues ACTAEA RACEMOSA symptoms → Skip
+IDENTIFICATION RULES:
+1. The medicine name appears as a MAIN HEADING (usually ALL CAPS or bold)
+2. It's the START of that medicine's section, not a page continuation
+3. Following text describes that medicine's symptoms (sections like MIND, HEAD, STOMACH, etc.)
+4. Page headers/footers may repeat the name - IGNORE those, find the FIRST occurrence as main heading
 
-OUTPUT FORMAT (JSON only):
+CRITICAL: Use the ACTUAL page numbers visible in the PDF (bottom of pages or PDF reader pagination)
+
+OUTPUT FORMAT (JSON only, no explanations, no markdown):
 {
   "ABIES CANADENSIS": 15,
   "ABROTANUM": 19,
   "ACONITUM NAPELLUS": 34,
-  "ACTAEA RACEMOSA": 41,
-  "AESCULUS HIPPOCASTANUM": 47,
-  ... (ALL medicines, typically 100-300+)
+  "ACTAEA RACEMOSA": 45,
+  ...
 }
 
-CRITICAL REQUIREMENTS:
-- Verify each page number is correct by checking for the main heading
-- Extract ALL medicines in alphabetical order
-- Use absolute PDF page numbers (as shown in PDF reader)
-- Return ONLY valid JSON, no markdown, no explanations
-- Be thorough - scan the entire Materia Medica section
+Rules:
+- Return ONLY the JSON object
+- NO markdown code blocks
+- NO explanations or comments
+- Use exact medicine names from my list
+- Include ONLY medicines you can locate with confidence
+- Skip any medicine if you cannot find its page number with certainty
 
-Take your time and be accurate. Wrong page numbers are worse than missing entries.
+Return the JSON now:
 `;
 
   try {
-    console.log("🤖 Running Gemini Analysis to extract medicine names from page headers...");
+    console.log("🤖 Running Gemini to find exact page numbers...");
     const result = await model.generateContent([
       {
         fileData: {
@@ -393,49 +434,39 @@ Take your time and be accurate. Wrong page numbers are worse than missing entrie
     ]);
 
     const text = result.response.text().trim();
-    console.log("Raw LLM Chapters Response:", text);
+    console.log("Raw AI Response (first 500 chars):", text.substring(0, 500));
 
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('Gemini did not return a valid JSON object');
-
-    let mappings = JSON.parse(jsonMatch[0]);
-
-    // If the PDF was sliced, we must remap the page numbers back to the original PDF's absolute page numbers
-    if (originalTotalPages > 950 && sliceEndStart > 0) {
-      const adjustedMappings = {};
-      Object.keys(mappings).forEach(key => {
-        let page = mappings[key];
-        if (page > 50) {
-          page = page - 50 + sliceEndStart;
-        }
-        adjustedMappings[key] = page;
-      });
-      mappings = adjustedMappings;
+    // Extract JSON, handling markdown code blocks
+    let jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      const codeBlockMatch = text.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/);
+      if (codeBlockMatch) {
+        jsonMatch = [codeBlockMatch[1]];
+      } else {
+        throw new Error('AI did not return valid JSON');
+      }
     }
 
-    // Clean up temporary Gemini File API file
+    const mappings = JSON.parse(jsonMatch[0]);
+    
+    console.log(`✅ Successfully mapped ${Object.keys(mappings).length} medicines to page numbers`);
+    console.log('Sample mappings:', Object.entries(mappings).slice(0, 5));
+
+    // Clean up Gemini file
     try {
       await fileManager.deleteFile(uploadResult.file.name);
-      console.log("Temporary Gemini file deleted successfully");
     } catch (e) {
-      console.warn("Could not delete temporary Gemini file:", e.message);
+      console.warn('Could not delete Gemini file:', e.message);
     }
-
-    if (tempOutputPath && fs.existsSync(tempOutputPath)) {
-      try { fs.unlinkSync(tempOutputPath); } catch(e) {}
-    }
-
+    
     return mappings;
   } catch (err) {
-    // Cleanup on error
+    // Clean up on error
     try {
       await fileManager.deleteFile(uploadResult.file.name);
     } catch (e) {}
     
-    if (tempOutputPath && fs.existsSync(tempOutputPath)) {
-      try { fs.unlinkSync(tempOutputPath); } catch(e) {}
-    }
-    
+    console.error('❌ AI extraction failed:', err.message);
     throw err;
   }
 };
