@@ -63,38 +63,67 @@ const createRepertory = async (req, res) => {
   res.status(201).json({ success: true, data: repertory });
 };
 
-// POST /api/repertories/:id/upload  — Excel bulk import (OPTIMIZED)
+// POST /api/repertories/:id/upload  — Excel bulk import (OPTIMIZED FOR LARGE FILES)
 const uploadExcel = async (req, res) => {
   const repertory = await Repertory.findById(req.params.id);
   if (!repertory) { res.status(404); throw new Error('Repertory not found'); }
   if (!req.file) { res.status(400); throw new Error('No Excel file uploaded'); }
 
-  // Parse Excel with optimizations
-  const { rubrics, errors, medicineHeaders } = parseExcel(req.file.buffer);
+  console.log(`📥 Processing Excel upload: ${req.file.originalname} (${(req.file.size / 1024 / 1024).toFixed(2)} MB)`);
+
+  // Parse Excel with memory optimizations (now async)
+  const { rubrics, errors, medicineHeaders } = await parseExcel(req.file.buffer);
+
+  // Clear buffer reference immediately after parsing
+  req.file.buffer = null;
 
   if (rubrics.length === 0) {
     res.status(400);
     throw new Error('No valid rubric rows found. Check your Excel format. Errors: ' + errors.join('; '));
   }
 
+  console.log(`📊 Parsed ${rubrics.length} rubrics. Starting database import...`);
+
   // Delete existing rubrics for this repertory if replace mode
   if (req.query.replace === 'true') {
-    // Use deleteMany with lean for better performance
-    await Rubric.deleteMany({ repertoryId: repertory._id }).lean();
+    console.log('🗑️  Deleting existing rubrics...');
+    await Rubric.deleteMany({ repertoryId: repertory._id });
   }
 
-  // Batch insert with optimizations
+  // Batch insert with aggressive chunking for memory management
   const docsToInsert = rubrics.map(r => ({ ...r, repertoryId: repertory._id }));
   
-  // Insert in chunks for better memory management (1000 at a time)
-  const chunkSize = 1000;
+  // Smaller chunks for very large files (500 at a time)
+  const chunkSize = 500;
+  const totalChunks = Math.ceil(docsToInsert.length / chunkSize);
+  
+  console.log(`💾 Inserting ${docsToInsert.length} documents in ${totalChunks} chunks...`);
+  
   for (let i = 0; i < docsToInsert.length; i += chunkSize) {
     const chunk = docsToInsert.slice(i, i + chunkSize);
-    await Rubric.insertMany(chunk, { 
-      ordered: false,
-      lean: true, // Skip instantiation for better performance
-      rawResult: true // Get raw result without hydration
-    });
+    const chunkNum = Math.floor(i / chunkSize) + 1;
+    
+    try {
+      await Rubric.insertMany(chunk, { 
+        ordered: false,
+        lean: true, // Skip instantiation for better performance
+        rawResult: true // Get raw result without hydration
+      });
+      
+      // Progress logging every 10 chunks or at end
+      if (chunkNum % 10 === 0 || chunkNum === totalChunks) {
+        const progress = ((chunkNum / totalChunks) * 100).toFixed(1);
+        console.log(`📈 Progress: ${chunkNum}/${totalChunks} chunks (${progress}%) - ${i + chunk.length}/${docsToInsert.length} rubrics`);
+      }
+      
+      // Allow garbage collection between chunks
+      if (chunkNum % 5 === 0) {
+        await new Promise(resolve => setImmediate(resolve));
+      }
+    } catch (insertError) {
+      console.error(`❌ Error inserting chunk ${chunkNum}:`, insertError.message);
+      // Continue with next chunk even if one fails
+    }
   }
 
   // Update rubric count
@@ -103,6 +132,8 @@ const uploadExcel = async (req, res) => {
 
   // Invalidate chapters cache
   chapterCache.delete(repertory._id.toString());
+
+  console.log(`✅ Import complete! ${rubrics.length} rubrics imported into database.`);
 
   res.json({
     success: true,

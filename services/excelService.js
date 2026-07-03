@@ -322,14 +322,17 @@ const detectColumnType = (columnData, colIdx, firstCellValue) => {
   return `Column_${String.fromCharCode(65 + colIdx)}`;
 };
 
-const parseExcel = (buffer) => {
+const parseExcel = async (buffer) => {
+  console.log(`📊 Starting Excel parsing. Buffer size: ${(buffer.length / 1024 / 1024).toFixed(2)} MB`);
+  
   // Increase efficiency for large files
   const workbook = XLSX.read(buffer, { 
     type: 'buffer', 
     cellDates: true,
     cellStyles: false,  // Don't parse styles (saves memory)
     cellFormula: false, // Don't parse formulas (saves memory)
-    sheetStubs: false   // Don't create stubs for empty cells
+    sheetStubs: false,  // Don't create stubs for empty cells
+    bookSheets: true    // Only read sheet names initially (lazy loading)
   });
   
   const rubrics = [];
@@ -342,8 +345,28 @@ const parseExcel = (buffer) => {
   const allDistinctChapters = [];
   const allSampleEyeRows = [];
 
+  console.log(`📋 Found ${workbook.SheetNames.length} sheets to process`);
+
   for (const sheetName of workbook.SheetNames) {
-    const sheet = workbook.Sheets[sheetName];
+    console.log(`\n🔄 Processing sheet: "${sheetName}"...`);
+    const startTime = Date.now();
+    
+    // Re-read ONLY this sheet to avoid loading all sheets in memory
+    const singleSheetWorkbook = XLSX.read(buffer, {
+      type: 'buffer',
+      cellDates: true,
+      cellStyles: false,
+      cellFormula: false,
+      sheetStubs: false,
+      sheets: [sheetName]  // Only parse this specific sheet
+    });
+    
+    const sheet = singleSheetWorkbook.Sheets[sheetName];
+    
+    if (!sheet || !sheet['!ref']) {
+      console.log(`⏭️  Sheet "${sheetName}" is empty, skipping...`);
+      continue;
+    }
     
     // Check if first row looks like headers or data
     const range = XLSX.utils.decode_range(sheet['!ref']);
@@ -399,7 +422,9 @@ const parseExcel = (buffer) => {
       continue; // Skip empty sheets
     }
 
-    totalRowsAcrossSheets += rawRows.length;
+    const sheetRowCount = rawRows.length;
+    totalRowsAcrossSheets += sheetRowCount;
+    console.log(`📊 Sheet has ${sheetRowCount} rows`);
     
     // headers already defined above based on header detection
     const { medicineHeaders, metaHeaders } = detectMedicineColumns(headers, rawRows);
@@ -525,6 +550,17 @@ const parseExcel = (buffer) => {
         medicines,
       });
     });
+    
+    const processingTime = ((Date.now() - startTime) / 1000).toFixed(2);
+    console.log(`✅ Sheet "${sheetName}" processed: ${rubrics.length} total rubrics so far (took ${processingTime}s)`);
+    
+    // Force garbage collection hint by clearing references
+    singleSheetWorkbook.Sheets = null;
+    
+    // Allow event loop to process other tasks
+    if (rubrics.length % 5000 === 0) {
+      await new Promise(resolve => setImmediate(resolve));
+    }
   }
 
   // Write Excel structure debug to excel_debug.json for all sheets

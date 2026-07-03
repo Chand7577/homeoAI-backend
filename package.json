@@ -5,8 +5,8 @@
   "main": "server.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "nodemon --max-old-space-size=4096 server.js",
-    "start": "node --max-old-space-size=4096 server.js"
+    "dev": "nodemon --max-old-space-size=12288 server.js",
+    "start": "node --max-old-space-size=12288 server.js"
   },
   "keywords": [],
   "author": "",
