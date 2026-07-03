@@ -41,12 +41,12 @@ const userToDoctor = (u) => {
 const getDoctors = async (req, res) => {
   const { type, status, search } = req.query;
 
-  // "type" from the frontend is 'Core Team' or 'External Doctor' — map to User.role
+  // "type" from the frontend is 'Core Team' or 'External Doctor' or 'Admin' — map to User.role
   const filter = {
     isActive: true,
     role: type
       ? type
-      : { $in: ['Core Team', 'External Doctor'] },
+      : { $in: ['Admin', 'Core Team', 'External Doctor'] }, // Include Admin
   };
 
   // Only show approved users (active members)
