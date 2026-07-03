@@ -12,11 +12,17 @@ const PORT = process.env.PORT || 5000;
 // Create HTTP server instead of listening directly on Express app
 const server = http.createServer(app);
 
-// Setup Socket.IO
+// Setup Socket.IO with CORS
 const io = new Server(server, {
   cors: {
-    origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE']
+    origin: [
+      'http://localhost:5173',
+      'http://localhost:3000',
+      'https://homeoai13.netlify.app',
+      process.env.FRONTEND_URL
+    ].filter(Boolean),
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    credentials: true
   }
 });
 
