@@ -16,6 +16,7 @@ const patientRoutes      = require('./routes/patientRoutes');
 const prescriptionRoutes = require('./routes/prescriptionRoutes');
 const medicineRoutes     = require('./routes/medicineRoutes');
 const messageRoutes      = require('./routes/messageRoutes');
+const doctorRoutes       = require('./routes/doctorRoutes');
 
 const app = express();
 
@@ -96,6 +97,7 @@ app.use('/api/patients',      patientRoutes);
 app.use('/api/prescriptions', prescriptionRoutes);
 app.use('/api/medicines',     medicineRoutes);
 app.use('/api/messages',      messageRoutes);
+app.use('/api/doctors',       doctorRoutes);
 
 // 404 handler
 app.use((req, res) => {
