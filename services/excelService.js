@@ -323,7 +323,14 @@ const detectColumnType = (columnData, colIdx, firstCellValue) => {
 };
 
 const parseExcel = (buffer) => {
-  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+  // Increase efficiency for large files
+  const workbook = XLSX.read(buffer, { 
+    type: 'buffer', 
+    cellDates: true,
+    cellStyles: false,  // Don't parse styles (saves memory)
+    cellFormula: false, // Don't parse formulas (saves memory)
+    sheetStubs: false   // Don't create stubs for empty cells
+  });
   
   const rubrics = [];
   const errors = [];
@@ -355,7 +362,11 @@ const parseExcel = (buffer) => {
     
     if (hasHeaders) {
       // Use first row as headers (default behavior)
-      rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+      rawRows = XLSX.utils.sheet_to_json(sheet, { 
+        defval: '', 
+        raw: false,
+        blankrows: false  // Skip blank rows to save memory
+      });
       headers = Object.keys(rawRows[0] || {});
       console.log(`✅ Sheet "${sheetName}": Headers detected -`, headers.slice(0, 5).join(', '));
     } else {
@@ -363,7 +374,12 @@ const parseExcel = (buffer) => {
       console.log(`⚠️  Sheet "${sheetName}": No headers detected. Using Kent Repertory standard column mapping.`);
       
       // Read without headers (header: 1 means use row index as keys)
-      rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false, header: 1 });
+      rawRows = XLSX.utils.sheet_to_json(sheet, { 
+        defval: '', 
+        raw: false, 
+        header: 1,
+        blankrows: false  // Skip blank rows
+      });
       
       // Smart Kent Repertory column mapping based on data analysis
       headers = generateKentHeaders(rawRows, firstRowData);
