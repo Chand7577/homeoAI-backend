@@ -188,6 +188,140 @@ const resolveFields = (row, headers, metaHeaders) => {
   };
 };
 
+/**
+ * Enhanced header detection - checks multiple indicators
+ */
+const detectHeaderRow = (firstRowData) => {
+  if (!firstRowData || firstRowData.length === 0) return false;
+  
+  let headerScore = 0;
+  const totalCells = firstRowData.filter(v => v && v.trim()).length;
+  
+  if (totalCells === 0) return false;
+  
+  firstRowData.forEach(val => {
+    if (!val) return;
+    const lower = val.toLowerCase().trim();
+    
+    // Strong header indicators
+    if (lower.includes('chapter')) headerScore += 3;
+    if (lower.includes('rubric')) headerScore += 3;
+    if (lower.includes('medicine') || lower.includes('remedy')) headerScore += 3;
+    if (lower.includes('sub-rubric') || lower.includes('subrubric')) headerScore += 2;
+    if (lower.includes('aggrav') || lower.includes('amelior')) headerScore += 2;
+    if (lower.includes('synonym') || lower.includes('grading')) headerScore += 2;
+    if (lower.includes('english') || lower.includes('hindi')) headerScore += 1;
+    
+    // Weak indicators (column labels)
+    if (/^[a-z]+$/i.test(lower) && lower.length < 3) headerScore += 0.5; // Like "A", "B"
+  });
+  
+  // If score is high enough relative to number of cells, it's likely a header row
+  return headerScore >= Math.min(totalCells * 0.8, 5);
+};
+
+/**
+ * Generate Kent Repertory standard headers based on data analysis
+ * Analyzes actual data to determine column types
+ */
+const generateKentHeaders = (dataRows, firstRowData) => {
+  const numCols = firstRowData.length;
+  const headers = [];
+  
+  // Sample first 20 rows for analysis
+  const sampleRows = dataRows.slice(0, Math.min(20, dataRows.length));
+  
+  for (let colIdx = 0; colIdx < numCols; colIdx++) {
+    const columnData = sampleRows.map(row => {
+      const keys = Object.keys(row);
+      return row[keys[colIdx]];
+    }).filter(v => v && String(v).trim());
+    
+    if (columnData.length === 0) {
+      headers.push(`Column_${String.fromCharCode(65 + colIdx)}`);
+      continue;
+    }
+    
+    // Analyze column content to determine its type
+    const headerName = detectColumnType(columnData, colIdx, firstRowData[colIdx]);
+    headers.push(headerName);
+  }
+  
+  return headers;
+};
+
+/**
+ * Detect column type by analyzing its content
+ */
+const detectColumnType = (columnData, colIdx, firstCellValue) => {
+  const sampleText = columnData.slice(0, 10).join(' ').toLowerCase();
+  const firstCell = String(firstCellValue || '').trim();
+  
+  // Check if all values are grades (1, 2, 3, or empty)
+  const allGrades = columnData.every(val => {
+    if (!val || String(val).trim() === '') return true;
+    const num = Number(val);
+    return !isNaN(num) && num >= 1 && num <= 4;
+  });
+  
+  // Check if values contain Hindi characters
+  const hasHindi = columnData.some(val => /[\u0900-\u097F]/.test(String(val)));
+  
+  // Position-based detection (Kent standard format)
+  if (colIdx === 0) {
+    // First column is usually Chapter
+    return firstCell ? 'Chapter' : 'Chapter';
+  }
+  
+  if (colIdx === 1) {
+    // Second column is usually Rubric (English)
+    return hasHindi ? 'Rubric (Hindi)' : 'Rubric (English)';
+  }
+  
+  if (colIdx === 2) {
+    // Third column could be Rubric Hindi or Sub-Rubric
+    if (hasHindi && !sampleText.includes('chapter')) {
+      return 'Rubric (Hindi)';
+    }
+    return 'Sub-Rubric';
+  }
+  
+  if (colIdx === 3) {
+    // Fourth column could be Sub-Rubric or Medicines
+    if (allGrades) {
+      return firstCell || 'Medicine_Column';
+    }
+    return 'Sub-Rubric';
+  }
+  
+  // For columns beyond index 3
+  if (allGrades) {
+    // If all values are grades, this is a medicine column
+    // Use first cell as medicine name if available
+    return firstCell || `Medicine_${colIdx}`;
+  }
+  
+  // Check if it looks like a medicine list (semicolon-separated)
+  const hasSemicolons = columnData.some(val => String(val).includes(';'));
+  if (hasSemicolons) {
+    return 'Medicines';
+  }
+  
+  // Check content patterns for metadata columns
+  if (sampleText.includes('aggrav') || sampleText.includes('worse')) {
+    return 'Aggravation';
+  }
+  if (sampleText.includes('amelior') || sampleText.includes('better')) {
+    return 'Amelioration';
+  }
+  if (sampleText.includes('synonym')) {
+    return 'Synonyms';
+  }
+  
+  // Default to generic column name
+  return `Column_${String.fromCharCode(65 + colIdx)}`;
+};
+
 const parseExcel = (buffer) => {
   const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
   
@@ -213,18 +347,8 @@ const parseExcel = (buffer) => {
       firstRowData.push(cell ? String(cell.v).trim() : '');
     }
     
-    // Detect if first row is a header row or data row
-    const hasHeaders = firstRowData.some(val => {
-      const lower = val.toLowerCase();
-      return lower.includes('chapter') || 
-             lower.includes('rubric') || 
-             lower.includes('medicine') ||
-             lower.includes('remedy') ||
-             lower.includes('sub') ||
-             lower.includes('aggrav') ||
-             lower.includes('amelior') ||
-             lower.includes('synonym');
-    });
+    // Enhanced header detection with multiple strategies
+    const hasHeaders = detectHeaderRow(firstRowData);
     
     let rawRows;
     let headers;
@@ -233,24 +357,17 @@ const parseExcel = (buffer) => {
       // Use first row as headers (default behavior)
       rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
       headers = Object.keys(rawRows[0] || {});
+      console.log(`✅ Sheet "${sheetName}": Headers detected -`, headers.slice(0, 5).join(', '));
     } else {
-      // No headers detected - generate generic column names
-      console.log(`⚠️  Sheet "${sheetName}": No headers detected. Using positional columns (A, B, C, D...).`);
+      // No headers detected - use smart column mapping for Kent Repertory
+      console.log(`⚠️  Sheet "${sheetName}": No headers detected. Using Kent Repertory standard column mapping.`);
       
       // Read without headers (header: 1 means use row index as keys)
       rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false, header: 1 });
       
-      // Generate column names based on position
-      // Assume: Col A = Chapter, Col B = Rubric, Col C = Subrubric, Rest = Medicines or metadata
-      headers = Object.keys(rawRows[0] || {}).map((key, idx) => {
-        if (idx === 0) return 'Chapter';
-        if (idx === 1) return 'Rubric';
-        if (idx === 2) return 'Sub-Rubric';
-        // Last column is medicine list
-        if (idx === Object.keys(rawRows[0]).length - 1) return 'Medicines';
-        // Other columns might be aggravation, amelioration, etc.
-        return `Column_${String.fromCharCode(65 + idx)}`; // Column_A, Column_B, etc.
-      });
+      // Smart Kent Repertory column mapping based on data analysis
+      headers = generateKentHeaders(rawRows, firstRowData);
+      console.log(`📋 Generated headers for "${sheetName}":`, headers.slice(0, 6).join(', '));
       
       // Remap rawRows to use our generated headers
       rawRows = rawRows.map(row => {
