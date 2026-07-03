@@ -28,7 +28,8 @@ const KNOWN_META_COLS = new Set([
   'chapter','rubric','section','sub rubric','sub-rubric',
   'chapter (english)','chapter (hindi)','rubric (english)','rubric (hindi)',
   'synonyms (en + hi)', 'aggravation (en + hi)', 'amelioration (en + hi)',
-  'sub-rubric (en + hi)', 'rubric (english – verb + action)', 'rubric (hindi – क्रिया आधारित)'
+  'sub-rubric (en + hi)', 'rubric (english – verb + action)', 'rubric (hindi – क्रिया आधारित)',
+  'hindi', 'rubric_hindi', 'subrubric_hindi', 'medicine', 'grade', 'grading'
 ]);
 
 const looksLikeGrade = (val) => {
@@ -96,6 +97,36 @@ const parseBilingualList = (rawStr) => {
   });
 
   return { en: enList, hi: hiList };
+};
+
+/**
+ * Check if this sheet uses row-based medicine format
+ * Format: MEDICINE | GRADE | CHAPTER | RUBRIC | SUBRUBRIC ...
+ */
+const isRowBasedMedicineFormat = (headers, rows) => {
+  if (headers.length < 3) return false;
+  
+  // Check if first column looks like medicine names and second column looks like grades
+  const firstColLower = String(headers[0]).toLowerCase();
+  const secondColLower = String(headers[1]).toLowerCase();
+  
+  if ((firstColLower.includes('medicine') || firstColLower.includes('remedy')) &&
+      (secondColLower.includes('grade') || secondColLower.includes('grading'))) {
+    // Sample first 10 rows to verify
+    const firstColSample = rows.slice(0, 10).map(r => r[headers[0]]).filter(Boolean);
+    const secondColSample = rows.slice(0, 10).map(r => r[headers[1]]).filter(Boolean);
+    
+    // First column should have text (medicine names)
+    const hasTextInFirst = firstColSample.some(v => String(v).length > 2 && isNaN(v));
+    // Second column should have grades (1, 2, 3)
+    const hasGradesInSecond = secondColSample.every(v => looksLikeGrade(v));
+    
+    if (hasTextInFirst && hasGradesInSecond) {
+      return true;
+    }
+  }
+  
+  return false;
 };
 
 /**
@@ -426,7 +457,94 @@ const parseExcel = async (buffer) => {
     totalRowsAcrossSheets += sheetRowCount;
     console.log(`📊 Sheet has ${sheetRowCount} rows`);
     
-    // headers already defined above based on header detection
+    // Check if this sheet uses row-based medicine format (MEDICINE | GRADE | CHAPTER | RUBRIC...)
+    const isRowBased = isRowBasedMedicineFormat(headers, rawRows);
+    
+    if (isRowBased) {
+      console.log(`✅ Sheet "${sheetName}": Detected ROW-BASED medicine format (Medicine | Grade columns)`);
+      detectedLayouts.add('row-based-medicines');
+      
+      // Process row-based format: each row is one medicine for one rubric
+      rawRows.forEach((row, idx) => {
+        const rowNum = idx + 2;
+        
+        // Extract medicine name and grade from first two columns
+        const medicineName = String(row[headers[0]] || '').trim();
+        const gradeValue = Number(row[headers[1]]);
+        
+        if (!medicineName || isNaN(gradeValue) || gradeValue < 1 || gradeValue > 3) {
+          return; // Skip invalid rows
+        }
+        
+        // Extract rubric information from remaining columns
+        const fields = resolveFields(row, headers, headers.slice(2));
+        
+        const cleanedSheetName = sheetName.trim();
+        const isGenericSheet = /^sheet\d+$/i.test(cleanedSheetName);
+        let sheetFallbackChapter = '';
+        if (!isGenericSheet) {
+          sheetFallbackChapter = cleanedSheetName;
+        }
+
+        const effectiveChapter = fields.chapterEn || lastChapter || sheetFallbackChapter;
+        if (fields.chapterEn) lastChapter = fields.chapterEn;
+
+        // Skip row if no chapter or rubric is present
+        if (!effectiveChapter && !fields.rubricEn) {
+          return;
+        }
+
+        // Create medicines object with single medicine
+        const medicines = {};
+        medicines[medicineName] = gradeValue;
+
+        const parts = [
+          effectiveChapter, fields.chapterHi,
+          fields.rubricEn, fields.rubricHi,
+          fields.subrubricEn, fields.subrubricHi,
+          ...(fields.synEn || []),
+          ...(fields.synHi || []),
+          ...(fields.aggEn || []),
+          ...(fields.amelEn || []),
+        ].filter(Boolean);
+
+        const searchText = parts.join(' ').toLowerCase();
+
+        // Check if we already have this rubric - if yes, add medicine to it
+        const existingRubric = rubrics.find(r =>
+          r.chapter.en === effectiveChapter &&
+          r.rubric.en === fields.rubricEn &&
+          r.subrubric.en === fields.subrubricEn
+        );
+
+        if (existingRubric) {
+          // Add medicine to existing rubric
+          existingRubric.medicines[medicineName] = gradeValue;
+        } else {
+          // Create new rubric entry
+          rubrics.push({
+            chapter:   { en: effectiveChapter, hi: fields.chapterHi },
+            rubric:    { en: fields.rubricEn || '(unnamed)', hi: fields.rubricHi },
+            subrubric: { en: fields.subrubricEn, hi: fields.subrubricHi },
+            modalities: {
+              aggravation:  fields.aggEn,
+              amelioration: fields.amelEn,
+            },
+            synonyms: {
+              en: fields.synEn,
+              hi: fields.synHi,
+            },
+            searchText,
+            medicines,
+          });
+        }
+      });
+      
+      console.log(`✅ Processed ${rawRows.length} medicine entries from row-based format`);
+      continue; // Skip to next sheet
+    }
+    
+    // Standard column-based format detection
     const { medicineHeaders, metaHeaders } = detectMedicineColumns(headers, rawRows);
 
     // Track distinct chapters in rawRows
