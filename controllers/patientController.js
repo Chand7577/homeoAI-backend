@@ -65,4 +65,65 @@ const deletePatient = async (req, res) => {
   res.json({ success: true, message: 'Patient deleted' });
 };
 
-module.exports = { getPatients, getPatient, createPatient, updatePatient, deletePatient };
+// GET /api/patients/stats - Get patient statistics
+const getPatientStats = async (req, res) => {
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+
+  const [
+    totalPatients,
+    patientsThisMonth,
+    patientsLastMonth,
+    recentPatients
+  ] = await Promise.all([
+    Patient.countDocuments(),
+    Patient.countDocuments({ createdAt: { $gte: startOfMonth } }),
+    Patient.countDocuments({ 
+      createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth } 
+    }),
+    Patient.find()
+      .select('name age gender contact symptoms createdAt')
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .lean()
+  ]);
+
+  // Calculate growth percentage
+  const growthPercentage = patientsLastMonth > 0 
+    ? Math.round(((patientsThisMonth - patientsLastMonth) / patientsLastMonth) * 100)
+    : 100;
+
+  // Format recent patients for frontend
+  const formattedRecentPatients = recentPatients.map(patient => ({
+    id: patient._id,
+    name: patient.name,
+    age: patient.age || 'N/A',
+    gender: patient.gender || 'Male',
+    genderHindi: patient.gender === 'Male' ? 'पुरुष' : patient.gender === 'Female' ? 'महिला' : 'अन्य',
+    contact: patient.contact || '',
+    symptoms: patient.symptoms || 'No symptoms recorded',
+    symptomsHindi: patient.symptoms || 'कोई लक्षण दर्ज नहीं',
+    lastVisit: new Date(patient.createdAt).toISOString().split('T')[0]
+  }));
+
+  res.json({
+    success: true,
+    data: {
+      totalPatients,
+      patientsThisMonth,
+      growthPercentage,
+      recentPatients: formattedRecentPatients
+    }
+  });
+};
+
+module.exports = { 
+  getPatients, 
+  getPatient, 
+  createPatient, 
+  updatePatient, 
+  deletePatient,
+  getPatientStats
+};
