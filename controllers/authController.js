@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const Message = require('../models/Message');
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 
 // Generate JWT token
 const generateToken = (userId) => {
@@ -399,10 +400,21 @@ const getChatContacts = async (req, res) => {
       const missingIds = allRooms.filter(id => id !== currentUserId.toString() && !patientIds.has(id));
       let extraContacts = [];
       if (missingIds.length > 0) {
-        extraContacts = await User.find({
-          _id: { $in: missingIds },
-          role: 'Patient'
-        }).select('-password');
+        // Filter out invalid ObjectIds to prevent CastError
+        const validObjectIds = missingIds.filter(id => {
+          try {
+            return mongoose.Types.ObjectId.isValid(id) && String(new mongoose.Types.ObjectId(id)) === id;
+          } catch {
+            return false;
+          }
+        });
+        
+        if (validObjectIds.length > 0) {
+          extraContacts = await User.find({
+            _id: { $in: validObjectIds },
+            role: 'Patient'
+          }).select('-password');
+        }
       }
 
       // Merge and deduplicate
