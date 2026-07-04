@@ -415,8 +415,12 @@ const getChatContacts = async (req, res) => {
     const contactsWithLastMsg = await Promise.all(contacts.map(async (contact) => {
       const roomId1 = [currentUserId.toString(), contact._id.toString()].sort().join('_');
       const lastMsg = await Message.findOne({ roomId: roomId1 }).sort({ createdAt: -1 }).select('text time createdAt attachmentName attachmentType');
+      
+      // Convert Mongoose document to plain object safely
+      const contactObj = contact.toObject ? contact.toObject() : contact;
+      
       return {
-        ...contact.toObject(),
+        ...contactObj,
         lastMessage: lastMsg ? (lastMsg.text || (lastMsg.attachmentName ? '📎 Attachment' : '')) : null,
         lastMessageTime: lastMsg ? lastMsg.createdAt : null
       };
@@ -438,6 +442,12 @@ const getChatContacts = async (req, res) => {
     });
   } catch (error) {
     console.error('Get chat contacts error:', error);
+    console.error('Error stack:', error.stack);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      currentUserId: req.user?.userId
+    });
     res.status(500).json({
       success: false,
       message: 'Failed to fetch chat contacts'
