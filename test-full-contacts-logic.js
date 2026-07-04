@@ -61,14 +61,26 @@ async function testFullContactsLogic() {
       if (missingIds.length > 0) {
         console.log('\nStep 3: Looking up missing IDs in User collection...');
         try {
-          extraContacts = await User.find({
-            _id: { $in: missingIds },
-            role: 'Patient'
-          }).select('-password');
-          console.log(`   Found ${extraContacts.length} additional contacts`);
+          // Filter out invalid ObjectIds to prevent CastError
+          const validObjectIds = missingIds.filter(id => {
+            try {
+              return mongoose.Types.ObjectId.isValid(id) && String(new mongoose.Types.ObjectId(id)) === id;
+            } catch {
+              return false;
+            }
+          });
+          
+          console.log(`   Filtered to ${validObjectIds.length} valid ObjectIds from ${missingIds.length} total`);
+          
+          if (validObjectIds.length > 0) {
+            extraContacts = await User.find({
+              _id: { $in: validObjectIds },
+              role: 'Patient'
+            }).select('-password');
+            console.log(`   Found ${extraContacts.length} additional contacts`);
+          }
         } catch (err) {
           console.error('   ❌ Error looking up missing IDs:', err.message);
-          console.error('   This might be because some IDs are not valid ObjectIds');
         }
       }
 

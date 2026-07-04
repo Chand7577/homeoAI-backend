@@ -43,7 +43,8 @@ const PrescriptionSchema = new mongoose.Schema({
 
   instructions: { type: String, default: '' },
 
-  // Doctor
+  // Doctor (who created this prescription)
+  doctorId:      { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   doctorName:    { type: String, default: 'Dr. Jp Nautiyal' },
   doctorClinic:  { type: String, default: 'Nautiyal Homeopathic Clinic' },
   doctorContact: { type: String, default: '' },
