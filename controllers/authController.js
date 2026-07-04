@@ -385,12 +385,12 @@ const getChatContacts = async (req, res) => {
 
       // 2. Also find patients who have chatted (by searching Message collection)
       //    in case a patient sent a message but isn't in the User list
-      const allRooms = await Message.find({
+      const allRooms = await Message.distinct('senderId', {
         $or: [
           { receiverId: currentUserId.toString() },
           { senderId: currentUserId.toString() }
         ]
-      }).distinct('senderId');
+      });
 
       // Collect IDs of patients already in our list
       const patientIds = new Set(patientUsers.map(u => u._id.toString()));
