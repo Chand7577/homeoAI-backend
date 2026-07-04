@@ -27,6 +27,7 @@ const io = new Server(server, {
 });
 
 const Message = require('./models/Message');
+const User = require('./models/User');
 
 // Socket.IO Connection Handler
 io.on('connection', (socket) => {
@@ -47,8 +48,21 @@ io.on('connection', (socket) => {
     try {
       // Immediately acknowledge to sender (optimistic UI)
       const tempId = `temp_${Date.now()}`;
+
+      // Look up sender's name for dynamic contact addition on receiver side
+      let senderName = data.senderName || '';
+      if (!senderName && data.senderId) {
+        try {
+          const senderUser = await User.findById(data.senderId).select('name');
+          if (senderUser) senderName = senderUser.name;
+        } catch (_) {
+          // Non-critical: if lookup fails, senderName stays empty
+        }
+      }
+
       const responseData = {
         ...data,
+        senderName,
         _id: tempId
       };
       

@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const Message = require('../models/Message');
 const jwt = require('jsonwebtoken');
 
 // Generate JWT token
@@ -368,24 +369,72 @@ const getChatContacts = async (req, res) => {
     let contacts = [];
 
     if (currentUser.role === 'Patient') {
-      // Patients see doctors (Admin, Core Team, External Doctor)
+      // Patients see all doctors (Admin, Core Team, External Doctor) — approved and active
       contacts = await User.find({
         role: { $in: ['Admin', 'Core Team', 'External Doctor'] },
         status: 'Approved',
         isActive: true
       }).select('-password').sort({ name: 1 });
     } else {
-      // Doctors and Admin see patients
-      contacts = await User.find({
+      // Doctors and Admin see patients:
+      // 1. All Patient users in the system (any status — if they can log in, they're approved)
+      const patientUsers = await User.find({
         role: 'Patient',
-        status: 'Approved',
         isActive: true
       }).select('-password').sort({ name: 1 });
+
+      // 2. Also find patients who have chatted (by searching Message collection)
+      //    in case a patient sent a message but isn't in the User list
+      const allRooms = await Message.find({
+        $or: [
+          { receiverId: currentUserId.toString() },
+          { senderId: currentUserId.toString() }
+        ]
+      }).distinct('senderId');
+
+      // Collect IDs of patients already in our list
+      const patientIds = new Set(patientUsers.map(u => u._id.toString()));
+
+      // Find any senders who are not already in our contacts
+      const missingIds = allRooms.filter(id => id !== currentUserId.toString() && !patientIds.has(id));
+      let extraContacts = [];
+      if (missingIds.length > 0) {
+        extraContacts = await User.find({
+          _id: { $in: missingIds },
+          role: 'Patient'
+        }).select('-password');
+      }
+
+      // Merge and deduplicate
+      const mergedMap = new Map();
+      [...patientUsers, ...extraContacts].forEach(u => mergedMap.set(u._id.toString(), u));
+      contacts = Array.from(mergedMap.values()).sort((a, b) => a.name.localeCompare(b.name));
     }
+
+    // Attach last message info for each contact
+    const contactsWithLastMsg = await Promise.all(contacts.map(async (contact) => {
+      const roomId1 = [currentUserId.toString(), contact._id.toString()].sort().join('_');
+      const lastMsg = await Message.findOne({ roomId: roomId1 }).sort({ createdAt: -1 }).select('text time createdAt attachmentName attachmentType');
+      return {
+        ...contact.toObject(),
+        lastMessage: lastMsg ? (lastMsg.text || (lastMsg.attachmentName ? '📎 Attachment' : '')) : null,
+        lastMessageTime: lastMsg ? lastMsg.createdAt : null
+      };
+    }));
+
+    // Sort by last message time (most recent first), then alphabetically
+    contactsWithLastMsg.sort((a, b) => {
+      if (a.lastMessageTime && b.lastMessageTime) {
+        return new Date(b.lastMessageTime) - new Date(a.lastMessageTime);
+      }
+      if (a.lastMessageTime) return -1;
+      if (b.lastMessageTime) return 1;
+      return a.name.localeCompare(b.name);
+    });
 
     res.json({
       success: true,
-      users: contacts
+      users: contactsWithLastMsg
     });
   } catch (error) {
     console.error('Get chat contacts error:', error);

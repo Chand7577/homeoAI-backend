@@ -34,7 +34,11 @@ const authenticate = async (req, res, next) => {
       });
     }
 
-    req.user = user;
+    req.user = {
+      userId: decoded.userId,          // keep JWT payload field for backwards compat
+      ...user.toObject(),              // merge full user doc (includes _id, role, etc.)
+      _id: user._id                    // ensure Mongoose ObjectId is available
+    };
     next();
   } catch (error) {
     if (error.name === 'JsonWebTokenError') {
