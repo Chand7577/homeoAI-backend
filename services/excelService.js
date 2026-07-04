@@ -476,8 +476,9 @@ const parseExcel = async (buffer) => {
           return; // Skip invalid rows
         }
         
-        // Extract rubric information from remaining columns
-        const fields = resolveFields(row, headers, headers.slice(2));
+        // For row-based format, skip first 2 columns (Medicine & Grade) and parse metadata from remaining columns
+        const metaHeaders = headers.slice(2);
+        const fields = resolveFields(row, headers, metaHeaders);
         
         const cleanedSheetName = sheetName.trim();
         const isGenericSheet = /^sheet\d+$/i.test(cleanedSheetName);
