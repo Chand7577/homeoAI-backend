@@ -9,6 +9,7 @@ const {
   approveUser,
   rejectUser,
   getAllUsers,
+  getChatContacts,
   deleteUser
 } = require('../controllers/authController');
 const { authenticate, requireAdmin } = require('../middleware/auth');
@@ -20,6 +21,7 @@ router.post('/logout', logout);
 
 // Protected routes (require authentication)
 router.get('/profile', authenticate, getProfile);
+router.get('/chat-contacts', authenticate, getChatContacts);
 
 // Admin only routes
 router.get('/pending', authenticate, requireAdmin, getPendingRegistrations);

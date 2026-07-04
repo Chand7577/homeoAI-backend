@@ -352,6 +352,50 @@ const getAllUsers = async (req, res) => {
   }
 };
 
+// Get chat contacts (any authenticated user)
+const getChatContacts = async (req, res) => {
+  try {
+    const currentUserId = req.user.userId;
+    const currentUser = await User.findById(currentUserId).select('role');
+    
+    if (!currentUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    let contacts = [];
+
+    if (currentUser.role === 'Patient') {
+      // Patients see doctors (Admin, Core Team, External Doctor)
+      contacts = await User.find({
+        role: { $in: ['Admin', 'Core Team', 'External Doctor'] },
+        status: 'Approved',
+        isActive: true
+      }).select('-password').sort({ name: 1 });
+    } else {
+      // Doctors and Admin see patients
+      contacts = await User.find({
+        role: 'Patient',
+        status: 'Approved',
+        isActive: true
+      }).select('-password').sort({ name: 1 });
+    }
+
+    res.json({
+      success: true,
+      users: contacts
+    });
+  } catch (error) {
+    console.error('Get chat contacts error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch chat contacts'
+    });
+  }
+};
+
 // Logout user (clear cookie)
 const logout = async (req, res) => {
   try {
@@ -420,5 +464,6 @@ module.exports = {
   approveUser,
   rejectUser,
   getAllUsers,
+  getChatContacts,
   deleteUser
 };
