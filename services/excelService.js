@@ -474,11 +474,11 @@ const parseExcel = async (buffer) => {
       headers = generateKentHeaders(rawRows, firstRowData);
       console.log(`📋 Generated headers for "${sheetName}":`, headers.slice(0, 6).join(', '));
       
-      // Remap rawRows to use our generated headers
+      // Remap rawRows to use our generated headers using actual array indices
       rawRows = rawRows.map(row => {
         const remapped = {};
-        Object.keys(row).forEach((oldKey, idx) => {
-          remapped[headers[idx]] = row[oldKey];
+        headers.forEach((header, idx) => {
+          remapped[header] = (row[idx] !== undefined && row[idx] !== null) ? row[idx] : '';
         });
         return remapped;
       });
@@ -500,6 +500,14 @@ const parseExcel = async (buffer) => {
       console.log(`✅ Sheet "${sheetName}": Detected ROW-BASED medicine format (Medicine Column: "${medicineHeader}", Grade Column: "${gradeHeader}")`);
       detectedLayouts.add('row-based-medicines');
       
+      // Context tracking for row-based merging
+      let lastChapter = '';
+      let lastChapterHi = '';
+      let lastRubric = '';
+      let lastRubricHi = '';
+      let lastSubrubric = '';
+      let lastSubrubricHi = '';
+
       // Process row-based format: each row is one medicine for one rubric
       rawRows.forEach((row, idx) => {
         const rowNum = idx + 2;
@@ -524,10 +532,46 @@ const parseExcel = async (buffer) => {
         }
 
         const effectiveChapter = fields.chapterEn || lastChapter || sheetFallbackChapter;
-        if (fields.chapterEn) lastChapter = fields.chapterEn;
+        const effectiveChapterHi = fields.chapterHi || lastChapterHi;
+        if (fields.chapterEn) {
+          lastChapter = fields.chapterEn;
+          lastChapterHi = fields.chapterHi || '';
+        }
+
+        const effectiveRubric = fields.rubricEn || lastRubric;
+        const effectiveRubricHi = fields.rubricHi || lastRubricHi;
+        if (fields.rubricEn) {
+          lastRubric = fields.rubricEn;
+          lastRubricHi = fields.rubricHi || '';
+        }
+
+        // Subrubric forward fill context
+        let effectiveSubrubric = fields.subrubricEn || '';
+        let effectiveSubrubricHi = fields.subrubricHi || '';
+
+        if (fields.rubricEn) {
+          // If a new main rubric starts, reset the subrubric context
+          lastSubrubric = fields.subrubricEn || '';
+          lastSubrubricHi = fields.subrubricHi || '';
+          effectiveSubrubric = lastSubrubric;
+          effectiveSubrubricHi = lastSubrubricHi;
+        } else {
+          // We are in the same main rubric
+          if (fields.subrubricEn) {
+            // A new subrubric starts under the same main rubric
+            lastSubrubric = fields.subrubricEn;
+            lastSubrubricHi = fields.subrubricHi || '';
+            effectiveSubrubric = lastSubrubric;
+            effectiveSubrubricHi = lastSubrubricHi;
+          } else {
+            // Continue the previous subrubric (if any)
+            effectiveSubrubric = lastSubrubric;
+            effectiveSubrubricHi = lastSubrubricHi;
+          }
+        }
 
         // Skip row if no chapter or rubric is present
-        if (!effectiveChapter && !fields.rubricEn) {
+        if (!effectiveChapter && !effectiveRubric) {
           return;
         }
 
@@ -536,9 +580,9 @@ const parseExcel = async (buffer) => {
         medicines[medicineName] = gradeValue;
 
         const parts = [
-          effectiveChapter, fields.chapterHi,
-          fields.rubricEn, fields.rubricHi,
-          fields.subrubricEn, fields.subrubricHi,
+          effectiveChapter, effectiveChapterHi,
+          effectiveRubric, effectiveRubricHi,
+          effectiveSubrubric, effectiveSubrubricHi,
           ...(fields.synEn || []),
           ...(fields.synHi || []),
           ...(fields.aggEn || []),
@@ -550,8 +594,8 @@ const parseExcel = async (buffer) => {
         // Check if we already have this rubric - if yes, add medicine to it
         const existingRubric = rubrics.find(r =>
           r.chapter.en === effectiveChapter &&
-          r.rubric.en === fields.rubricEn &&
-          r.subrubric.en === fields.subrubricEn
+          r.rubric.en === effectiveRubric &&
+          r.subrubric.en === effectiveSubrubric
         );
 
         if (existingRubric) {
@@ -560,9 +604,9 @@ const parseExcel = async (buffer) => {
         } else {
           // Create new rubric entry
           rubrics.push({
-            chapter:   { en: effectiveChapter, hi: fields.chapterHi },
-            rubric:    { en: fields.rubricEn || '(unnamed)', hi: fields.rubricHi },
-            subrubric: { en: fields.subrubricEn, hi: fields.subrubricHi },
+            chapter:   { en: effectiveChapter, hi: effectiveChapterHi },
+            rubric:    { en: effectiveRubric || '(unnamed)', hi: effectiveRubricHi },
+            subrubric: { en: effectiveSubrubric, hi: effectiveSubrubricHi },
             modalities: {
               aggravation:  fields.aggEn,
               amelioration: fields.amelEn,
