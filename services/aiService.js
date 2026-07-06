@@ -388,6 +388,8 @@ const runAnalysis = async ({ symptoms, repertoryId, repertoryName }) => {
     })
     .filter(Boolean);
 
+  
+
   // Compute medicine distribution
   const medicineDistribution = computeMedicineDistribution(matchedRubrics);
 

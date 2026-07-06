@@ -4,15 +4,21 @@ let genAI = null;
 let model = null;
 
 const initAI = () => {
-  if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'YOUR_GEMINI_API_KEY_HERE') {
+  if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'NEW_GEMINI_KEY_HERE') {
     console.warn('⚠️  GEMINI_API_KEY not set. AI analysis will use fallback keyword matching.');
     return false;
   }
   genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
-  model = genAI.getGenerativeModel({ model: modelName });
-  console.log(`✅ Gemini ${modelName} AI initialized`);
-  return true;
+  const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
+  try {
+    model = genAI.getGenerativeModel({ model: modelName });
+    console.log(`✅ Gemini ${modelName} AI initialized`);
+    return true;
+  } catch (error) {
+    console.error('❌ Failed to initialize Gemini:', error.message);
+    console.log('⚠️  Using fallback keyword matching for symptom analysis');
+    return false;
+  }
 };
 
 const getModel = () => model;

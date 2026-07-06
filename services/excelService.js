@@ -326,6 +326,16 @@ const generateKentHeaders = (dataRows, firstRowData) => {
 const detectColumnType = (columnData, colIdx, firstCellValue) => {
   const firstCell = String(firstCellValue || '').trim();
 
+  // Known chapter/section names that must never be classified as medicines
+  const CHAPTER_NAMES = new Set([
+    'mind', 'head', 'eye', 'eyes', 'ear', 'ears', 'nose', 'face', 'mouth', 'throat',
+    'stomach', 'abdomen', 'stool', 'urine', 'cough', 'fever', 'chill', 'sleep', 'skin',
+    'chest', 'back', 'extremities', 'extremity', 'rectum', 'bladder', 'kidney', 'liver',
+    'heart', 'lungs', 'generalities', 'clinical', 'emergency', 'modalities', 'food',
+    'vomiting', 'thirst', 'perspiration', 'respiration', 'chapter', 'mind', 'genitalia',
+    'female', 'male', 'larynx', 'trachea', 'expectoration', 'vision', 'hearing'
+  ]);
+
   // Check if ALL non-empty values are grades (1, 2, or 3)
   const allGrades = columnData.every(val => {
     if (!val || String(val).trim() === '') return true;
@@ -334,17 +344,25 @@ const detectColumnType = (columnData, colIdx, firstCellValue) => {
   });
 
   // Check if values look like medicine abbreviations:
-  // e.g. "acon", "bell", "lyc", "kali-c", "nat-m.", "fl-ac"
+  // e.g. "acon", "bell.", "lyc", "kali-c", "nat-m.", "fl-ac"
   const medAbbrevPattern = /^[a-z]{2,10}(-[a-z]{1,6})?[.]?$/i;
   const allMedAbbrev = columnData.every(val => {
     const s = String(val).trim();
-    return medAbbrevPattern.test(s) && isNaN(Number(s));
+    // Must match abbreviation pattern, must not be a pure number, must not be a chapter name
+    return medAbbrevPattern.test(s) && isNaN(Number(s)) && !CHAPTER_NAMES.has(s.toLowerCase());
   });
+
+  // A true medicine column has HIGH uniqueness — each row has a different medicine.
+  // A chapter/rubric column has LOW uniqueness — the same value repeats for many rows.
+  // If more than 70% of values are the same (low uniqueness), it's NOT a medicine column.
+  const uniqueValues = new Set(columnData.map(v => String(v).trim().toLowerCase()));
+  const uniquenessRatio = uniqueValues.size / columnData.length;
+  const isHighUniqueness = uniquenessRatio >= 0.3; // at least 30% unique values
 
   // Check if values contain Hindi characters
   const hasHindi = columnData.some(val => /[\u0900-\u097F]/.test(String(val)));
 
-  // Check if this column's data looks like English chapter/rubric text (long strings, mixed case)
+  // Check if this column has long text values (chapter/rubric descriptions)
   const sampleText = columnData.slice(0, 10).join(' ').toLowerCase();
   const hasLongText = columnData.some(v => String(v).trim().length > 15);
 
@@ -353,14 +371,13 @@ const detectColumnType = (columnData, colIdx, firstCellValue) => {
     return 'Grade';
   }
 
-  // ── Medicine abbreviation column ──
-  if (allMedAbbrev && columnData.length > 0) {
+  // ── Medicine abbreviation column: must also have high uniqueness ──
+  if (allMedAbbrev && isHighUniqueness && columnData.length > 0) {
     return 'Medicine';
   }
 
   // ── Hindi column ──
   if (hasHindi && !hasLongText) {
-    if (colIdx <= 1) return 'Rubric (Hindi)';
     return 'Rubric (Hindi)';
   }
 
@@ -376,6 +393,7 @@ const detectColumnType = (columnData, colIdx, firstCellValue) => {
 
   return `Column_${String.fromCharCode(65 + colIdx)}`;
 };
+
 
 const parseExcel = async (buffer) => {
   console.log(`📊 Starting Excel parsing. Buffer size: ${(buffer.length / 1024 / 1024).toFixed(2)} MB`);
