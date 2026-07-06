@@ -49,7 +49,7 @@ RubricSchema.pre('save', function(next) {
     ...(this.modalities?.amelioration || []),
   ].filter(Boolean);
   this.searchText = parts.join(' ').toLowerCase();
-  next();
+  if (typeof next === 'function') next();
 });
 
 RubricSchema.index({ repertoryId: 1, 'chapter.en': 1, 'rubric.en': 1 });

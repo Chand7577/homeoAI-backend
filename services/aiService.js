@@ -45,6 +45,9 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
     const specificTerms = allTerms.filter(t => !chapterStopWords.has(t));
     const activeTerms = specificTerms.length > 0 ? specificTerms : allTerms;
 
+    // Keep track of candidates added for THIS specific symptom
+    const symptomCandidates = new Map();
+
     // Stage 1: Find rubrics matching ALL active terms (intersection)
     const andQuery = {
       repertoryId,
@@ -54,14 +57,14 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
     try {
       const matches = await Rubric.find(andQuery).limit(40).lean();
       matches.forEach(m => {
-        candidateMap.set(m._id.toString(), m);
+        symptomCandidates.set(m._id.toString(), m);
       });
     } catch (e) {
       console.error('AND query failed, fallback to OR:', e.message);
     }
 
-    // Stage 2: If we have fewer than 30 candidates, pull in rubrics matching ANY active term (union)
-    if (candidateMap.size < 30) {
+    // Stage 2: If we have fewer than 30 candidates for this specific symptom, pull in rubrics matching ANY active term (union)
+    if (symptomCandidates.size < 30) {
       const orQuery = {
         repertoryId,
         $or: activeTerms.map(t => ({ searchText: new RegExp(t, 'i') }))
@@ -69,14 +72,19 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
       try {
         const orMatches = await Rubric.find(orQuery).limit(50).lean();
         orMatches.forEach(m => {
-          if (candidateMap.size < 60) {
-            candidateMap.set(m._id.toString(), m);
+          if (symptomCandidates.size < 60) {
+            symptomCandidates.set(m._id.toString(), m);
           }
         });
       } catch (e) {
         console.error('OR query failed:', e.message);
       }
     }
+
+    // Merge this symptom's candidates into the global candidate map
+    symptomCandidates.forEach((m, id) => {
+      candidateMap.set(id, m);
+    });
   }
 
   // Fallback: If no candidate matched, get first 150 rubrics so AI has options
@@ -193,6 +201,75 @@ const computeMedicineDistribution = (matchedRubrics) => {
     .sort((a, b) => b.totalScore - a.totalScore || b.rubricsCount - a.rubricsCount)
     .map((m, idx) => ({ ...m, rank: idx + 1 }));
 };
+/**
+ * Merges duplicate rubrics that share the same Chapter, Rubric, and Subrubric path.
+ * Combines their medicines (taking the maximum grade) and modalities/synonyms.
+ */
+const mergeDuplicateRubrics = (rubrics) => {
+  const mergedMap = new Map();
+
+  rubrics.forEach(r => {
+    const chapter = r.chapter?.en || '';
+    const rubric = r.rubric?.en || '';
+    const subrubric = r.subrubric?.en || '';
+    const key = `${chapter}::${rubric}::${subrubric}`.toLowerCase().trim();
+
+    if (!mergedMap.has(key)) {
+      // Clone the rubric object so we don't mutate DB instances or other references
+      const clone = {
+        _id: r._id,
+        chapter: { ...r.chapter },
+        rubric: { ...r.rubric },
+        subrubric: { ...r.subrubric },
+        modalities: {
+          aggravation: [...(r.modalities?.aggravation || [])],
+          amelioration: [...(r.modalities?.amelioration || [])]
+        },
+        synonyms: {
+          en: [...(r.synonyms?.en || [])],
+          hi: [...(r.synonyms?.hi || [])]
+        },
+        searchText: r.searchText || '',
+        // Make medicines a normal plain JS object
+        medicines: r.medicines instanceof Map 
+          ? Object.fromEntries(r.medicines) 
+          : { ...(r.medicines || {}) }
+      };
+      mergedMap.set(key, clone);
+    } else {
+      const existing = mergedMap.get(key);
+
+      // Merge medicines (taking the maximum grade)
+      const meds = r.medicines instanceof Map 
+        ? Object.fromEntries(r.medicines) 
+        : (r.medicines || {});
+      
+      Object.entries(meds).forEach(([medName, grade]) => {
+        existing.medicines[medName] = Math.max(existing.medicines[medName] || 0, grade);
+      });
+
+      // Merge modalities
+      const aggSet = new Set(existing.modalities.aggravation);
+      (r.modalities?.aggravation || []).forEach(x => aggSet.add(x));
+      existing.modalities.aggravation = Array.from(aggSet);
+
+      const amelSet = new Set(existing.modalities.amelioration);
+      (r.modalities?.amelioration || []).forEach(x => amelSet.add(x));
+      existing.modalities.amelioration = Array.from(amelSet);
+
+      // Merge synonyms
+      const synEnSet = new Set(existing.synonyms.en);
+      (r.synonyms?.en || []).forEach(x => synEnSet.add(x));
+      existing.synonyms.en = Array.from(synEnSet);
+
+      const synHiSet = new Set(existing.synonyms.hi);
+      (r.synonyms?.hi || []).forEach(x => synHiSet.add(x));
+      existing.synonyms.hi = Array.from(synHiSet);
+    }
+  });
+
+  return Array.from(mergedMap.values());
+};
 
 /**
  * Main analysis function — orchestrates AI matching + medicine distribution.
@@ -206,6 +283,7 @@ const runAnalysis = async ({ symptoms, repertoryId, repertoryName }) => {
     try {
       // 1. Get filtered candidate rubrics for fast semantic processing
       rubrics = await getCandidateRubrics(symptoms, repertoryId);
+      rubrics = mergeDuplicateRubrics(rubrics);
       
       if (rubrics.length > 0) {
         aiMatches = await matchWithAI(symptoms, rubrics, repertoryName);
@@ -213,15 +291,18 @@ const runAnalysis = async ({ symptoms, repertoryId, repertoryName }) => {
       } else {
         // Fallback if no matching candidates exist
         rubrics = await Rubric.find({ repertoryId }).limit(300).lean();
+        rubrics = mergeDuplicateRubrics(rubrics);
         aiMatches = matchWithKeywords(symptoms, rubrics);
       }
     } catch (err) {
       console.error('Gemini AI error, falling back to keyword logic:', err.message);
       rubrics = await Rubric.find({ repertoryId }).lean();
+      rubrics = mergeDuplicateRubrics(rubrics);
       aiMatches = matchWithKeywords(symptoms, rubrics);
     }
   } else {
     rubrics = await Rubric.find({ repertoryId }).lean();
+    rubrics = mergeDuplicateRubrics(rubrics);
     aiMatches = matchWithKeywords(symptoms, rubrics);
   }
 
