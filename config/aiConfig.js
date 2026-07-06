@@ -13,17 +13,16 @@ const initAI = () => {
   
   genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
   
-  // Try models with 'models/' prefix for v1beta API compatibility
+  // v1beta API only supports these older models
   const modelNames = [
     process.env.GEMINI_MODEL,
-    'models/gemini-1.5-flash',
-    'models/gemini-1.5-pro',
-    'models/gemini-pro',
-    'gemini-1.5-flash',
-    'gemini-1.5-pro',
-    'gemini-pro',
+    'gemini-pro',              // v1beta stable model
+    'gemini-1.0-pro',
+    'gemini-1.0-pro-001',
     'gemini-1.0-pro-latest',
-    'gemini-1.0-pro'
+    'text-bison-001',
+    'models/gemini-pro',       // Try with models/ prefix
+    'models/gemini-1.0-pro'
   ].filter(Boolean);
   
   for (const modelName of modelNames) {
@@ -37,8 +36,10 @@ const initAI = () => {
   }
   
   console.error('❌ Failed to initialize any Gemini model');
+  console.log('⚠️  Your API key appears to be for v1beta API');
+  console.log('💡 Generate a NEW API key at: https://aistudio.google.com/app/apikey');
+  console.log('💡 Ensure "Generative Language API" is enabled');
   console.log('⚠️  Using fallback keyword matching for symptom analysis');
-  console.log('💡 Verify your GEMINI_API_KEY at: https://aistudio.google.com/app/apikey');
   return false;
 };
 
