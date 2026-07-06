@@ -1,6 +1,92 @@
 const { getModel, isAIReady } = require('../config/aiConfig');
 const Rubric = require('../models/Rubric');
 
+// Enhanced Hindi to English medical term mapping
+const HINDI_TO_ENGLISH = {
+  // Body parts
+  'सिर': ['head', 'cephalalgia'],
+  'माथा': ['forehead', 'front head'],
+  'आंख': ['eye', 'eyes', 'vision'],
+  'आँख': ['eye', 'eyes', 'vision'],
+  'कान': ['ear', 'ears', 'hearing'],
+  'नाक': ['nose', 'nasal'],
+  'मुंह': ['mouth', 'oral'],
+  'गला': ['throat', 'pharynx'],
+  'छाती': ['chest', 'thorax'],
+  'पेट': ['abdomen', 'stomach', 'belly'],
+  'उदर': ['abdomen', 'belly'],
+  'जांघ': ['thigh', 'femur', 'hip'],
+  'घुटना': ['knee'],
+  'पैर': ['foot', 'feet', 'leg'],
+  'हाथ': ['hand', 'arm'],
+  'उंगली': ['finger', 'digit'],
+  'त्वचा': ['skin', 'cutaneous'],
+  'बाल': ['hair'],
+  
+  // Symptoms
+  'दर्द': ['pain', 'ache', 'aching'],
+  'सिरदर्द': ['headache', 'cephalalgia'],
+  'बुखार': ['fever', 'pyrexia', 'febris'],
+  'खांसी': ['cough', 'tussis'],
+  'जुकाम': ['cold', 'coryza'],
+  'उल्टी': ['vomiting', 'emesis', 'nausea'],
+  'दस्त': ['diarrhea', 'loose stool', 'dysentery'],
+  'कब्ज': ['constipation', 'obstipation'],
+  'चक्कर': ['dizziness', 'vertigo', 'giddiness'],
+  'कमजोरी': ['weakness', 'debility', 'prostration'],
+  'थकान': ['fatigue', 'tiredness', 'exhaustion'],
+  'फोड़ा': ['boil', 'abscess', 'furuncle', 'pustule'],
+  'सूजन': ['swelling', 'inflammation', 'edema'],
+  'खुजली': ['itching', 'pruritus'],
+  'जलन': ['burning', 'smarting'],
+  
+  // Mental symptoms
+  'क्रोध': ['anger', 'irritability', 'rage'],
+  'चिंता': ['anxiety', 'worry', 'apprehension'],
+  'भय': ['fear', 'fright', 'afraid'],
+  'उदास': ['sad', 'sadness', 'melancholy', 'depression'],
+  'चिड़चिड़ा': ['irritable', 'irritability', 'peevish'],
+  'कामुक': ['sexual', 'lascivious', 'amorous', 'lustful'],
+  'कामेच्छा': ['sexual desire', 'libido', 'erotic', 'lascivious'],
+  'नींद': ['sleep', 'sleepiness', 'somnolence'],
+  
+  // Modalities
+  'बढ़ना': ['worse', 'aggravation', 'increased'],
+  'घटना': ['better', 'amelioration', 'decreased'],
+  'ठंडा': ['cold', 'chilly'],
+  'गर्म': ['hot', 'warm', 'heat'],
+  'रात': ['night', 'evening'],
+  'सुबह': ['morning'],
+  'दोपहर': ['noon', 'afternoon'],
+  
+  // Locations
+  'जोड़': ['joint', 'articulation'],
+  'हड्डी': ['bone', 'osseous'],
+  'मांसपेशी': ['muscle', 'muscular'],
+  'नस': ['nerve', 'nervous'],
+  
+  // Qualities
+  'तेज': ['sharp', 'acute', 'severe'],
+  'हल्का': ['mild', 'slight'],
+  'अधिक': ['increased', 'excessive', 'more'],
+  'कम': ['less', 'decreased', 'reduced']
+};
+
+/**
+ * Translate Hindi words to English search terms
+ */
+const translateHindiTerms = (text) => {
+  const englishTerms = new Set();
+  
+  Object.entries(HINDI_TO_ENGLISH).forEach(([hindiWord, englishWords]) => {
+    if (text.includes(hindiWord)) {
+      englishWords.forEach(ew => englishTerms.add(ew));
+    }
+  });
+  
+  return Array.from(englishTerms);
+};
+
 /**
  * Build a compact rubric summary for the AI prompt.
  * Avoids sending entire DB docs to keep token count low.
@@ -21,20 +107,19 @@ const buildRubricSummary = (rubrics) => {
 };
 
 /**
- * Translates a Devanagari/Hindi symptom to English using Gemini AI.
+ * Translates a Devanagari/Hindi symptom to English using Gemini.
  */
 const translateSymptomToEnglish = async (symptom) => {
   if (!isAIReady()) return '';
   try {
     const model = getModel();
-    const prompt = `Translate the following homeopathic/medical symptom from Hindi (or bilingual Hindi/English) to standard medical English. 
-Return ONLY the English translation, no other text or explanation.
+    const prompt = `You are a medical translator. Translate homeopathic symptoms from Hindi to English. Return ONLY the English translation, no explanation.
 
-Symptom: "${symptom}"
-English Translation:`;
-    
+Translate this homeopathic symptom to English: "${symptom}"`;
+
     const result = await model.generateContent(prompt);
-    return result.response.text().trim().toLowerCase();
+    const text = result.response.text();
+    return text.trim().toLowerCase();
   } catch (err) {
     console.error('Symptom translation failed:', err.message);
     return '';
@@ -156,48 +241,55 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
 };
 
 /**
- * Call Gemini 1.5 Flash to match symptoms → rubrics.
+ * Call Gemini to match symptoms → rubrics.
  * Returns array of matched rubric objects.
  */
 const matchWithAI = async (symptoms, rubrics, repertoryName) => {
   const model = getModel();
   const rubricSummaries = buildRubricSummary(rubrics);
 
-  const prompt = `
-You are an expert homeopathic physician and repertory specialist.
-I will provide you with a patient's symptoms and a list of rubric records from "${repertoryName}".
+  const prompt = `You are an expert homeopathic physician and repertory specialist.
+Match patient symptoms to the most relevant rubrics from "${repertoryName}".
 
-Your job is to match each patient symptom to the MOST RELEVANT rubric in the list.
+Consider: chapter, rubric name, subrubric, synonyms, aggravation, and amelioration.
+Be clinically precise.
 
 PATIENT SYMPTOMS:
 ${symptoms.map((s, i) => `${i + 1}. ${s}`).join('\n')}
 
-AVAILABLE RUBRICS (JSON):
+AVAILABLE RUBRICS:
 ${JSON.stringify(rubricSummaries, null, 2)}
 
-INSTRUCTIONS:
-- For each patient symptom, find the single best matching rubric from the list above.
-- Consider chapter, rubric name, subrubric, synonyms, aggravation, and amelioration.
-- If no good match exists, set "matched_rubric_id" to null.
-- Be clinically precise. "irritable" should map to "Anger" rubrics, "worse cold" to aggravation cold, etc.
-
-Return ONLY a valid JSON array with this exact structure (no other text):
+Return ONLY a valid JSON array with this structure:
 [
   {
     "symptom": "exact patient symptom text",
     "matched_rubric_id": "rubric_id or null",
     "confidence": 0-100,
-    "reasoning": "brief clinical reason for the match in 1 sentence"
+    "reasoning": "brief clinical reason"
   }
-]
-`;
+]`;
 
-  const result = await model.generateContent(prompt);
-  const text = result.response.text().trim();
+  const result = await model.generateContent({
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    generationConfig: {
+      temperature: 0.3,
+      responseMimeType: "application/json"
+    }
+  });
 
-  // Extract JSON from response (handle markdown code blocks)
-  const jsonMatch = text.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) throw new Error('AI returned invalid JSON format');
+  const responseText = result.response.text();
+  
+  // Extract JSON from response
+  const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) {
+    // If response_format JSON gave us an object, try to extract array
+    const parsed = JSON.parse(responseText);
+    if (parsed.matches || parsed.results) {
+      return parsed.matches || parsed.results;
+    }
+    throw new Error('AI returned invalid JSON format');
+  }
 
   return JSON.parse(jsonMatch[0]);
 };
