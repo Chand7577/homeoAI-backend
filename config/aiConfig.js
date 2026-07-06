@@ -8,18 +8,31 @@ const initAI = () => {
     console.warn('⚠️  GEMINI_API_KEY not set. AI analysis will use fallback keyword matching.');
     return false;
   }
+  
   genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  // Use gemini-pro (stable model) or gemini-1.5-flash-latest
-  const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-flash-latest';
-  try {
-    model = genAI.getGenerativeModel({ model: modelName });
-    console.log(`✅ Gemini ${modelName} AI initialized`);
-    return true;
-  } catch (error) {
-    console.error('❌ Failed to initialize Gemini:', error.message);
-    console.log('⚠️  Using fallback keyword matching for symptom analysis');
-    return false;
+  
+  // Try multiple model names in order of preference
+  const modelNames = [
+    process.env.GEMINI_MODEL,
+    'gemini-1.5-flash-latest',
+    'gemini-1.5-flash',
+    'gemini-pro',
+    'gemini-1.0-pro'
+  ].filter(Boolean);
+  
+  for (const modelName of modelNames) {
+    try {
+      model = genAI.getGenerativeModel({ model: modelName });
+      console.log(`✅ Gemini ${modelName} AI initialized`);
+      return true;
+    } catch (error) {
+      console.warn(`⚠️  Model ${modelName} not available: ${error.message}`);
+    }
   }
+  
+  console.error('❌ Failed to initialize any Gemini model');
+  console.log('⚠️  Using fallback keyword matching for symptom analysis');
+  return false;
 };
 
 const getModel = () => model;
