@@ -21,63 +21,116 @@ const buildRubricSummary = (rubrics) => {
 };
 
 /**
+ * Translates a Devanagari/Hindi symptom to English using Gemini AI.
+ */
+const translateSymptomToEnglish = async (symptom) => {
+  if (!isAIReady()) return '';
+  try {
+    const model = getModel();
+    const prompt = `Translate the following homeopathic/medical symptom from Hindi (or bilingual Hindi/English) to standard medical English. 
+Return ONLY the English translation, no other text or explanation.
+
+Symptom: "${symptom}"
+English Translation:`;
+    
+    const result = await model.generateContent(prompt);
+    return result.response.text().trim().toLowerCase();
+  } catch (err) {
+    console.error('Symptom translation failed:', err.message);
+    return '';
+  }
+};
+
+/**
  * Pre-filter rubrics from MongoDB based on keywords in symptoms.
  * Keeps prompt size small, ensuring lightning-fast Gemini execution.
  */
 const getCandidateRubrics = async (symptoms, repertoryId) => {
   const candidateMap = new Map();
-  const stopWords = new Set(['and', 'the', 'for', 'with', 'worse', 'better', 'from', 'after', 'before', 'without', 'about', 'feels']);
+  const stopWords = new Set([
+    'and', 'the', 'for', 'with', 'worse', 'better', 'from', 'after', 'before', 'without', 'about', 'feels',
+    'में', 'से', 'का', 'की', 'के', 'को', 'पर', 'है', 'हैं', 'हो', 'होता', 'होती', 'और', 'तथा', 'ने', 'भी', 'ही', 'तो', 'कर', 'करने', 'किया'
+  ]);
   const chapterStopWords = new Set(['mind', 'head', 'eye', 'eyes', 'ear', 'ears', 'nose', 'face', 'mouth', 'throat', 'stomach', 'abdomen', 'stool', 'urine', 'cough', 'fever', 'chill', 'sleep', 'skin', 'chest', 'back', 'extremities']);
+
+  const extractSearchTerms = (text) => {
+    return text.toLowerCase()
+      .replace(/[^\w\s\u0900-\u097F]/g, ' ')
+      .split(/\s+/)
+      .map(w => w.trim())
+      .filter(w => w.length > 1 && !stopWords.has(w));
+  };
 
   for (const symptom of symptoms) {
     if (!symptom.trim()) continue;
 
     // Clean punctuation and split into terms (supporting English and Hindi/Devenagari characters)
-    const allTerms = symptom.toLowerCase()
-      .replace(/[^\w\s\u0900-\u097F]/g, ' ')
-      .split(/\s+/)
-      .map(w => w.trim())
-      .filter(w => w.length > 2 && !stopWords.has(w));
-
-    if (allTerms.length === 0) continue;
+    const originalTerms = extractSearchTerms(symptom);
+    if (originalTerms.length === 0) continue;
 
     // Separate specific words from generic chapter names
-    const specificTerms = allTerms.filter(t => !chapterStopWords.has(t));
-    const activeTerms = specificTerms.length > 0 ? specificTerms : allTerms;
+    const specificTerms = originalTerms.filter(t => !chapterStopWords.has(t));
+    const activeTerms = specificTerms.length > 0 ? specificTerms : originalTerms;
 
     // Keep track of candidates added for THIS specific symptom
     const symptomCandidates = new Map();
 
-    // Stage 1: Find rubrics matching ALL active terms (intersection)
-    const andQuery = {
-      repertoryId,
-      $and: activeTerms.map(t => ({ searchText: new RegExp(t, 'i') }))
-    };
+    // Query runner helper
+    const findCandidatesForTerms = async (terms) => {
+      if (!terms || terms.length === 0) return;
 
-    try {
-      const matches = await Rubric.find(andQuery).limit(40).lean();
-      matches.forEach(m => {
-        symptomCandidates.set(m._id.toString(), m);
-      });
-    } catch (e) {
-      console.error('AND query failed, fallback to OR:', e.message);
-    }
-
-    // Stage 2: If we have fewer than 30 candidates for this specific symptom, pull in rubrics matching ANY active term (union)
-    if (symptomCandidates.size < 30) {
-      const orQuery = {
+      // Stage 1: Find rubrics matching ALL active terms (intersection)
+      const andQuery = {
         repertoryId,
-        $or: activeTerms.map(t => ({ searchText: new RegExp(t, 'i') }))
+        $and: terms.map(t => ({ searchText: new RegExp(t, 'i') }))
       };
+
       try {
-        const orMatches = await Rubric.find(orQuery).limit(50).lean();
-        orMatches.forEach(m => {
-          if (symptomCandidates.size < 60) {
-            symptomCandidates.set(m._id.toString(), m);
-          }
+        const matches = await Rubric.find(andQuery).limit(40).lean();
+        matches.forEach(m => {
+          symptomCandidates.set(m._id.toString(), m);
         });
       } catch (e) {
-        console.error('OR query failed:', e.message);
+        console.error('AND query failed, fallback to OR:', e.message);
+      }
+
+      // Stage 2: If we have fewer than 30 candidates for this specific symptom, pull in rubrics matching ANY active term (union)
+      if (symptomCandidates.size < 30) {
+        const orQuery = {
+          repertoryId,
+          $or: terms.map(t => ({ searchText: new RegExp(t, 'i') }))
+        };
+        try {
+          const orMatches = await Rubric.find(orQuery).limit(50).lean();
+          orMatches.forEach(m => {
+            if (symptomCandidates.size < 60) {
+              symptomCandidates.set(m._id.toString(), m);
+            }
+          });
+        } catch (e) {
+          console.error('OR query failed:', e.message);
+        }
+      }
+    };
+
+    // 1. Search database using the original terms
+    await findCandidatesForTerms(activeTerms);
+
+    // 2. If the query contains Devanagari/Hindi characters and AI is ready, translate to English to search English metadata
+    if (/[\u0900-\u097F]/.test(symptom) && isAIReady()) {
+      try {
+        const translation = await translateSymptomToEnglish(symptom);
+        if (translation) {
+          const translatedTerms = extractSearchTerms(translation);
+          const specificTranslated = translatedTerms.filter(t => !chapterStopWords.has(t));
+          const activeTranslated = specificTranslated.length > 0 ? specificTranslated : translatedTerms;
+          
+          if (activeTranslated.length > 0) {
+            await findCandidatesForTerms(activeTranslated);
+          }
+        }
+      } catch (err) {
+        console.error('Symptom translation search failed:', err.message);
       }
     }
 
@@ -89,10 +142,14 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
 
   // Fallback: If no candidate matched, get first 150 rubrics so AI has options
   if (candidateMap.size === 0) {
-    const fallback = await Rubric.find({ repertoryId }).limit(150).lean();
-    fallback.forEach(m => {
-      candidateMap.set(m._id.toString(), m);
-    });
+    try {
+      const fallback = await Rubric.find({ repertoryId }).limit(150).lean();
+      fallback.forEach(m => {
+        candidateMap.set(m._id.toString(), m);
+      });
+    } catch (e) {
+      console.error('Fallback query failed:', e.message);
+    }
   }
 
   return Array.from(candidateMap.values());
