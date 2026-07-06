@@ -11,12 +11,11 @@ const initAI = () => {
   
   genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
   
-  // Try multiple model names in order of preference
+  // Use the correct v1 API model names (not v1beta)
   const modelNames = [
     process.env.GEMINI_MODEL,
-    'gemini-1.5-flash-latest',
-    'gemini-1.5-flash',
-    'gemini-pro',
+    'gemini-pro',           // Stable v1 model
+    'gemini-1.0-pro-latest',
     'gemini-1.0-pro'
   ].filter(Boolean);
   
