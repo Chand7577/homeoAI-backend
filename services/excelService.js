@@ -109,6 +109,11 @@ const detectRowBasedColumns = (headers, rows) => {
   let medicineHeader = null;
   let gradeHeader = null;
 
+  // ── Fast path: our content-aware generateKentHeaders already tagged these ──
+  if (headers.includes('Medicine') && headers.includes('Grade')) {
+    return { medicineHeader: 'Medicine', gradeHeader: 'Grade' };
+  }
+
   // List of common homeopathic medicine abbreviations to check against
   const commonMeds = new Set([
     'acon', 'bell', 'bry', 'calc', 'chin', 'hep', 'hyos', 'ign', 'kali-c', 'lach',
@@ -287,104 +292,88 @@ const detectHeaderRow = (firstRowData) => {
 };
 
 /**
- * Generate Kent Repertory standard headers based on data analysis
- * Analyzes actual data to determine column types
+ * Generate Kent Repertory standard headers based on data analysis.
+ * Uses positional index to avoid sparse-array shifting.
  */
 const generateKentHeaders = (dataRows, firstRowData) => {
   const numCols = firstRowData.length;
   const headers = [];
-  
-  // Sample first 20 rows for analysis
-  const sampleRows = dataRows.slice(0, Math.min(20, dataRows.length));
-  
+
+  // Sample first 30 rows for analysis
+  const sampleRows = dataRows.slice(0, Math.min(30, dataRows.length));
+
   for (let colIdx = 0; colIdx < numCols; colIdx++) {
-    const columnData = sampleRows.map(row => {
-      const keys = Object.keys(row);
-      return row[keys[colIdx]];
-    }).filter(v => v && String(v).trim());
-    
+    // Use positional index — NOT Object.keys — to avoid sparse shifting
+    const columnData = sampleRows
+      .map(row => row[colIdx])
+      .filter(v => v !== undefined && v !== null && String(v).trim() !== '');
+
     if (columnData.length === 0) {
       headers.push(`Column_${String.fromCharCode(65 + colIdx)}`);
       continue;
     }
-    
-    // Analyze column content to determine its type
+
     const headerName = detectColumnType(columnData, colIdx, firstRowData[colIdx]);
     headers.push(headerName);
   }
-  
+
   return headers;
 };
 
 /**
- * Detect column type by analyzing its content
+ * Detect column type by analyzing its content.
  */
 const detectColumnType = (columnData, colIdx, firstCellValue) => {
-  const sampleText = columnData.slice(0, 10).join(' ').toLowerCase();
   const firstCell = String(firstCellValue || '').trim();
-  
-  // Check if all values are grades (1, 2, 3, or empty)
+
+  // Check if ALL non-empty values are grades (1, 2, or 3)
   const allGrades = columnData.every(val => {
     if (!val || String(val).trim() === '') return true;
     const num = Number(val);
-    return !isNaN(num) && num >= 1 && num <= 4;
+    return !isNaN(num) && num >= 1 && num <= 3;
   });
-  
+
+  // Check if values look like medicine abbreviations:
+  // e.g. "acon", "bell", "lyc", "kali-c", "nat-m.", "fl-ac"
+  const medAbbrevPattern = /^[a-z]{2,10}(-[a-z]{1,6})?[.]?$/i;
+  const allMedAbbrev = columnData.every(val => {
+    const s = String(val).trim();
+    return medAbbrevPattern.test(s) && isNaN(Number(s));
+  });
+
   // Check if values contain Hindi characters
   const hasHindi = columnData.some(val => /[\u0900-\u097F]/.test(String(val)));
-  
-  // Position-based detection (Kent standard format)
-  if (colIdx === 0) {
-    // First column is usually Chapter
-    return firstCell ? 'Chapter' : 'Chapter';
+
+  // Check if this column's data looks like English chapter/rubric text (long strings, mixed case)
+  const sampleText = columnData.slice(0, 10).join(' ').toLowerCase();
+  const hasLongText = columnData.some(v => String(v).trim().length > 15);
+
+  // ── Grade column: all values are 1, 2, or 3 ──
+  if (allGrades && columnData.length > 0) {
+    return 'Grade';
   }
-  
-  if (colIdx === 1) {
-    // Second column is usually Rubric (English)
-    return hasHindi ? 'Rubric (Hindi)' : 'Rubric (English)';
+
+  // ── Medicine abbreviation column ──
+  if (allMedAbbrev && columnData.length > 0) {
+    return 'Medicine';
   }
-  
-  if (colIdx === 2) {
-    // Third column could be Rubric Hindi or Sub-Rubric
-    if (hasHindi && !sampleText.includes('chapter')) {
-      return 'Rubric (Hindi)';
-    }
-    return 'Sub-Rubric';
+
+  // ── Hindi column ──
+  if (hasHindi && !hasLongText) {
+    if (colIdx <= 1) return 'Rubric (Hindi)';
+    return 'Rubric (Hindi)';
   }
-  
-  if (colIdx === 3) {
-    // Fourth column could be Sub-Rubric or Medicines
-    if (allGrades) {
-      return firstCell || 'Medicine_Column';
-    }
-    return 'Sub-Rubric';
-  }
-  
-  // For columns beyond index 3
-  if (allGrades) {
-    // If all values are grades, this is a medicine column
-    // Use first cell as medicine name if available
-    return firstCell || `Medicine_${colIdx}`;
-  }
-  
-  // Check if it looks like a medicine list (semicolon-separated)
-  const hasSemicolons = columnData.some(val => String(val).includes(';'));
-  if (hasSemicolons) {
-    return 'Medicines';
-  }
-  
-  // Check content patterns for metadata columns
-  if (sampleText.includes('aggrav') || sampleText.includes('worse')) {
-    return 'Aggravation';
-  }
-  if (sampleText.includes('amelior') || sampleText.includes('better')) {
-    return 'Amelioration';
-  }
-  if (sampleText.includes('synonym')) {
-    return 'Synonyms';
-  }
-  
-  // Default to generic column name
+
+  // ── Position-based fallback for remaining columns ──
+  if (colIdx === 0) return 'Chapter';
+  if (colIdx === 1) return hasHindi ? 'Rubric (Hindi)' : 'Rubric (English)';
+  if (colIdx === 2) return hasHindi ? 'Rubric (Hindi)' : 'Rubric (English)';
+  if (colIdx === 3) return hasHindi ? 'Rubric (Hindi)' : 'Sub-Rubric';
+
+  if (sampleText.includes('aggrav') || sampleText.includes('worse')) return 'Aggravation';
+  if (sampleText.includes('amelior') || sampleText.includes('better')) return 'Amelioration';
+  if (sampleText.includes('synonym')) return 'Synonyms';
+
   return `Column_${String.fromCharCode(65 + colIdx)}`;
 };
 
@@ -482,6 +471,12 @@ const parseExcel = async (buffer) => {
         });
         return remapped;
       });
+
+      // After remapping, override medicineHeader / gradeHeader if our generated
+      // headers now contain 'Medicine' and 'Grade' keys detected from content analysis
+      if (headers.includes('Medicine') && headers.includes('Grade')) {
+        console.log(`🔍 Sheet "${sheetName}": Content-detected Medicine/Grade columns confirmed`);
+      }
     }
 
     if (!rawRows || rawRows.length === 0) {
