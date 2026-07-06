@@ -4,17 +4,24 @@ let genAI = null;
 let model = null;
 
 const initAI = () => {
-  if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'NEW_GEMINI_KEY_HERE') {
+  if (!process.env.GEMINI_API_KEY || 
+      process.env.GEMINI_API_KEY === 'NEW_GEMINI_KEY_HERE' || 
+      process.env.GEMINI_API_KEY === '') {
     console.warn('⚠️  GEMINI_API_KEY not set. AI analysis will use fallback keyword matching.');
     return false;
   }
   
   genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
   
-  // Use the correct v1 API model names (not v1beta)
+  // Try models with 'models/' prefix for v1beta API compatibility
   const modelNames = [
     process.env.GEMINI_MODEL,
-    'gemini-pro',           // Stable v1 model
+    'models/gemini-1.5-flash',
+    'models/gemini-1.5-pro',
+    'models/gemini-pro',
+    'gemini-1.5-flash',
+    'gemini-1.5-pro',
+    'gemini-pro',
     'gemini-1.0-pro-latest',
     'gemini-1.0-pro'
   ].filter(Boolean);
@@ -31,6 +38,7 @@ const initAI = () => {
   
   console.error('❌ Failed to initialize any Gemini model');
   console.log('⚠️  Using fallback keyword matching for symptom analysis');
+  console.log('💡 Verify your GEMINI_API_KEY at: https://aistudio.google.com/app/apikey');
   return false;
 };
 
