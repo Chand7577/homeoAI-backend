@@ -100,33 +100,68 @@ const parseBilingualList = (rawStr) => {
 };
 
 /**
- * Check if this sheet uses row-based medicine format
- * Format: MEDICINE | GRADE | CHAPTER | RUBRIC | SUBRUBRIC ...
+ * Detect if a sheet uses row-based medicine format by scanning all columns
+ * to find one that contains medicine names and one that contains grades.
  */
-const isRowBasedMedicineFormat = (headers, rows) => {
-  if (headers.length < 3) return false;
-  
-  // Check if first column looks like medicine names and second column looks like grades
-  const firstColLower = String(headers[0]).toLowerCase();
-  const secondColLower = String(headers[1]).toLowerCase();
-  
-  if ((firstColLower.includes('medicine') || firstColLower.includes('remedy')) &&
-      (secondColLower.includes('grade') || secondColLower.includes('grading'))) {
-    // Sample first 10 rows to verify
-    const firstColSample = rows.slice(0, 10).map(r => r[headers[0]]).filter(Boolean);
-    const secondColSample = rows.slice(0, 10).map(r => r[headers[1]]).filter(Boolean);
+const detectRowBasedColumns = (headers, rows) => {
+  if (headers.length < 2 || rows.length === 0) return null;
+
+  let medicineHeader = null;
+  let gradeHeader = null;
+
+  // List of common homeopathic medicine abbreviations to check against
+  const commonMeds = new Set([
+    'acon', 'bell', 'bry', 'calc', 'chin', 'hep', 'hyos', 'ign', 'kali-c', 'lach',
+    'lyc', 'merc', 'nat-m', 'nux-v', 'phos', 'puls', 'rhus-t', 'sep', 'sil', 'sulph',
+    'thuj', 'zinc', 'ars', 'arn', 'carb-v', 'cham', 'ferr', 'grap', 'op', 'petr'
+  ]);
+
+  for (const h of headers) {
+    const lowerH = String(h).toLowerCase();
     
-    // First column should have text (medicine names)
-    const hasTextInFirst = firstColSample.some(v => String(v).length > 2 && isNaN(v));
-    // Second column should have grades (1, 2, 3)
-    const hasGradesInSecond = secondColSample.every(v => looksLikeGrade(v));
+    // Check if this column is explicitly named medicine/remedy
+    if (lowerH.includes('medicine') || lowerH.includes('remedy')) {
+      medicineHeader = h;
+      continue;
+    }
     
-    if (hasTextInFirst && hasGradesInSecond) {
-      return true;
+    // Check if it's named grade/grading
+    if (lowerH.includes('grade') || lowerH.includes('grading')) {
+      gradeHeader = h;
+      continue;
+    }
+
+    // Sample the column data
+    const sample = rows.slice(0, 50).map(r => String(r[h] || '').trim()).filter(Boolean);
+    if (sample.length === 0) continue;
+
+    // Check if it looks like grades (all non-empty values are 1, 2, 3)
+    const isGrades = sample.every(v => {
+      const num = Number(v);
+      return !isNaN(num) && num >= 1 && num <= 3;
+    });
+
+    if (isGrades && !gradeHeader) {
+      gradeHeader = h;
+      continue;
+    }
+
+    // Check if it looks like medicine names (abbreviations of 2-8 chars, starts with letter, matches common meds or typical patterns)
+    const isMeds = sample.every(v => {
+      const lowerV = v.toLowerCase();
+      // Check if it's a known med abbreviation, or fits typical style (e.g. Sulph, Calc-f, Fl-ac)
+      return commonMeds.has(lowerV) || (/^[a-z]{2,8}(-[a-z]{1,4})?$/i.test(v) && isNaN(v));
+    });
+
+    if (isMeds && !medicineHeader) {
+      medicineHeader = h;
     }
   }
-  
-  return false;
+
+  if (medicineHeader && gradeHeader) {
+    return { medicineHeader, gradeHeader };
+  }
+  return null;
 };
 
 /**
@@ -457,27 +492,28 @@ const parseExcel = async (buffer) => {
     totalRowsAcrossSheets += sheetRowCount;
     console.log(`📊 Sheet has ${sheetRowCount} rows`);
     
-    // Check if this sheet uses row-based medicine format (MEDICINE | GRADE | CHAPTER | RUBRIC...)
-    const isRowBased = isRowBasedMedicineFormat(headers, rawRows);
+    // Check if this sheet uses row-based medicine format (Medicine | Grade columns at any position)
+    const rowBasedCols = detectRowBasedColumns(headers, rawRows);
     
-    if (isRowBased) {
-      console.log(`✅ Sheet "${sheetName}": Detected ROW-BASED medicine format (Medicine | Grade columns)`);
+    if (rowBasedCols) {
+      const { medicineHeader, gradeHeader } = rowBasedCols;
+      console.log(`✅ Sheet "${sheetName}": Detected ROW-BASED medicine format (Medicine Column: "${medicineHeader}", Grade Column: "${gradeHeader}")`);
       detectedLayouts.add('row-based-medicines');
       
       // Process row-based format: each row is one medicine for one rubric
       rawRows.forEach((row, idx) => {
         const rowNum = idx + 2;
         
-        // Extract medicine name and grade from first two columns
-        const medicineName = String(row[headers[0]] || '').trim();
-        const gradeValue = Number(row[headers[1]]);
+        // Extract medicine name and grade
+        const medicineName = String(row[medicineHeader] || '').trim();
+        const gradeValue = Number(row[gradeHeader]);
         
         if (!medicineName || isNaN(gradeValue) || gradeValue < 1 || gradeValue > 3) {
           return; // Skip invalid rows
         }
         
-        // For row-based format, skip first 2 columns (Medicine & Grade) and parse metadata from remaining columns
-        const metaHeaders = headers.slice(2);
+        // For row-based format, skip the medicine and grade columns from metadata
+        const metaHeaders = headers.filter(h => h !== medicineHeader && h !== gradeHeader);
         const fields = resolveFields(row, headers, metaHeaders);
         
         const cleanedSheetName = sheetName.trim();
