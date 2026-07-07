@@ -34,6 +34,18 @@ const runAnalysisHandler = async (req, res) => {
     }
   }
 
+  // Normalise matchedRubrics: ensure medicines is a proper Map (Mongoose Map type)
+  const normalisedRubrics = matchedRubrics.map(r => ({
+    ...r,
+    medicines: new Map(
+      Object.entries(
+        r.medicines instanceof Map
+          ? Object.fromEntries(r.medicines)
+          : (r.medicines || {})
+      ).map(([k, v]) => [k, Number(v) || 0])
+    ),
+  }));
+
   // Save analysis to DB
   const analysis = await Analysis.create({
     patientId: resolvedPatientId,
@@ -41,7 +53,7 @@ const runAnalysisHandler = async (req, res) => {
     repertoryId,
     repertoryName: repertory.name,
     symptoms: cleanSymptoms,
-    matchedRubrics,
+    matchedRubrics: normalisedRubrics,
     medicineDistribution,
     aiUsed,
     status: 'complete',
