@@ -460,29 +460,26 @@ const runAnalysis = async ({ symptoms, repertoryId, repertoryName }) => {
   let aiMatches;
   let aiUsed = false;
 
-  if (isAIReady()) {
-    try {
-      // 1. Get filtered candidate rubrics for fast semantic processing
-      rubrics = await getCandidateRubrics(symptoms, repertoryId);
-      rubrics = mergeDuplicateRubrics(rubrics);
-      
-      if (rubrics.length > 0) {
+  try {
+    // Always use the fast $text index to get best candidates first, 
+    // regardless of whether we use AI or fallback keyword matching.
+    rubrics = await getCandidateRubrics(symptoms, repertoryId);
+    rubrics = mergeDuplicateRubrics(rubrics);
+    
+    if (isAIReady() && rubrics.length > 0) {
+      try {
         aiMatches = await matchWithAI(symptoms, rubrics, repertoryName);
         aiUsed = true;
-      } else {
-        // Fallback if no matching candidates exist
-        rubrics = await Rubric.find({ repertoryId }).limit(300).lean();
-        rubrics = mergeDuplicateRubrics(rubrics);
+      } catch (err) {
+        console.error('Gemini AI error, falling back to keyword logic:', err.message);
         aiMatches = matchWithKeywords(symptoms, rubrics);
       }
-    } catch (err) {
-      console.error('Gemini AI error, falling back to keyword logic:', err.message);
-      rubrics = await Rubric.find({ repertoryId }).lean();
-      rubrics = mergeDuplicateRubrics(rubrics);
+    } else {
       aiMatches = matchWithKeywords(symptoms, rubrics);
     }
-  } else {
-    rubrics = await Rubric.find({ repertoryId }).lean();
+  } catch (err) {
+    console.error('Fatal analysis error, using extreme fallback:', err.message);
+    rubrics = await Rubric.find({ repertoryId }).limit(500).lean();
     rubrics = mergeDuplicateRubrics(rubrics);
     aiMatches = matchWithKeywords(symptoms, rubrics);
   }
