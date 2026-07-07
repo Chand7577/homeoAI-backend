@@ -7,8 +7,8 @@ let isReady = false;
 const initAI = () => {
   if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'NEW_GEMINI_KEY_HERE') {
     genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    // gemini-1.5-flash: reliably free (1500 req/day), no billing required
-    model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // Use gemini-2.5-flash which has a much larger free tier daily limit
+    model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     isReady = true;
     console.log('✅ Gemini AI initialized successfully for symptom analysis.');
     return true;

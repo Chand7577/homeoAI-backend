@@ -20,7 +20,7 @@ const HINDI_TO_ENGLISH = {
   'पैर': ['foot', 'feet', 'leg'],
   'हाथ': ['hand', 'arm'],
   'उंगली': ['finger', 'digit'],
-  ' त्वचा': ['skin', 'cutaneous'],
+  'त्वचा': ['skin', 'cutaneous'],
   'बाल': ['hair'],
   
   // Symptoms
