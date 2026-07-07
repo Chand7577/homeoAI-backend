@@ -1,19 +1,48 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { VertexAI } = require('@google-cloud/vertexai');
+const path = require('path');
 
-let genAI = null;
+let vertexAI = null;
 let model = null;
 let isReady = false;
 
 const initAI = () => {
-  if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'NEW_GEMINI_KEY_HERE') {
-    genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    // Use gemini-2.5-flash which has a much larger free tier daily limit
-    model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  try {
+    // Path to service account JSON key
+    const keyFilePath = path.join(__dirname, '..', 'vertex-ai-key.json');
+    
+    // Check if key file exists
+    const fs = require('fs');
+    if (!fs.existsSync(keyFilePath)) {
+      console.warn('⚠️ Vertex AI key file not found. Using keyword matching for symptom analysis.');
+      isReady = false;
+      return false;
+    }
+
+    // Read and parse the service account key
+    const serviceAccountKey = JSON.parse(fs.readFileSync(keyFilePath, 'utf8'));
+    
+    // Initialize Vertex AI with service account credentials
+    vertexAI = new VertexAI({
+      project: serviceAccountKey.project_id,
+      location: 'us-central1', // Use us-central1 for Gemini models
+      googleAuthOptions: {
+        credentials: serviceAccountKey
+      }
+    });
+
+    // Get Gemini 1.5 Flash model (fast and cost-effective)
+    model = vertexAI.getGenerativeModel({
+      model: 'gemini-1.5-flash',
+    });
+
     isReady = true;
-    console.log('✅ Gemini AI initialized successfully for symptom analysis.');
+    console.log('✅ Vertex AI (Gemini 1.5 Flash) initialized successfully for symptom analysis.');
+    console.log(`   Project: ${serviceAccountKey.project_id}`);
+    console.log('   Location: us-central1');
     return true;
-  } else {
-    console.warn('⚠️ GEMINI_API_KEY not found or invalid. Using keyword matching for symptom analysis.');
+  } catch (error) {
+    console.error('❌ Vertex AI initialization failed:', error.message);
+    console.warn('⚠️ Falling back to keyword matching for symptom analysis.');
     isReady = false;
     return false;
   }

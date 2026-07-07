@@ -3,6 +3,9 @@
 .env.local
 .env.*.local
 
+# Vertex AI service account key (NEVER COMMIT - contains private credentials)
+vertex-ai-key.json
+
 # Dependencies
 node_modules/
 

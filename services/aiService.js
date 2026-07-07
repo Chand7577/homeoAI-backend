@@ -1,7 +1,6 @@
 const { getModel, isAIReady } = require('../config/aiConfig');
 const Rubric = require('../models/Rubric');
-
-// Enhanced Hindi to English medical term mapping
+const fs = require('fs');
 const HINDI_TO_ENGLISH = {
   // Body parts
   'सिर': ['head', 'cephalalgia'],
@@ -274,7 +273,7 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
 };
 
 /**
- * Call Gemini to match symptoms → rubrics.
+ * Call Gemini (via Vertex AI) to match symptoms → rubrics.
  * Returns array of matched rubric objects.
  */
 const matchWithAI = async (symptoms, rubrics, repertoryName) => {
@@ -311,7 +310,8 @@ Return ONLY a valid JSON array with this structure:
     }
   });
 
-  const responseText = result.response.text();
+  const response = result.response;
+  const responseText = response.candidates[0].content.parts[0].text;
   
   // Extract JSON from response
   const jsonMatch = responseText.match(/\[[\s\S]*\]/);
@@ -556,14 +556,9 @@ const runAnalysis = async ({ symptoms, repertoryId, repertoryName }) => {
   };
 };
 
-const { GoogleAIFileManager } = require("@google/generative-ai/server");
-const { extractPageRanges } = require('./pdfService');
-const path = require('path');
-const fs = require('fs');
-
 const extractChaptersFromPdf = async (filePath, fileName) => {
-  if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'NEW_GEMINI_KEY_HERE') {
-    console.warn('⚠️ GEMINI_API_KEY not configured. Skipping AI extraction.');
+  if (!isAIReady()) {
+    console.warn('⚠️ Vertex AI not configured. Skipping AI extraction.');
     console.log('💡 Users can manually map medicine names in the UI, which is accurate and reliable.');
     return {};
   }
@@ -598,7 +593,6 @@ const extractChaptersFromPdf = async (filePath, fileName) => {
   const medicineMatches = [];
   const medicinePattern = /^[A-Z][A-Z\s\-\.]{3,50}$/; // Match ALL CAPS words 4-50 chars
   
-  let currentLine = 0;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     
@@ -609,7 +603,6 @@ const extractChaptersFromPdf = async (filePath, fileName) => {
     if (medicinePattern.test(line)) {
       // Look at surrounding context to confirm it's a medicine heading
       const nextLines = lines.slice(i + 1, i + 5).join(' ').toLowerCase();
-      const prevLines = lines.slice(Math.max(0, i - 3), i).join(' ').toLowerCase();
       
       // Medicine headings are typically followed by descriptive text or sections like "mind", "head"
       const hasMedicalContext = nextLines.includes('mind') || nextLines.includes('head') || 
@@ -638,36 +631,13 @@ const extractChaptersFromPdf = async (filePath, fileName) => {
     return {};
   }
   
-  // Now use Gemini File API to get accurate page numbers
-  const { GoogleAIFileManager } = require("@google/generative-ai/server");
-  const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY);
-  
-  console.log(`📤 Uploading PDF to Gemini File API: ${fileName}...`);
-  const uploadResult = await fileManager.uploadFile(filePath, {
-    mimeType: "application/pdf",
-    displayName: fileName,
-  });
-
-  console.log(`Uploaded file: ${uploadResult.file.uri}`);
-
-  // Wait for the uploaded file to become active
-  let fileState = await fileManager.getFile(uploadResult.file.name);
-  let pollAttempts = 0;
-  while (fileState.state === "PROCESSING" && pollAttempts < 30) {
-    console.log(`⏳ PDF processing... (${pollAttempts + 1}/30)`);
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-    fileState = await fileManager.getFile(uploadResult.file.name);
-    pollAttempts++;
-  }
-
-  if (fileState.state !== "ACTIVE") {
-    throw new Error(`PDF processing failed with state: ${fileState.state}`);
-  }
-  console.log("✅ PDF ready for analysis");
-
-  const { getModel } = require('../config/aiConfig');
+  // For Vertex AI, we upload to Google Cloud Storage or use inline data
+  // Vertex AI doesn't have a separate file manager - we'll use inline base64
   const model = getModel();
-
+  
+  // Convert PDF to base64
+  const base64Data = pdfBuffer.toString('base64');
+  
   // Give AI the list of medicine names we found, ask it to find their EXACT page numbers
   const medicineNames = medicineMatches.map(m => m.name);
   
@@ -709,18 +679,24 @@ Return the JSON now:
 `;
 
   try {
-    console.log("🤖 Running Gemini to find exact page numbers...");
-    const result = await model.generateContent([
-      {
-        fileData: {
-          mimeType: uploadResult.file.mimeType,
-          fileUri: uploadResult.file.uri
-        }
-      },
-      prompt
-    ]);
+    console.log("🤖 Running Vertex AI Gemini to find exact page numbers...");
+    const result = await model.generateContent({
+      contents: [{
+        role: 'user',
+        parts: [
+          {
+            inlineData: {
+              mimeType: 'application/pdf',
+              data: base64Data
+            }
+          },
+          { text: prompt }
+        ]
+      }]
+    });
 
-    const text = result.response.text().trim();
+    const response = result.response;
+    const text = response.candidates[0].content.parts[0].text.trim();
     console.log("Raw AI Response (first 500 chars):", text.substring(0, 500));
 
     // Extract JSON, handling markdown code blocks
@@ -739,20 +715,8 @@ Return the JSON now:
     console.log(`✅ Successfully mapped ${Object.keys(mappings).length} medicines to page numbers`);
     console.log('Sample mappings:', Object.entries(mappings).slice(0, 5));
 
-    // Clean up Gemini file
-    try {
-      await fileManager.deleteFile(uploadResult.file.name);
-    } catch (e) {
-      console.warn('Could not delete Gemini file:', e.message);
-    }
-    
     return mappings;
   } catch (err) {
-    // Clean up on error
-    try {
-      await fileManager.deleteFile(uploadResult.file.name);
-    } catch (e) {}
-    
     console.error('❌ AI extraction failed:', err.message);
     throw err;
   }
