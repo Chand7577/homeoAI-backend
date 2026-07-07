@@ -5,11 +5,12 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 async function run() {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
-    const result = await model.generateContent("Hello!");
-    console.log("Success with gemini-3.5-flash:", result.response.text());
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${process.env.GEMINI_API_KEY}`);
+    const data = await response.json();
+    console.log("Available models:");
+    data.models.forEach(m => console.log(m.name));
   } catch (err) {
-    console.error("Error with gemini-3.5-flash:", err.message);
+    console.error("Error fetching models:", err);
   }
 }
 
