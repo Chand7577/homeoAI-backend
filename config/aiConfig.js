@@ -16,13 +16,13 @@ const initAI = () => {
     // Initialize Google Generative AI with API key
     genAI = new GoogleGenerativeAI(apiKey);
 
-    // Get Gemini 1.5 Flash model (fast and cost-effective)
+    // Get Gemini 3.5 Flash model (fast and cost-effective)
     model = genAI.getGenerativeModel({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-3.5-flash',
     });
 
     isReady = true;
-    console.log('✅ Gemini AI (Gemini 1.5 Flash) initialized successfully for symptom analysis.');
+    console.log('✅ Gemini AI (Gemini 3.5 Flash) initialized successfully for symptom analysis.');
     return true;
   } catch (error) {
     console.error('❌ Gemini AI initialization failed:', error.message);
