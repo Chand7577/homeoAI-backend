@@ -20,7 +20,7 @@ const HINDI_TO_ENGLISH = {
   'पैर': ['foot', 'feet', 'leg'],
   'हाथ': ['hand', 'arm'],
   'उंगली': ['finger', 'digit'],
-  'त्वचा': ['skin', 'cutaneous'],
+  ' त्वचा': ['skin', 'cutaneous'],
   'बाल': ['hair'],
   
   // Symptoms
@@ -108,23 +108,12 @@ const buildRubricSummary = (rubrics) => {
 };
 
 /**
- * Translates a Devanagari/Hindi symptom to English using Gemini.
+ * Translates Hindi symptoms to English using built-in dictionary (no API needed)
  */
 const translateSymptomToEnglish = async (symptom) => {
-  if (!isAIReady()) return '';
-  try {
-    const model = getModel();
-    const prompt = `You are a medical translator. Translate homeopathic symptoms from Hindi to English. Return ONLY the English translation, no explanation.
-
-Translate this homeopathic symptom to English: "${symptom}"`;
-
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
-    return text.trim().toLowerCase();
-  } catch (err) {
-    console.error('Symptom translation failed:', err.message);
-    return '';
-  }
+  // Use dictionary translation (free, instant)
+  const englishTerms = translateHindiTerms(symptom);
+  return englishTerms.join(' ');
 };
 
 /**
