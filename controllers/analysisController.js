@@ -34,16 +34,12 @@ const runAnalysisHandler = async (req, res) => {
     }
   }
 
-  // Normalise matchedRubrics: ensure medicines is a proper Map (Mongoose Map type)
+  // Normalise matchedRubrics: ensure medicines is a plain object (Mixed type allows dotted keys like 'Sulph.')
   const normalisedRubrics = matchedRubrics.map(r => ({
     ...r,
-    medicines: new Map(
-      Object.entries(
-        r.medicines instanceof Map
-          ? Object.fromEntries(r.medicines)
-          : (r.medicines || {})
-      ).map(([k, v]) => [k, Number(v) || 0])
-    ),
+    medicines: r.medicines instanceof Map
+      ? Object.fromEntries(r.medicines)
+      : (r.medicines || {}),
   }));
 
   // Save analysis to DB

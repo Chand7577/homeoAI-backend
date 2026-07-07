@@ -10,7 +10,7 @@ const MatchedRubricSchema = new mongoose.Schema({
     aggravation: [String],
     amelioration: [String],
   },
-  medicines: { type: Map, of: Number },
+  medicines: { type: mongoose.Schema.Types.Mixed, default: {} }, // plain object; keys may contain dots (e.g. 'Sulph.')
   confidence: { type: Number, default: 0 },   // 0-100 from AI
   reasoning: { type: String, default: '' },   // AI explanation
 }, { _id: false });
