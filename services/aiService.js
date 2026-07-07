@@ -56,6 +56,7 @@ const HINDI_TO_ENGLISH = {
   'ठंडा': ['cold', 'chilly'],
   'गर्म': ['hot', 'warm', 'heat'],
   'रात': ['night', 'evening'],
+  'रात्रि': ['night', 'evening', 'nocturnal'],
   'सुबह': ['morning'],
   'दोपहर': ['noon', 'afternoon'],
   
@@ -140,7 +141,7 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
 
   const extractSearchTerms = (text) => {
     return text.toLowerCase()
-      .replace(/[^\w\s\u0900-\u097F]/g, ' ')
+      .replace(/[^\w\s\u0900-\u097F]/g, ' ')  // strip semicolons, punctuation
       .split(/\s+/)
       .map(w => w.trim())
       .filter(w => w.length > 1 && !stopWords.has(w));
@@ -149,12 +150,9 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
   for (const symptom of symptoms) {
     if (!symptom.trim()) continue;
 
-    // Clean punctuation and split into terms (supporting English and Hindi/Devenagari characters)
-    const originalTerms = extractSearchTerms(symptom);
-    if (originalTerms.length === 0) continue;
-
-    // Use original terms directly to ensure location (e.g. skin, stomach) is kept in the $and query
-    const activeTerms = originalTerms;
+    // Detect tab-separated compound input: "chapter\trubric\thindi"
+    const isTabSeparated = symptom.includes('\t');
+    const tabSegments = isTabSeparated ? symptom.split('\t').map(s => s.trim()).filter(Boolean) : null;
 
     // Keep track of candidates added for THIS specific symptom
     const symptomCandidates = new Map();
@@ -163,22 +161,25 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
     const findCandidatesForTerms = async (terms) => {
       if (!terms || terms.length === 0) return;
 
-      // Stage 1: Find rubrics matching ALL active terms (intersection)
-      const andQuery = {
-        repertoryId,
-        $and: terms.map(t => ({ searchText: new RegExp(t, 'i') }))
-      };
+      // Filter out chapter-level stop words from AND query to avoid over-constraining
+      const contentTerms = terms.filter(t => !chapterStopWords.has(t));
+      const andTerms = contentTerms.length > 0 ? contentTerms : terms;
 
-      try {
-        const matches = await Rubric.find(andQuery).limit(40).lean();
-        matches.forEach(m => {
-          symptomCandidates.set(m._id.toString(), m);
-        });
-      } catch (e) {
-        console.error('AND query failed, fallback to OR:', e.message);
+      // Stage 1: Find rubrics matching ALL content terms (intersection)
+      if (andTerms.length > 0) {
+        const andQuery = {
+          repertoryId,
+          $and: andTerms.map(t => ({ searchText: new RegExp(t, 'i') }))
+        };
+        try {
+          const matches = await Rubric.find(andQuery).limit(40).lean();
+          matches.forEach(m => { symptomCandidates.set(m._id.toString(), m); });
+        } catch (e) {
+          console.error('AND query failed, fallback to OR:', e.message);
+        }
       }
 
-      // Stage 2: If we have fewer than 30 candidates for this specific symptom, pull in rubrics matching ANY active term (union)
+      // Stage 2: If we have fewer than 30 candidates, pull in rubrics matching ANY term (union)
       if (symptomCandidates.size < 30) {
         const orQuery = {
           repertoryId,
@@ -187,9 +188,7 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
         try {
           const orMatches = await Rubric.find(orQuery).limit(50).lean();
           orMatches.forEach(m => {
-            if (symptomCandidates.size < 60) {
-              symptomCandidates.set(m._id.toString(), m);
-            }
+            if (symptomCandidates.size < 60) symptomCandidates.set(m._id.toString(), m);
           });
         } catch (e) {
           console.error('OR query failed:', e.message);
@@ -197,30 +196,51 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
       }
     };
 
-    // 1. Search database using the original terms
-    await findCandidatesForTerms(activeTerms);
+    if (isTabSeparated && tabSegments && tabSegments.length > 1) {
+      // Tab-separated input: search each segment independently
+      // e.g. segment[0]="त्वचा" (chapter), segment[1]="BURNING; night" (rubric), segment[2]="रात्रि में जलन" (hindi)
+      for (const segment of tabSegments) {
+        const segTerms = extractSearchTerms(segment);
+        if (segTerms.length > 0) await findCandidatesForTerms(segTerms);
 
-    // 2. If the query contains Devanagari/Hindi characters and AI is ready, translate to English to search English metadata
-    if (/[\u0900-\u097F]/.test(symptom) && isAIReady()) {
-      try {
-        const translation = await translateSymptomToEnglish(symptom);
-        if (translation) {
-          const translatedTerms = extractSearchTerms(translation);
-          const activeTranslated = translatedTerms;
-          
-          if (activeTranslated.length > 0) {
-            await findCandidatesForTerms(activeTranslated);
+        // Also translate any Hindi segment
+        if (/[\u0900-\u097F]/.test(segment) && isAIReady()) {
+          try {
+            const translation = await translateSymptomToEnglish(segment);
+            if (translation) {
+              const translatedTerms = extractSearchTerms(translation);
+              if (translatedTerms.length > 0) await findCandidatesForTerms(translatedTerms);
+            }
+          } catch (err) {
+            console.error('Segment translation failed:', err.message);
           }
         }
-      } catch (err) {
-        console.error('Symptom translation search failed:', err.message);
       }
-    }
+    } else {
+      // Normal (non-tab) symptom: use original terms
+      const originalTerms = extractSearchTerms(symptom);
+      if (originalTerms.length === 0) continue;
+      const activeTerms = originalTerms;
+
+      // 1. Search database using the original terms
+      await findCandidatesForTerms(activeTerms);
+
+      // 2. If the query contains Devanagari/Hindi characters and AI is ready, translate to English
+      if (/[\u0900-\u097F]/.test(symptom) && isAIReady()) {
+        try {
+          const translation = await translateSymptomToEnglish(symptom);
+          if (translation) {
+            const translatedTerms = extractSearchTerms(translation);
+            if (translatedTerms.length > 0) await findCandidatesForTerms(translatedTerms);
+          }
+        } catch (err) {
+          console.error('Symptom translation search failed:', err.message);
+        }
+      }
+    } // end if/else tab-separated
 
     // Merge this symptom's candidates into the global candidate map
-    symptomCandidates.forEach((m, id) => {
-      candidateMap.set(id, m);
-    });
+    symptomCandidates.forEach((m, id) => { candidateMap.set(id, m); });
   }
 
   // Fallback: If no candidate matched, get first 150 rubrics so AI has options
@@ -295,16 +315,38 @@ Return ONLY a valid JSON array with this structure:
 /**
  * Keyword fallback when Gemini API key is not configured.
  * Basic string matching against searchText field.
+ * Handles tab-separated compound input (chapter\trubric\thindi) and strips punctuation.
  */
 const matchWithKeywords = (symptoms, rubrics) => {
   return symptoms.map(symptom => {
-    const terms = symptom.toLowerCase().split(/\s+/);
+    // Flatten tab-separated input into one space-joined string
+    const flatSymptom = symptom.includes('\t')
+      ? symptom.split('\t').join(' ')
+      : symptom;
+
+    // Strip punctuation (semicolons, commas, etc.) before tokenizing
+    const terms = flatSymptom
+      .toLowerCase()
+      .replace(/[^\w\s\u0900-\u097F]/g, ' ')
+      .split(/\s+/)
+      .map(t => t.trim())
+      .filter(t => t.length > 2);
+
+    // Also expand any Hindi terms we know about
+    const expandedTerms = new Set(terms);
+    Object.entries(HINDI_TO_ENGLISH).forEach(([hindi, englishArr]) => {
+      if (flatSymptom.includes(hindi)) {
+        englishArr.forEach(e => expandedTerms.add(e.toLowerCase()));
+      }
+    });
+    const allTerms = Array.from(expandedTerms);
+
     let bestMatch = null;
     let bestScore = 0;
 
     rubrics.forEach(rubric => {
       const text = rubric.searchText || '';
-      const score = terms.filter(t => t.length > 2 && text.includes(t)).length;
+      const score = allTerms.filter(t => t.length > 2 && text.includes(t)).length;
       if (score > bestScore) {
         bestScore = score;
         bestMatch = rubric;
@@ -314,7 +356,7 @@ const matchWithKeywords = (symptoms, rubrics) => {
     return {
       symptom,
       matched_rubric_id: bestMatch ? bestMatch._id.toString() : null,
-      confidence: bestMatch ? Math.min(bestScore * 20, 80) : 0,
+      confidence: bestMatch ? Math.min(bestScore * 15, 80) : 0,
       reasoning: bestMatch ? 'Keyword match (AI not configured)' : 'No match found',
     };
   });
