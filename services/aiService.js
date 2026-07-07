@@ -101,8 +101,7 @@ const buildRubricSummary = (rubrics) => {
     subrubric: r.subrubric?.en || '',
     agg: (r.modalities?.aggravation || []).join(', '),
     amel: (r.modalities?.amelioration || []).join(', '),
-    synonyms: (r.synonyms?.en || []).join(', '),
-    medicines: r.medicines instanceof Map ? Object.fromEntries(r.medicines) : (r.medicines || {}),
+    synonyms: (r.synonyms?.en || []).join(', ')
   }));
 };
 
@@ -145,42 +144,20 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
     // Keep track of candidates added for THIS specific symptom
     const symptomCandidates = new Map();
 
-    // Query runner helper
     const findCandidatesForTerms = async (terms) => {
       if (!terms || terms.length === 0) return;
 
-      // Filter out chapter-level stop words from AND query to avoid over-constraining
-      const contentTerms = terms.filter(t => !chapterStopWords.has(t));
-      const andTerms = contentTerms.length > 0 ? contentTerms : terms;
+      const textQuery = terms.join(' ');
+      try {
+        // Use MongoDB $text index for lightning fast relevance ranking
+        const matches = await Rubric.find(
+          { repertoryId, $text: { $search: textQuery } },
+          { score: { $meta: 'textScore' } }
+        ).sort({ score: { $meta: 'textScore' } }).limit(60).lean();
 
-      // Stage 1: Find rubrics matching ALL content terms (intersection)
-      if (andTerms.length > 0) {
-        const andQuery = {
-          repertoryId,
-          $and: andTerms.map(t => ({ searchText: new RegExp(t, 'i') }))
-        };
-        try {
-          const matches = await Rubric.find(andQuery).limit(40).lean();
-          matches.forEach(m => { symptomCandidates.set(m._id.toString(), m); });
-        } catch (e) {
-          console.error('AND query failed, fallback to OR:', e.message);
-        }
-      }
-
-      // Stage 2: If we have fewer than 30 candidates, pull in rubrics matching ANY term (union)
-      if (symptomCandidates.size < 30) {
-        const orQuery = {
-          repertoryId,
-          $or: terms.map(t => ({ searchText: new RegExp(t, 'i') }))
-        };
-        try {
-          const orMatches = await Rubric.find(orQuery).limit(50).lean();
-          orMatches.forEach(m => {
-            if (symptomCandidates.size < 60) symptomCandidates.set(m._id.toString(), m);
-          });
-        } catch (e) {
-          console.error('OR query failed:', e.message);
-        }
+        matches.forEach(m => { symptomCandidates.set(m._id.toString(), m); });
+      } catch (e) {
+        console.error('Text query failed:', e.message);
       }
     };
 
