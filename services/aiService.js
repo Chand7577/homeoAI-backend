@@ -153,9 +153,8 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
     const originalTerms = extractSearchTerms(symptom);
     if (originalTerms.length === 0) continue;
 
-    // Separate specific words from generic chapter names
-    const specificTerms = originalTerms.filter(t => !chapterStopWords.has(t));
-    const activeTerms = specificTerms.length > 0 ? specificTerms : originalTerms;
+    // Use original terms directly to ensure location (e.g. skin, stomach) is kept in the $and query
+    const activeTerms = originalTerms;
 
     // Keep track of candidates added for THIS specific symptom
     const symptomCandidates = new Map();
@@ -207,8 +206,7 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
         const translation = await translateSymptomToEnglish(symptom);
         if (translation) {
           const translatedTerms = extractSearchTerms(translation);
-          const specificTranslated = translatedTerms.filter(t => !chapterStopWords.has(t));
-          const activeTranslated = specificTranslated.length > 0 ? specificTranslated : translatedTerms;
+          const activeTranslated = translatedTerms;
           
           if (activeTranslated.length > 0) {
             await findCandidatesForTerms(activeTranslated);
