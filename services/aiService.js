@@ -217,24 +217,50 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
         }
       }
     } else {
-      // Normal (non-tab) symptom: use original terms
-      const originalTerms = extractSearchTerms(symptom);
-      if (originalTerms.length === 0) continue;
-      const activeTerms = originalTerms;
+      // Normal (non-tab) symptom
+      // Also treat semicolons as Kent-style rubric/subrubric separators
+      // e.g. "ARTHRITIC nodosities; Toes" → ["ARTHRITIC nodosities", "Toes"]
+      const semicolonSegments = symptom.includes(';')
+        ? symptom.split(';').map(s => s.trim()).filter(Boolean)
+        : null;
 
-      // 1. Search database using the original terms
-      await findCandidatesForTerms(activeTerms);
+      if (semicolonSegments && semicolonSegments.length > 1) {
+        // Search each semicolon-delimited segment independently
+        for (const segment of semicolonSegments) {
+          const segTerms = extractSearchTerms(segment);
+          if (segTerms.length > 0) await findCandidatesForTerms(segTerms);
 
-      // 2. If the query contains Devanagari/Hindi characters and AI is ready, translate to English
-      if (/[\u0900-\u097F]/.test(symptom) && isAIReady()) {
-        try {
-          const translation = await translateSymptomToEnglish(symptom);
-          if (translation) {
-            const translatedTerms = extractSearchTerms(translation);
-            if (translatedTerms.length > 0) await findCandidatesForTerms(translatedTerms);
+          if (/[\u0900-\u097F]/.test(segment) && isAIReady()) {
+            try {
+              const translation = await translateSymptomToEnglish(segment);
+              if (translation) {
+                const translatedTerms = extractSearchTerms(translation);
+                if (translatedTerms.length > 0) await findCandidatesForTerms(translatedTerms);
+              }
+            } catch (err) {
+              console.error('Segment translation failed:', err.message);
+            }
           }
-        } catch (err) {
-          console.error('Symptom translation search failed:', err.message);
+        }
+      } else {
+        // Plain symptom: use all terms
+        const originalTerms = extractSearchTerms(symptom);
+        if (originalTerms.length === 0) continue;
+
+        // 1. Search database using the original terms
+        await findCandidatesForTerms(originalTerms);
+
+        // 2. Translate Hindi if present
+        if (/[\u0900-\u097F]/.test(symptom) && isAIReady()) {
+          try {
+            const translation = await translateSymptomToEnglish(symptom);
+            if (translation) {
+              const translatedTerms = extractSearchTerms(translation);
+              if (translatedTerms.length > 0) await findCandidatesForTerms(translatedTerms);
+            }
+          } catch (err) {
+            console.error('Symptom translation search failed:', err.message);
+          }
         }
       }
     } // end if/else tab-separated
