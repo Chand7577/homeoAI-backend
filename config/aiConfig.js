@@ -7,8 +7,8 @@ let isReady = false;
 const initAI = () => {
   if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'NEW_GEMINI_KEY_HERE') {
     genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    // Use gemini-3.5-flash which is fast and has a free tier
-    model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
+    // Use gemini-1.5-flash which is fast and has a free tier
+    model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     isReady = true;
     console.log('✅ Gemini AI initialized successfully for symptom analysis.');
     return true;
