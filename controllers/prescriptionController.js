@@ -102,12 +102,13 @@ const createPrescription = async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/prescriptions
-// Query params: patientId, page, limit
+// Query params: patientId, page, limit, search
 // Returns only prescriptions created by the logged-in doctor/admin
 // Patients can see prescriptions written FOR them
+// Smart search: filters by patient name, medicine/remedy name, symptoms
 // ─────────────────────────────────────────────────────────────────────────────
 const getPrescriptions = async (req, res) => {
-  const { patientId, page = 1, limit = 20 } = req.query;
+  const { patientId, page = 1, limit = 20, search } = req.query;
   const currentUserId = req.user?.userId;
   
   // Get current user's role
@@ -131,6 +132,19 @@ const getPrescriptions = async (req, res) => {
   } else {
     // Admin and Doctors see ONLY prescriptions they created
     filter.doctorId = currentUserId;
+  }
+  
+  // Smart search: search in patient name, remedy, medicines, symptoms
+  if (search && search.trim()) {
+    const searchRegex = new RegExp(search.trim(), 'i');
+    filter.$or = [
+      { patientName: searchRegex },
+      { remedy: searchRegex },
+      { 'medicines.name': searchRegex },
+      { symptoms: searchRegex },
+      { notes: searchRegex },
+      { instructions: searchRegex }
+    ];
   }
   
   const skip = (parseInt(page) - 1) * parseInt(limit);
