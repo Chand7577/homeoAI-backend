@@ -103,7 +103,8 @@ const createPrescription = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/prescriptions
 // Query params: patientId, page, limit
-// Returns only prescriptions created by the logged-in doctor (except for Admin)
+// Returns only prescriptions created by the logged-in doctor/admin
+// Patients can see prescriptions written FOR them
 // ─────────────────────────────────────────────────────────────────────────────
 const getPrescriptions = async (req, res) => {
   const { patientId, page = 1, limit = 20 } = req.query;
@@ -121,9 +122,14 @@ const getPrescriptions = async (req, res) => {
     filter.patientId = patientId;
   }
   
-  // Filter by doctorId - only show prescriptions created by this doctor
-  // Exception: Admin can see all prescriptions
-  if (currentUserRole !== 'Admin') {
+  // Role-based filtering:
+  // - Admin, Core Team, External Doctor: See ONLY prescriptions they created (doctorId = their ID)
+  // - Patient: See ONLY prescriptions written FOR them (patientId = their ID)
+  if (currentUserRole === 'Patient') {
+    // Patients see prescriptions written for them
+    filter.patientId = currentUserId;
+  } else {
+    // Admin and Doctors see ONLY prescriptions they created
     filter.doctorId = currentUserId;
   }
   
@@ -139,7 +145,9 @@ const getPrescriptions = async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/prescriptions/:id
-// Returns prescription only if it belongs to the logged-in doctor (except Admin)
+// Returns prescription only if user has permission:
+// - Doctors/Admin: Can view ONLY their own prescriptions
+// - Patients: Can view prescriptions written FOR them
 // ─────────────────────────────────────────────────────────────────────────────
 const getPrescription = async (req, res) => {
   const prescription = await Prescription.findById(req.params.id);
@@ -148,14 +156,25 @@ const getPrescription = async (req, res) => {
     throw new Error('Prescription not found');
   }
   
-  // Check ownership - only doctor who created it or Admin can view
+  // Check access permission
   const currentUserId = req.user?.userId;
   const currentUser = await User.findById(currentUserId).select('role');
   const currentUserRole = currentUser?.role;
   
-  if (currentUserRole !== 'Admin' && prescription.doctorId?.toString() !== currentUserId) {
-    res.status(403);
-    throw new Error('Access denied: You can only view your own prescriptions');
+  // Role-based access:
+  // - Admin/Doctor: Can view ONLY prescriptions they created
+  // - Patient: Can view ONLY prescriptions written for them
+  if (currentUserRole === 'Patient') {
+    if (prescription.patientId?.toString() !== currentUserId) {
+      res.status(403);
+      throw new Error('Access denied: You can only view your own prescriptions');
+    }
+  } else {
+    // Admin, Core Team, External Doctor
+    if (prescription.doctorId?.toString() !== currentUserId) {
+      res.status(403);
+      throw new Error('Access denied: You can only view prescriptions you created');
+    }
   }
   
   res.json({ success: true, data: prescription });
@@ -163,7 +182,7 @@ const getPrescription = async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PUT /api/prescriptions/:id  (update)
-// Only doctor who created it or Admin can update
+// Only the doctor who created it can update (Admin has no special privilege)
 // ─────────────────────────────────────────────────────────────────────────────
 const updatePrescription = async (req, res) => {
   const prescription = await Prescription.findById(req.params.id);
@@ -172,14 +191,12 @@ const updatePrescription = async (req, res) => {
     throw new Error('Prescription not found');
   }
 
-  // Check ownership
+  // Check ownership - ONLY the doctor who created it can update
   const currentUserId = req.user?.userId;
-  const currentUser = await User.findById(currentUserId).select('role');
-  const currentUserRole = currentUser?.role;
   
-  if (currentUserRole !== 'Admin' && prescription.doctorId?.toString() !== currentUserId) {
+  if (prescription.doctorId?.toString() !== currentUserId) {
     res.status(403);
-    throw new Error('Access denied: You can only update your own prescriptions');
+    throw new Error('Access denied: You can only update prescriptions you created');
   }
 
   const { medicines, durationValue, durationUnit, remedy, dosage, duration, ...rest } = req.body;
@@ -210,7 +227,8 @@ const updatePrescription = async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DELETE /api/prescriptions/:id
-// Only doctor who created it or Admin can delete
+// Only the doctor who created it can delete (Admin has no special privilege)
+// Patients cannot delete prescriptions
 // ─────────────────────────────────────────────────────────────────────────────
 const deletePrescription = async (req, res) => {
   const prescription = await Prescription.findById(req.params.id);
@@ -219,14 +237,21 @@ const deletePrescription = async (req, res) => {
     throw new Error('Prescription not found');
   }
 
-  // Check ownership
+  // Check ownership - ONLY the doctor who created it can delete
   const currentUserId = req.user?.userId;
   const currentUser = await User.findById(currentUserId).select('role');
   const currentUserRole = currentUser?.role;
   
-  if (currentUserRole !== 'Admin' && prescription.doctorId?.toString() !== currentUserId) {
+  // Patients cannot delete prescriptions
+  if (currentUserRole === 'Patient') {
     res.status(403);
-    throw new Error('Access denied: You can only delete your own prescriptions');
+    throw new Error('Access denied: Patients cannot delete prescriptions');
+  }
+  
+  // Doctors and Admin can only delete prescriptions they created
+  if (prescription.doctorId?.toString() !== currentUserId) {
+    res.status(403);
+    throw new Error('Access denied: You can only delete prescriptions you created');
   }
 
   // Remove from patient's list
