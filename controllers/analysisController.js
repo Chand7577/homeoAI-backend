@@ -6,6 +6,7 @@ const { runAnalysis } = require('../services/aiService');
 // POST /api/analysis/run
 const runAnalysisHandler = async (req, res) => {
   const { repertoryId, symptoms, patientId, patientName } = req.body;
+  const doctorId = req.user._id; // From auth middleware
 
   // Validate
   if (!repertoryId) { res.status(400); throw new Error('repertoryId is required'); }
@@ -44,6 +45,7 @@ const runAnalysisHandler = async (req, res) => {
 
   // Save analysis to DB
   const analysis = await Analysis.create({
+    doctorId,
     patientId: resolvedPatientId,
     patientName: resolvedPatientName,
     repertoryId,
@@ -78,9 +80,12 @@ const runAnalysisHandler = async (req, res) => {
 
 // GET /api/analysis - Optimized with lean and selective population
 const getAnalyses = async (req, res) => {
-  const { patientId, limit = 20, page = 1 } = req.query;
-  const filter = {};
+  const { patientId, patientName, limit = 50, page = 1 } = req.query;
+  const doctorId = req.user._id; // Filter by logged-in doctor
+  
+  const filter = { doctorId };
   if (patientId) filter.patientId = patientId;
+  if (patientName) filter.patientName = new RegExp(patientName, 'i'); // Case-insensitive search
   
   const skip = (parseInt(page) - 1) * parseInt(limit);
   const [analyses, total] = await Promise.all([
@@ -106,7 +111,9 @@ const getAnalyses = async (req, res) => {
 
 // GET /api/analysis/:id - Optimized
 const getAnalysis = async (req, res) => {
-  const analysis = await Analysis.findById(req.params.id)
+  const doctorId = req.user._id;
+  
+  const analysis = await Analysis.findOne({ _id: req.params.id, doctorId })
     .populate('patientId', 'name age gender contact')
     .populate('repertoryId', 'name')
     .lean(); // Faster query
@@ -115,4 +122,23 @@ const getAnalysis = async (req, res) => {
   res.json({ success: true, data: analysis });
 };
 
-module.exports = { runAnalysisHandler, getAnalyses, getAnalysis };
+// DELETE /api/analysis/:id
+const deleteAnalysis = async (req, res) => {
+  const doctorId = req.user._id;
+  
+  const analysis = await Analysis.findOne({ _id: req.params.id, doctorId });
+  if (!analysis) { res.status(404); throw new Error('Analysis not found'); }
+  
+  // Remove from patient's analyses array if linked
+  if (analysis.patientId) {
+    await Patient.findByIdAndUpdate(analysis.patientId, {
+      $pull: { analyses: analysis._id }
+    });
+  }
+  
+  await Analysis.findByIdAndDelete(req.params.id);
+  
+  res.json({ success: true, message: 'Analysis deleted successfully' });
+};
+
+module.exports = { runAnalysisHandler, getAnalyses, getAnalysis, deleteAnalysis };

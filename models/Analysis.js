@@ -24,6 +24,7 @@ const MedicineDistributionSchema = new mongoose.Schema({
 }, { _id: false });
 
 const AnalysisSchema = new mongoose.Schema({
+  doctorId: { type: mongoose.Schema.Types.ObjectId, ref: 'Doctor', required: true, index: true },
   patientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Patient', default: null, index: true },
   patientName: { type: String, default: 'Anonymous' },
   repertoryId: { type: mongoose.Schema.Types.ObjectId, ref: 'Repertory', required: true, index: true },
@@ -37,6 +38,7 @@ const AnalysisSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Compound indexes for common queries
+AnalysisSchema.index({ doctorId: 1, createdAt: -1 });
 AnalysisSchema.index({ patientId: 1, createdAt: -1 });
 AnalysisSchema.index({ repertoryId: 1, createdAt: -1 });
 AnalysisSchema.index({ status: 1, createdAt: -1 });
