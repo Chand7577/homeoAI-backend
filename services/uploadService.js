@@ -16,7 +16,7 @@ const uploadPDFToCloudinary = async (filePath, originalName) => {
     
     const result = await cloudinary.uploader.upload(filePath, {
       folder: 'homeo-repertory-pdfs',
-      resource_type: 'raw',
+      resource_type: 'image',
       public_id: `${timestamp}-${sanitizedName}`,
     });
 
@@ -80,12 +80,13 @@ const uploadExcelToCloudinary = async (filePath, originalName) => {
 /**
  * Delete file from Cloudinary
  * @param {string} publicId - Cloudinary public ID
+ * @param {string} resourceType - Cloudinary resource type ('image' or 'raw')
  * @returns {Promise<object>} Deletion result
  */
-const deleteFromCloudinary = async (publicId) => {
+const deleteFromCloudinary = async (publicId, resourceType = 'image') => {
   try {
     const result = await cloudinary.uploader.destroy(publicId, {
-      resource_type: 'raw',
+      resource_type: resourceType,
     });
     return { success: true, result };
   } catch (error) {

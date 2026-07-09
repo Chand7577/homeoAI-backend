@@ -537,6 +537,19 @@ const extractChaptersFromPdf = async (filePath, fileName) => {
     return {};
   }
 
+  // Safety check: Skip parsing large files on restricted server environments to prevent Out Of Memory crashes
+  try {
+    const stats = fs.statSync(filePath);
+    const sizeInMB = stats.size / (1024 * 1024);
+    if (sizeInMB > 15) {
+      console.warn(`⚠️ PDF file is large (${sizeInMB.toFixed(2)} MB). Skipping AI parsing to prevent server memory crashes.`);
+      console.log('💡 Doctors can manually map medicine names using the UI.');
+      return {};
+    }
+  } catch (err) {
+    console.warn('⚠️ Could not check PDF file size:', err.message);
+  }
+
   console.log('📄 Parsing PDF structure...');
   
   const pdfParse = require('pdf-parse');
