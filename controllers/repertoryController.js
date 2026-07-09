@@ -163,26 +163,7 @@ const uploadPDFFile = async (req, res) => {
   if (!req.file) { res.status(400); throw new Error('No PDF file uploaded'); }
 
   try {
-    // Store PDF on server (not Cloudinary due to file size limits)
-    const relativePath = `/uploads/${req.file.filename}`;
-    const fullUrl = `${req.protocol}://${req.get('host')}${relativePath}`;
-    
-    // Delete old local file if exists
-    if (repertory.pdfUrl && repertory.pdfUrl.includes('/uploads/')) {
-      const oldFilename = path.basename(repertory.pdfUrl);
-      const oldPath = path.join(__dirname, '../uploads', oldFilename);
-      if (fs.existsSync(oldPath)) {
-        fs.unlinkSync(oldPath);
-      }
-    }
-    
-    // Update repertory with server URLs
-    repertory.pdfUrl = relativePath; // Store relative path for iframe
-    repertory.pdfName = req.file.originalname;
-    repertory.cloudinaryPdfUrl = ''; // Clear Cloudinary fields
-    repertory.cloudinaryPdfPublicId = '';
-
-    // Extract medicine names and page numbers using AI (page-by-page text extraction)
+    // 1. Run AI extraction of medicine names and page numbers (uses local file path)
     let extractedMappings = {};
     try {
       console.log('🤖 Starting AI extraction of medicine names and page numbers...');
@@ -200,18 +181,44 @@ const uploadPDFFile = async (req, res) => {
       console.error('⚠️ AI extraction failed:', aiError.message);
       console.log('Users can manually map medicine names using the UI');
     }
+
+    // 2. Upload PDF to Cloudinary (this deletes local file after upload)
+    const { uploadPDFToCloudinary, deleteFromCloudinary } = require('../services/uploadService');
+    console.log('☁️ Uploading PDF to Cloudinary...');
+    const cloudinaryResult = await uploadPDFToCloudinary(req.file.path, req.file.originalname);
+    console.log('✅ Cloudinary upload complete:', cloudinaryResult.url);
     
+    // 3. Delete old Cloudinary file if exists
+    if (repertory.cloudinaryPdfPublicId) {
+      console.log('🗑️ Deleting old PDF from Cloudinary...');
+      await deleteFromCloudinary(repertory.cloudinaryPdfPublicId);
+    }
+    // Delete old local file if exists
+    if (repertory.pdfUrl && repertory.pdfUrl.includes('/uploads/')) {
+      const oldFilename = path.basename(repertory.pdfUrl);
+      const oldPath = path.join(__dirname, '../uploads', oldFilename);
+      if (fs.existsSync(oldPath)) {
+        fs.unlinkSync(oldPath);
+      }
+    }
+    
+    // 4. Update repertory with Cloudinary details
+    repertory.pdfUrl = cloudinaryResult.url;
+    repertory.pdfName = req.file.originalname;
+    repertory.cloudinaryPdfUrl = cloudinaryResult.url;
+    repertory.cloudinaryPdfPublicId = cloudinaryResult.publicId;
+
     await repertory.save();
 
     res.json({
       success: true,
       message: extractedMappings && Object.keys(extractedMappings).length > 0
-        ? `PDF uploaded successfully! AI extracted ${Object.keys(extractedMappings).length} medicine mappings. You can edit them in "Map Chapters" mode.`
-        : 'PDF uploaded successfully. Click "Map Chapters" to add medicine names and page numbers.',
+        ? `PDF uploaded successfully to Cloudinary! AI extracted ${Object.keys(extractedMappings).length} medicine mappings. You can edit them in "Map Chapters" mode.`
+        : 'PDF uploaded successfully to Cloudinary. Click "Map Chapters" to add medicine names and page numbers.',
       data: {
-        pdfUrl: relativePath,
+        pdfUrl: cloudinaryResult.url,
         pdfName: req.file.originalname,
-        bytes: req.file.size,
+        bytes: cloudinaryResult.bytes,
         chapterPages: repertory.chapterPages,
         aiExtractedCount: Object.keys(extractedMappings).length
       }

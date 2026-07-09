@@ -26,7 +26,7 @@ const runAnalysisHandler = async (req, res) => {
 
   // Resolve patient
   let resolvedPatientId = null;
-  let resolvedPatientName = patientName || 'Anonymous';
+  let resolvedPatientName = patientName || 'Patient';
   if (patientId) {
     const patient = await Patient.findById(patientId);
     if (patient) {

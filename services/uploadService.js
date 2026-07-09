@@ -13,12 +13,11 @@ const uploadPDFToCloudinary = async (filePath, originalName) => {
     const timestamp = Date.now();
     const sanitizedName = originalName.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9-_]/g, '_');
     
-    const result = await cloudinary.uploader.upload(filePath, {
+    const result = await cloudinary.uploader.upload_large(filePath, {
       folder: 'homeo-repertory-pdfs',
       resource_type: 'raw',
       public_id: `${timestamp}-${sanitizedName}`,
       // Optimizations for faster upload
-      upload_preset: undefined, // Use default
       chunk_size: 6000000, // 6MB chunks for faster upload
       timeout: 600000, // 10 minute timeout
     });
