@@ -9,21 +9,22 @@ const path = require('path');
  * @returns {Promise<object>} Upload result with URL and public_id
  */
 const uploadPDFToCloudinary = async (filePath, originalName) => {
+  console.log(`☁️ uploadPDFToCloudinary start: filePath=${filePath}, exists=${fs.existsSync(filePath)}`);
   try {
     const timestamp = Date.now();
     const sanitizedName = originalName.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9-_]/g, '_');
     
-    const result = await cloudinary.uploader.upload_large(filePath, {
+    const result = await cloudinary.uploader.upload(filePath, {
       folder: 'homeo-repertory-pdfs',
       resource_type: 'raw',
       public_id: `${timestamp}-${sanitizedName}`,
-      // Optimizations for faster upload
-      chunk_size: 6000000, // 6MB chunks for faster upload
-      timeout: 600000, // 10 minute timeout
     });
+
+    console.log(`☁️ Cloudinary upload success. URL: ${result.secure_url}`);
 
     // Delete local file after successful upload
     if (fs.existsSync(filePath)) {
+      console.log(`🗑️ Cleaning up local temporary file: ${filePath}`);
       fs.unlinkSync(filePath);
     }
 

@@ -156,13 +156,26 @@ const deleteRepertory = async (req, res) => {
   res.json({ success: true, message: 'Repertory and its rubrics deleted' });
 };
 
-// POST /api/repertories/:id/upload-pdf
 const uploadPDFFile = async (req, res) => {
   const repertory = await Repertory.findById(req.params.id);
   if (!repertory) { res.status(404); throw new Error('Repertory not found'); }
   if (!req.file) { res.status(400); throw new Error('No PDF file uploaded'); }
 
+  console.log(`📁 uploadPDFFile triggered: id=${req.params.id}, file=${req.file ? JSON.stringify({
+    fieldname: req.file.fieldname,
+    originalname: req.file.originalname,
+    filename: req.file.filename,
+    path: req.file.path,
+    size: req.file.size
+  }) : 'undefined'}`);
+
   try {
+    if (req.file && !fs.existsSync(req.file.path)) {
+      console.error(`❌ ERROR: Multer reported file path ${req.file.path} but file does not exist on disk!`);
+    } else if (req.file) {
+      console.log(`✅ Verified file exists on disk: ${req.file.path}`);
+    }
+
     // 1. Run AI extraction of medicine names and page numbers (uses local file path)
     let extractedMappings = {};
     try {
