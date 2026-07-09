@@ -8,7 +8,7 @@ const {
   deleteDoctor,
   getDoctorStats
 } = require('../controllers/doctorController');
-const { protect } = require('../middleware/auth');
+const { authenticate } = require('../middleware/auth');
 
 // Public routes (or add protect middleware if you want authentication)
 router.get('/', getDoctors);
@@ -16,8 +16,8 @@ router.get('/stats', getDoctorStats);
 router.get('/:id', getDoctor);
 
 // Protected routes (require authentication)
-router.post('/', createDoctor);
-router.put('/:id', updateDoctor);
-router.delete('/:id', deleteDoctor);
+router.post('/', authenticate, createDoctor);
+router.put('/:id', authenticate, updateDoctor);
+router.delete('/:id', authenticate, deleteDoctor);
 
 module.exports = router;
