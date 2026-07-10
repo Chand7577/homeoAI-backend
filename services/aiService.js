@@ -153,7 +153,7 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
         const matches = await Rubric.find(
           { repertoryId, $text: { $search: textQuery } },
           { score: { $meta: 'textScore' } }
-        ).sort({ score: { $meta: 'textScore' } }).limit(60).lean();
+        ).sort({ score: { $meta: 'textScore' } }).limit(15).lean();
 
         matches.forEach(m => { symptomCandidates.set(m._id.toString(), m); });
       } catch (e) {
@@ -234,10 +234,10 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
     symptomCandidates.forEach((m, id) => { candidateMap.set(id, m); });
   }
 
-  // Fallback: If no candidate matched, get first 150 rubrics so AI has options
+  // Fallback: If no candidate matched, get first 30 rubrics so AI has options
   if (candidateMap.size === 0) {
     try {
-      const fallback = await Rubric.find({ repertoryId }).limit(150).lean();
+      const fallback = await Rubric.find({ repertoryId }).limit(30).lean();
       fallback.forEach(m => {
         candidateMap.set(m._id.toString(), m);
       });
