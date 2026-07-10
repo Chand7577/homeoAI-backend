@@ -195,51 +195,106 @@ const uploadPDFFile = async (req, res) => {
       console.log('Users can manually map medicine names using the UI');
     }
 
-    // 2. Upload PDF to Cloudinary (this deletes local file after upload)
-    const { uploadPDFToCloudinary, deleteFromCloudinary } = require('../services/uploadService');
-    console.log('☁️ Uploading PDF to Cloudinary...');
-    const cloudinaryResult = await uploadPDFToCloudinary(req.file.path, req.file.originalname);
-    console.log('✅ Cloudinary upload complete:', cloudinaryResult.url);
+    // 2. Decide storage strategy based on file size (Cloudinary free tier limit is 10MB)
+    const MAX_CLOUDINARY_SIZE = 10 * 1024 * 1024; // 10MB
+    const useLocal = req.file.size >= MAX_CLOUDINARY_SIZE;
     
-    // 3. Delete old Cloudinary file if exists
-    if (repertory.cloudinaryPdfPublicId) {
-      console.log('🗑️ Deleting old PDF from Cloudinary...');
-      await deleteFromCloudinary(repertory.cloudinaryPdfPublicId);
+    let pdfUrl = '';
+    let isCloudinary = false;
+    let cloudinaryResult = null;
+
+    if (useLocal) {
+      console.log(`💾 File size (${(req.file.size / 1024 / 1024).toFixed(2)} MB) exceeds Cloudinary 10MB limit. Storing locally on the server.`);
+      pdfUrl = `/uploads/${req.file.filename}`;
+    } else {
+      try {
+        const { uploadPDFToCloudinary } = require('../services/uploadService');
+        console.log('☁️ Uploading PDF to Cloudinary...');
+        cloudinaryResult = await uploadPDFToCloudinary(req.file.path, req.file.originalname);
+        console.log('✅ Cloudinary upload complete:', cloudinaryResult.url);
+        pdfUrl = cloudinaryResult.url;
+        isCloudinary = true;
+      } catch (cloudinaryError) {
+        console.error('⚠️ Cloudinary upload failed, falling back to local server storage:', cloudinaryError.message);
+        pdfUrl = `/uploads/${req.file.filename}`;
+      }
     }
-    // Delete old local file if exists
-    if (repertory.pdfUrl && repertory.pdfUrl.includes('/uploads/')) {
-      const oldFilename = path.basename(repertory.pdfUrl);
-      const oldPath = path.join(__dirname, '../uploads', oldFilename);
-      if (fs.existsSync(oldPath)) {
-        fs.unlinkSync(oldPath);
+
+    // 3. Delete old Cloudinary file if exists and we successfully moved to a new Cloudinary upload
+    const { deleteFromCloudinary } = require('../services/uploadService');
+    if (repertory.cloudinaryPdfPublicId && isCloudinary) {
+      console.log('🗑️ Deleting old PDF from Cloudinary...');
+      try {
+        await deleteFromCloudinary(repertory.cloudinaryPdfPublicId);
+      } catch (delError) {
+        console.error('Failed to delete old Cloudinary PDF:', delError.message);
       }
     }
     
-    // 4. Update repertory with Cloudinary details
-    repertory.pdfUrl = cloudinaryResult.url;
+    // Delete old local file if exists (and if it is different from the new one)
+    if (repertory.pdfUrl && repertory.pdfUrl.includes('/uploads/')) {
+      const oldFilename = path.basename(repertory.pdfUrl);
+      if (oldFilename !== req.file.filename) {
+        const oldPath = path.join(__dirname, '../uploads', oldFilename);
+        if (fs.existsSync(oldPath)) {
+          console.log(`🗑️ Deleting old local PDF file: ${oldPath}`);
+          try {
+            fs.unlinkSync(oldPath);
+          } catch (delLocalError) {
+            console.error('Failed to delete old local PDF:', delLocalError.message);
+          }
+        }
+      }
+    }
+    
+    // 4. Update repertory details
+    repertory.pdfUrl = pdfUrl;
     repertory.pdfName = req.file.originalname;
-    repertory.cloudinaryPdfUrl = cloudinaryResult.url;
-    repertory.cloudinaryPdfPublicId = cloudinaryResult.publicId;
+    
+    if (isCloudinary && cloudinaryResult) {
+      repertory.cloudinaryPdfUrl = cloudinaryResult.url;
+      repertory.cloudinaryPdfPublicId = cloudinaryResult.publicId;
+    } else {
+      // Clear Cloudinary fields if we are storing locally
+      repertory.cloudinaryPdfUrl = undefined;
+      repertory.cloudinaryPdfPublicId = undefined;
+    }
 
     await repertory.save();
 
+    const storageMessage = isCloudinary 
+      ? 'PDF uploaded successfully to Cloudinary!'
+      : `PDF saved successfully to server local storage (${(req.file.size / 1024 / 1024).toFixed(2)} MB, bypassed Cloudinary limit).`;
+
+    const aiMessage = extractedMappings && Object.keys(extractedMappings).length > 0
+      ? ` AI extracted ${Object.keys(extractedMappings).length} medicine mappings. You can edit them in "Map Chapters" mode.`
+      : ' Click "Map Chapters" to add medicine names and page numbers.';
+
     res.json({
       success: true,
-      message: extractedMappings && Object.keys(extractedMappings).length > 0
-        ? `PDF uploaded successfully to Cloudinary! AI extracted ${Object.keys(extractedMappings).length} medicine mappings. You can edit them in "Map Chapters" mode.`
-        : 'PDF uploaded successfully to Cloudinary. Click "Map Chapters" to add medicine names and page numbers.',
+      message: storageMessage + aiMessage,
       data: {
-        pdfUrl: cloudinaryResult.url,
+        pdfUrl: pdfUrl,
         pdfName: req.file.originalname,
-        bytes: cloudinaryResult.bytes,
+        bytes: req.file.size,
         chapterPages: repertory.chapterPages,
-        aiExtractedCount: Object.keys(extractedMappings).length
+        aiExtractedCount: Object.keys(extractedMappings).length,
+        isStoredLocally: !isCloudinary
       }
     });
   } catch (error) {
-    // Clean up local file if it still exists
-    if (req.file.path && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
+    // Clean up local file if we intended to upload to Cloudinary but failed before/during that,
+    // and if we are not using the local file.
+    // If it's a local save, the file MUST remain in req.file.path.
+    if (error && req.file && req.file.path && fs.existsSync(req.file.path)) {
+      // We only delete if it wasn't successfully saved as the active local PDF
+      if (repertory.pdfUrl !== `/uploads/${req.file.filename}`) {
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch (cleanupError) {
+          console.error('Failed to clean up file after error:', cleanupError.message);
+        }
+      }
     }
     throw error;
   }
