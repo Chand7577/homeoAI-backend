@@ -537,12 +537,110 @@ const extractChaptersFromPdf = async (filePath, fileName) => {
     return {};
   }
 
-  // Safety check: Skip parsing large files on restricted server environments to prevent Out Of Memory crashes
+  // ── STRATEGY 1: Extract bookmarks/outline from the PDF (fast, zero RAM, works on any size) ──
+  try {
+    const { PDFDocument, PDFName, PDFDict, PDFRef, PDFArray } = require('pdf-lib');
+    console.log('🔖 Attempting to extract bookmarks from PDF outline...');
+    const pdfBytes = fs.readFileSync(filePath);
+    const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+
+    const numPages = pdfDoc.getPageCount();
+    const pages = pdfDoc.getPages();
+    const pageRefsMap = new Map();
+    for (let i = 0; i < numPages; i++) {
+      const page = pages[i];
+      if (page.ref) pageRefsMap.set(page.ref.toString(), i);
+    }
+
+    const catalog = pdfDoc.catalog;
+    const outlinesRef = catalog.get(PDFName.of('Outlines'));
+
+    if (outlinesRef) {
+      const outlines = pdfDoc.context.lookup(outlinesRef);
+      if (outlines instanceof PDFDict) {
+        const bookmarks = [];
+        const bodySystemSections = new Set([
+          'mind', 'head', 'eyes', 'ears', 'nose', 'face', 'mouth', 'throat',
+          'stomach', 'abdomen', 'rectum', 'chest', 'back', 'extremities',
+          'skin', 'sleep', 'fever', 'generalities', 'modalities', 'relationship', 'dose',
+          'common names', 'urinary system', 'male sexual system', 'female sexual system',
+          'locomotor system', 'respiratory system', 'circulatory system', 'nervous system',
+          'digestive system', 'materia medica', 'repertory', 'index', 'contents', 'preface'
+        ]);
+
+        function traverseOutlineItem(itemRef) {
+          if (!itemRef) return;
+          const item = pdfDoc.context.lookup(itemRef);
+          if (!(item instanceof PDFDict)) return;
+
+          const titleObj = item.get(PDFName.of('Title'));
+          let title = '';
+          if (titleObj) {
+            title = titleObj.decodeText ? titleObj.decodeText() : titleObj.toString();
+          }
+
+          let destRef = null;
+          const dest = item.get(PDFName.of('Dest'));
+          const a = item.get(PDFName.of('A'));
+
+          if (dest) {
+            const resolvedDest = pdfDoc.context.lookup(dest);
+            if (resolvedDest instanceof PDFArray) destRef = resolvedDest.get(0);
+          } else if (a) {
+            const action = pdfDoc.context.lookup(a);
+            if (action instanceof PDFDict) {
+              const sObj = action.get(PDFName.of('S'));
+              if (sObj && sObj.toString() === '/GoTo') {
+                const dObj = action.get(PDFName.of('D'));
+                if (dObj) {
+                  const resolvedD = pdfDoc.context.lookup(dObj);
+                  if (resolvedD instanceof PDFArray) destRef = resolvedD.get(0);
+                }
+              }
+            }
+          }
+
+          if (destRef instanceof PDFRef) {
+            const pageIdx = pageRefsMap.get(destRef.toString());
+            const titleTrimmed = title.trim();
+            const titleLower = titleTrimmed.toLowerCase();
+            if (pageIdx !== undefined && titleTrimmed && !bodySystemSections.has(titleLower)) {
+              bookmarks.push({ name: titleTrimmed, page: pageIdx + 1 });
+            }
+          }
+
+          const firstRef = item.get(PDFName.of('First'));
+          if (firstRef) traverseOutlineItem(firstRef);
+          const nextRef = item.get(PDFName.of('Next'));
+          if (nextRef) traverseOutlineItem(nextRef);
+        }
+
+        const firstRef = outlines.get(PDFName.of('First'));
+        if (firstRef) traverseOutlineItem(firstRef);
+
+        if (bookmarks.length > 10) {
+          const mapping = {};
+          bookmarks.forEach(b => { mapping[b.name] = b.page; });
+          console.log(`✅ Extracted ${bookmarks.length} medicine bookmarks from PDF outline. Skipping AI.`);
+          return mapping;
+        } else {
+          console.log(`⚠️ Only ${bookmarks.length} bookmarks found in outline. Falling back to AI text parsing.`);
+        }
+      }
+    } else {
+      console.log('ℹ️ No outline/bookmarks in PDF. Falling back to AI text parsing.');
+    }
+  } catch (bookmarkErr) {
+    console.warn('⚠️ PDF bookmark extraction failed, falling back to AI:', bookmarkErr.message);
+  }
+
+  // ── STRATEGY 2: AI text-based extraction (requires text-based PDF, uses more memory) ──
+  // Skip if PDF is too large to avoid OOM on restricted servers
   try {
     const stats = fs.statSync(filePath);
     const sizeInMB = stats.size / (1024 * 1024);
     if (sizeInMB > 15) {
-      console.warn(`⚠️ PDF file is large (${sizeInMB.toFixed(2)} MB). Skipping AI parsing to prevent server memory crashes.`);
+      console.warn(`⚠️ PDF is large (${sizeInMB.toFixed(2)} MB). No bookmarks found and AI text parsing skipped to prevent memory crash.`);
       console.log('💡 Doctors can manually map medicine names using the UI.');
       return {};
     }
@@ -550,32 +648,24 @@ const extractChaptersFromPdf = async (filePath, fileName) => {
     console.warn('⚠️ Could not check PDF file size:', err.message);
   }
 
-  console.log('📄 Parsing PDF structure...');
-  
+
+  console.log('📄 Parsing PDF text for AI extraction...');
   const pdfParse = require('pdf-parse');
   const pdfBuffer = fs.readFileSync(filePath);
-  
-  // Get full PDF data with proper options
-  const pdfData = await pdfParse(pdfBuffer, {
-    // No max limit - parse entire PDF
-    max: 0
-  });
+  const pdfData = await pdfParse(pdfBuffer, { max: 0 });
   const totalPages = pdfData.numpages;
   const fullText = pdfData.text;
-  
+
   console.log(`📚 PDF has ${totalPages} pages, ${fullText.length} characters`);
-  
-  // If text extraction failed (very small text), warn and skip
+
   if (fullText.length < 10000) {
     console.warn('⚠️ PDF text extraction yielded very little text. PDF may be image-based or encrypted.');
     console.log('💡 Manual mapping recommended for accuracy.');
     return {};
   }
-  
-  // Split text into lines and identify page breaks
-  // pdf-parse doesn't give us page-by-page, so we'll use form feeds and heuristics
+
   const lines = fullText.split('\n');
-  
+
   // Build a simplified representation: find medicine names (ALL CAPS lines) and their approximate positions
   const medicineMatches = [];
   const medicinePattern = /^[A-Z][A-Z\s\-\.]{3,50}$/; // Match ALL CAPS words 4-50 chars
