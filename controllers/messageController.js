@@ -95,10 +95,66 @@ const deleteMessage = async (req, res) => {
   res.json({ success: true, message: 'Message deleted successfully' });
 };
 
+// Share prescription to patient's chat inbox
+const sharePrescription = async (req, res) => {
+  try {
+    const { prescriptionId, patientId, doctorId, prescriptionData } = req.body;
+    
+    if (!patientId || !doctorId) {
+      res.status(400);
+      throw new Error('Patient ID and Doctor ID are required');
+    }
+    
+    // Generate roomId (consistent format: smaller_larger)
+    const roomId = [doctorId, patientId].sort().join('_');
+    
+    // Format prescription message
+    const medicines = prescriptionData.medicines?.map((m, idx) => 
+      `${idx + 1}. ${m.name} ${m.potency} - ${m.quantity} ${m.form} ${m.frequency} ${m.meal}`
+    ).join('\n') || prescriptionData.remedy || '';
+    
+    const messageText = `📋 Dr. ${prescriptionData.doctorName || 'Nautiyal'} sent you a prescription\n\n` +
+      `👤 Patient: ${prescriptionData.patientName}\n` +
+      `📅 Date: ${new Date(prescriptionData.prescribedAt || prescriptionData.createdAt).toLocaleDateString()}\n\n` +
+      `💊 Medicines:\n${medicines}\n\n` +
+      `⏱️ Duration: ${prescriptionData.duration || '—'}`;
+    
+    // Create message in database
+    const message = await Message.create({
+      senderId: doctorId,
+      receiverId: patientId,
+      text: messageText,
+      roomId,
+      attachmentType: 'prescription',
+      attachmentUrl: prescriptionId || null,
+      attachmentName: `Prescription - ${prescriptionData.patientName}`,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    });
+    
+    // TODO: Emit socket event to notify patient in real-time
+    // if (req.app.get('io')) {
+    //   req.app.get('io').to(roomId).emit('new-message', message);
+    // }
+    
+    res.status(201).json({ 
+      success: true, 
+      data: message,
+      message: 'Prescription shared successfully'
+    });
+  } catch (error) {
+    console.error('Error sharing prescription:', error);
+    res.status(res.statusCode === 200 ? 500 : res.statusCode).json({
+      success: false,
+      message: error.message || 'Failed to share prescription'
+    });
+  }
+};
+
 module.exports = {
   getMessagesByRoom,
   createMessage,
   uploadAttachment,
   uploadAttachmentFile,
-  deleteMessage
+  deleteMessage,
+  sharePrescription
 };
