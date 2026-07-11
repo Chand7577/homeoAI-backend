@@ -34,6 +34,25 @@ const createPrescription = async (req, res) => {
     throw new Error('patientName and at least one medicine are required');
   }
 
+  // 🔍 AUTO-LOOKUP: Try to find registered patient by phone number
+  let resolvedPatientId = patientId || null;
+  if (!resolvedPatientId && patientContact) {
+    // Clean phone number (remove spaces, dashes, etc.)
+    const cleanContact = patientContact.replace(/[\s\-()]/g, '');
+    
+    // Search User model for registered patient with this phone
+    const registeredPatient = await User.findOne({ 
+      phone: { $regex: cleanContact, $options: 'i' },
+      role: 'Patient',
+      status: 'Approved'
+    }).select('_id');
+    
+    if (registeredPatient) {
+      resolvedPatientId = registeredPatient._id;
+      console.log(`✅ Auto-linked prescription to registered patient: ${resolvedPatientId}`);
+    }
+  }
+
   // Build a flat "remedy" string from medicines[] for backward compat display
   const remedySummary = medicines && medicines.length
     ? medicines.map(m => {
@@ -53,7 +72,7 @@ const createPrescription = async (req, res) => {
     : (duration || '');
 
   const prescription = await Prescription.create({
-    patientId:      patientId || null,
+    patientId:      resolvedPatientId,
     patientName:    patientName.trim(),
     patientAge,
     patientGender,
@@ -83,9 +102,12 @@ const createPrescription = async (req, res) => {
   });
 
   // Link to patient record
-  if (patientId) {
-    await Patient.findByIdAndUpdate(patientId, {
+  if (resolvedPatientId) {
+    await Patient.findByIdAndUpdate(resolvedPatientId, {
       $push: { prescriptions: prescription._id },
+    }).catch(() => {
+      // Patient record might not exist in Patient model, that's okay
+      console.log('Patient record not found in Patient model, skipping link');
     });
   }
 
