@@ -14,6 +14,7 @@ const MedicineLineSchema = new mongoose.Schema({
   frequency: { type: String, default: 'BD' },      // OD | BD | TDS | QID | SOS
   meal:      { type: String, default: 'BM' },      // BM | AM | DM
   water:     { type: String, default: '' },        // 1/4 | 1/2 | full  (mother tincture only)
+  teaspoons: { type: String, default: '' },        // 1tsp | 2tsp | 3tsp (for liquid medicines)
 }, { _id: false });
 
 // ── Main Prescription schema ──────────────────────────────────────────────────
