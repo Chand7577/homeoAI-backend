@@ -66,10 +66,10 @@ const createPrescription = async (req, res) => {
     ? medicines.map(m => `${m.quantity} ${m.form} ${m.frequency} ${m.meal}`).join('; ')
     : (dosage || '');
 
-  // Duration string
-  const durationStr = durationValue && durationUnit
-    ? `${durationValue} ${durationUnit}`
-    : (duration || '');
+  // Duration string - prefer the full duration string from frontend
+  const durationStr = duration && duration.trim()
+    ? duration  // Use the full "7 days, 2 weeks, 1 month" string
+    : (durationValue && durationUnit ? `${durationValue} ${durationUnit}` : '—');
 
   const prescription = await Prescription.create({
     patientId:      resolvedPatientId,
