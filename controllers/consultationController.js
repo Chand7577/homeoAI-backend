@@ -136,16 +136,14 @@ exports.createConsultation = async (req, res) => {
         assignedDoctorId: consultation.assignedDoctorId.toString(),
         assignedDoctorName: consultation.assignedDoctorName,
         symptoms: [consultation.symptomsDescription],
-        fullSymptomText: `[${consultation.mainConcern}] Severity: ${consultation.severity}, Duration: ${consultation.duration}\n${consultation.symptomsDescription}`,
+        fullSymptomText: consultation.symptomsDescription,
         status: 'Pending',
         submittedAt: consultation.submittedAt.toISOString(),
         language: consultation.language
       };
 
-      // Emit to all doctors (they can filter by assignedDoctorId)
-      io.emit('new_symptom_submission', notificationData);
-
-      // Also emit to specific doctor room
+      // Emit ONLY to the specific assigned doctor's room (not broadcast to all)
+      io.to(`doctor_${assignedDoctorId}`).emit('new_symptom_submission', notificationData);
       io.to(`doctor_${assignedDoctorId}`).emit('urgent_patient_symptom', notificationData);
     }
 
