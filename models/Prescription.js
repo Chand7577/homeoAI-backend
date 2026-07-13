@@ -24,6 +24,7 @@ const PrescriptionSchema = new mongoose.Schema({
   patientName:    { type: String, required: true },
   patientAge:     { type: Number },
   patientGender:  { type: String },
+  patientWeight:  { type: String, default: '' },
   patientContact: { type: String, default: '' },
 
   // Linked records

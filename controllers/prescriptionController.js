@@ -9,7 +9,7 @@ const User         = require('../models/User');
 const createPrescription = async (req, res) => {
   const {
     // Patient
-    patientId, patientName, patientAge, patientGender, patientContact,
+    patientId, patientName, patientAge, patientGender, patientWeight, patientContact,
     // Analysis link
     analysisId, repertoryName, symptoms,
     // NEW structured medicines array
@@ -76,6 +76,7 @@ const createPrescription = async (req, res) => {
     patientName:    patientName.trim(),
     patientAge,
     patientGender,
+    patientWeight:  patientWeight || '',
     patientContact: patientContact || '',
 
     analysisId:    analysisId || null,
