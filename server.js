@@ -189,6 +189,10 @@ io.on('connection', (socket) => {
 const start = async () => {
   await connectDB();
   initAI();
+  
+  // Make io instance available to routes via app.set
+  app.set('socketio', io);
+  
   server.listen(PORT, () => {
     // Server started (console.log removed for production)
     if (process.env.NODE_ENV !== 'production') {
