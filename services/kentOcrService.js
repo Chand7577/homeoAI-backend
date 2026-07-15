@@ -88,11 +88,11 @@ const extractTextFromImage = async (uploadedFilePath, tempDir) => {
         throw new Error('This PDF appears to be a scanned image (contains no selectable text). Please convert it to a JPG or PNG image first, then upload.');
       }
     } catch (err) {
-      console.error(`[Kent OCR] PDF extraction error:`, err.message);
-      if (err.message.includes('scanned image') || err.message.includes('selectable text')) {
+      console.error(`[Kent OCR] PDF extraction error:`, err);
+      if (err.message && (err.message.includes('scanned image') || err.message.includes('selectable text'))) {
         throw err;
       }
-      throw new Error('Failed to extract text from PDF. If it is a scanned PDF, please convert it to a JPG/PNG and try again.');
+      throw new Error(`Failed to extract text from PDF (${err.message || 'unknown error'}). If it is a scanned PDF, please convert it to a JPG/PNG and try again.`);
     }
   }
 
