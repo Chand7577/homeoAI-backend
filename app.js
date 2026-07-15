@@ -18,6 +18,7 @@ const medicineRoutes     = require('./routes/medicineRoutes');
 const messageRoutes      = require('./routes/messageRoutes');
 const doctorRoutes       = require('./routes/doctorRoutes');
 const consultationRoutes = require('./routes/consultationRoutes');
+const kentOcrRoutes      = require('./routes/kentOcrRoutes');
 
 const app = express();
 
@@ -120,6 +121,7 @@ app.use('/api/medicines',     medicineRoutes);
 app.use('/api/messages',      messageRoutes);
 app.use('/api/doctors',       doctorRoutes);
 app.use('/api/consultations', consultationRoutes);
+app.use('/api/kent-ocr',      kentOcrRoutes);
 
 // 404 handler
 app.use((req, res) => {
