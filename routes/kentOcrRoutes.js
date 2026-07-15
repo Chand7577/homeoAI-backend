@@ -29,12 +29,12 @@ const upload = multer({
   storage: storage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
   fileFilter: (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|pdf/i;
+    const allowedTypes = /jpeg|jpg|png/i;
     const ext = path.extname(file.originalname).toLowerCase();
     if (allowedTypes.test(ext) || allowedTypes.test(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Only JPG, PNG, and PDF files are allowed.'));
+      cb(new Error('Only JPG and PNG image files are supported. Scanned PDFs must be converted to images first.'));
     }
   }
 });
