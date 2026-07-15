@@ -74,7 +74,8 @@ const extractTextFromImage = async (uploadedFilePath, tempDir) => {
   if (ext === '.pdf') {
     console.log(`[Kent OCR] Input is a PDF. Attempting direct text extraction...`);
     try {
-      const pdfParse = require('pdf-parse');
+      // Use direct lib path — pdf-parse's index.js is sometimes missing on deploy envs
+      const pdfParse = require('pdf-parse/lib/pdf-parse.js');
       const pdfBuffer = fs.readFileSync(uploadedFilePath);
       const pdfData = await pdfParse(pdfBuffer);
 
