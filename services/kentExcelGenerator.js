@@ -53,7 +53,7 @@ const generateKentExcel = async (data, outputDir) => {
     fs.mkdirSync(outputDir, { recursive: true });
   }
 
-  const fileName = \`kent_extracted_\${Date.now()}.xlsx\`;
+  const fileName = `kent_extracted_${Date.now()}.xlsx`;
   const filePath = path.join(outputDir, fileName);
 
   await workbook.xlsx.writeFile(filePath);
