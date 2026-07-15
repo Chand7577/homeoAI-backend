@@ -71,7 +71,7 @@ router.post('/upload', upload.single('page'), async (req, res, next) => {
     const excelFilePath = await generateKentExcel(structuredData, sessionDir);
     
     // Create a relative URL for download
-    const relativeUrl = \`/uploads/temp_kent/\${sessionId}/\${path.basename(excelFilePath)}\`;
+    const relativeUrl = `/uploads/temp_kent/${sessionId}/${path.basename(excelFilePath)}`;
 
     res.status(200).json({
       success: true,
