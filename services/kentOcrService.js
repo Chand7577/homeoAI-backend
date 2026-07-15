@@ -62,13 +62,41 @@ const runOCR = async (imagePath) => {
 };
 
 /**
- * Full pipeline: preprocess → OCR.
+ * Full pipeline: preprocess → OCR (or direct text extraction for PDFs).
  *
  * @param {string} uploadedFilePath  Original upload path
  * @param {string} tempDir           Temp directory for intermediate files
- * @returns {Promise<string>}        Raw OCR text
+ * @returns {Promise<Object>}        { ocrText, processedPath }
  */
 const extractTextFromImage = async (uploadedFilePath, tempDir) => {
+  const ext = path.extname(uploadedFilePath).toLowerCase();
+
+  if (ext === '.pdf') {
+    console.log(`[Kent OCR] Input is a PDF. Attempting direct text extraction...`);
+    try {
+      const pdfParse = require('pdf-parse');
+      const pdfBuffer = fs.readFileSync(uploadedFilePath);
+      const pdfData = await pdfParse(pdfBuffer);
+
+      const ocrText = pdfData.text || '';
+
+      if (ocrText.trim().length > 30) {
+        console.log(`[Kent OCR] Successfully extracted ${ocrText.length} characters directly from PDF.`);
+        return { ocrText, processedPath: uploadedFilePath };
+      } else {
+        console.warn(`[Kent OCR] Direct PDF text extraction returned too little text.`);
+        throw new Error('This PDF appears to be a scanned image (contains no selectable text). Please convert it to a JPG or PNG image first, then upload.');
+      }
+    } catch (err) {
+      console.error(`[Kent OCR] PDF extraction error:`, err.message);
+      if (err.message.includes('scanned image') || err.message.includes('selectable text')) {
+        throw err;
+      }
+      throw new Error('Failed to extract text from PDF. If it is a scanned PDF, please convert it to a JPG/PNG and try again.');
+    }
+  }
+
+  // Fallback to image preprocessing & Tesseract OCR for JPG/PNG
   const processedPath = await preprocessImage(uploadedFilePath, tempDir);
   const ocrText       = await runOCR(processedPath);
   return { ocrText, processedPath };
