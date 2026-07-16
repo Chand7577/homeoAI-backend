@@ -1,6 +1,65 @@
 'use strict';
 
-const { getModel, isAIReady } = require('../config/aiConfig');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+
+let geminiClient = null;
+let kentModel = null;
+
+/**
+ * Initialize Gemini specifically for Kent OCR extraction
+ */
+const initKentAI = () => {
+  try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      console.warn('⚠️ GEMINI_API_KEY not found for Kent OCR.');
+      return false;
+    }
+
+    geminiClient = new GoogleGenerativeAI(apiKey);
+    
+    // Try gemini-pro first (more stable model name)
+    kentModel = geminiClient.getGenerativeModel({ 
+      model: 'gemini-pro',
+      generationConfig: {
+        temperature: 0.05,
+        maxOutputTokens: 8000
+      }
+    });
+
+    console.log('✅ Gemini Pro initialized for Kent OCR extraction.');
+    return true;
+  } catch (error) {
+    console.error('❌ Gemini initialization failed for Kent OCR:', error.message);
+    return false;
+  }
+};
+
+/**
+ * Generate content using Gemini for Kent OCR
+ */
+const generateKentContent = async (prompt) => {
+  if (!kentModel) {
+    const success = initKentAI();
+    if (!success) {
+      throw new Error('Gemini is not configured. Please set GEMINI_API_KEY in your .env file.');
+    }
+  }
+
+  try {
+    const result = await kentModel.generateContent({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }]
+    });
+    
+    const response = await result.response;
+    return response.text();
+  } catch (error) {
+    console.error('❌ Gemini generation failed:', error.message);
+    throw error;
+  }
+};
+
+module.exports = { initKentAI, generateKentContent };
 
 /**
  * Process large OCR text in chunks with generous overlap to ensure 80%+ extraction
@@ -107,8 +166,6 @@ const parseInChunks = async (ocrText, chunkSize) => {
  * @returns {Promise<Array>} Parsed rows
  */
 const parseSingleChunk = async (chunkText, chunkNum, totalChunks) => {
-  const model = getModel();
-  
   const prompt = `Extract ALL medicines from Kent's Repertory OCR (chunk ${chunkNum}/${totalChunks}).
 
 CRITICAL: ONE page = ONE chapter. CHAPTER is ONLY at the very top.
@@ -142,56 +199,53 @@ ${chunkText}
 
 Return JSON: {"data": [...]}`;
 
-  const result = await model.generateContent({
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature: 0.05,
-      responseMimeType: 'application/json',
-      maxOutputTokens: 8000 // 70B model has 12k TPM: ~2k prompt + ~1.5k input + 8k output = 11.5k
+  try {
+    const textResponse = await generateKentContent(prompt);
+    let text = textResponse.trim();
+  
+    // Clean up markdown if the AI mistakenly included it
+    if (text.startsWith('```')) {
+      text = text.replace(/^```(json)?/i, '').replace(/```$/, '').trim();
     }
-  });
 
-  let text = result.response.candidates[0].content.parts[0].text.trim();
-  
-  // Clean up markdown if the AI mistakenly included it
-  if (text.startsWith('```')) {
-    text = text.replace(/^```(json)?/i, '').replace(/```$/, '').trim();
-  }
+    const parsedJson = JSON.parse(text);
+    if (!parsedJson.data || !Array.isArray(parsedJson.data)) {
+      throw new Error('AI did not return a valid "data" array as expected.');
+    }
 
-  const parsedJson = JSON.parse(text);
-  if (!parsedJson.data || !Array.isArray(parsedJson.data)) {
-    throw new Error('AI did not return a valid "data" array as expected.');
-  }
-
-  console.log(`[Kent AI Parser] Chunk ${chunkNum}/${totalChunks} returned ${parsedJson.data.length} rows`);
-  
-  // POST-PROCESSING: Expand any rows where medicine field contains multiple medicines
-  const expandedData = [];
-  
-  for (const row of parsedJson.data) {
-    const medicineField = (row.medicine || '').trim();
+    console.log(`[Kent AI Parser] Chunk ${chunkNum}/${totalChunks} returned ${parsedJson.data.length} rows`);
     
-    // Check if medicine field contains comma-separated medicines
-    if (medicineField.includes(',')) {
-      // Split by comma and create separate rows
-      const medicines = medicineField.split(',').map(m => m.trim()).filter(m => m.length > 0);
+    // POST-PROCESSING: Expand any rows where medicine field contains multiple medicines
+    const expandedData = [];
+    
+    for (const row of parsedJson.data) {
+      const medicineField = (row.medicine || '').trim();
       
-      for (const med of medicines) {
+      // Check if medicine field contains comma-separated medicines
+      if (medicineField.includes(',')) {
+        // Split by comma and create separate rows
+        const medicines = medicineField.split(',').map(m => m.trim()).filter(m => m.length > 0);
+        
+        for (const med of medicines) {
+          expandedData.push({
+            ...row,
+            medicine: med.replace(/\.$/, '') // Remove trailing period
+          });
+        }
+      } else if (medicineField.length > 0) {
+        // Single medicine, keep as is
         expandedData.push({
           ...row,
-          medicine: med.replace(/\.$/, '') // Remove trailing period
+          medicine: medicineField.replace(/\.$/, '') // Remove trailing period
         });
       }
-    } else if (medicineField.length > 0) {
-      // Single medicine, keep as is
-      expandedData.push({
-        ...row,
-        medicine: medicineField.replace(/\.$/, '') // Remove trailing period
-      });
     }
+    
+    return expandedData;
+  } catch (error) {
+    console.error(`❌ Gemini parsing failed for chunk ${chunkNum}:`, error.message);
+    throw error;
   }
-  
-  return expandedData;
 };
 
 /**
@@ -202,9 +256,8 @@ Return JSON: {"data": [...]}`;
  * @returns {Promise<Array>} Parsed rows
  */
 const parseOcrToStructuredJson = async (ocrText) => {
-  if (!isAIReady()) {
-    throw new Error('AI is not configured. Please set the GROQ_API_KEY in your .env file.');
-  }
+  // Initialize Gemini if not already done
+  initKentAI();
 
   // Log original text length for debugging
   console.log(`[Kent AI Parser] OCR text length: ${ocrText.length} characters`);
