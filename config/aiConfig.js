@@ -32,7 +32,7 @@ class GroqModelAdapter {
       response_format: generationConfig?.responseMimeType === 'application/json'
         ? { type: 'json_object' }
         : undefined,
-      max_tokens: 4096,
+      max_tokens: generationConfig?.maxOutputTokens || 8000, // Use config value or default to 8000
     });
 
     const text = completion.choices[0]?.message?.content || '';
