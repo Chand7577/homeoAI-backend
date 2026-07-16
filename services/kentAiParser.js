@@ -109,36 +109,38 @@ const parseInChunks = async (ocrText, chunkSize) => {
 const parseSingleChunk = async (chunkText, chunkNum, totalChunks) => {
   const model = getModel();
   
-  const prompt = `Extract ALL medicines from Kent's Repertory OCR text (chunk ${chunkNum}/${totalChunks}).
+  const prompt = `Extract ALL medicines from Kent's Repertory OCR (chunk ${chunkNum}/${totalChunks}).
+
+CRITICAL: ONE page = ONE chapter. CHAPTER is ONLY at the very top.
+Example: If "VERTIGO." is at top, then ALL rubrics below use VERTIGO as chapter.
 
 STRUCTURE:
-- CHAPTER: ALL CAPS at top (VERTIGO, MIND, HEAD)
-- RUBRICS: BOLD CAPS (SITTING, STANDING, STAGGERING)
-- Sub-rubrics: lowercase with colon (while:, from:, amel.:)
-- Medicines: comma-separated list after rubric
+- CHAPTER (top of page only): VERTIGO., MIND., HEAD.
+- RUBRICS (everything else): ROCKING, SITTING, SLEEP, STANDING, STAGGERING  
+- Sub-rubrics: while:, from:, amel.:, during:, on going to:
+- Medicines: comma-separated
 
-GRADING: ALL CAPS=3, Mixed case=2, lowercase=1
+EXAMPLES:
+Page top says "VERTIGO." →
+- "SLEEP, on going to: Arg-n" → rubric_en: "VERTIGO - SLEEP - on going to", medicine: "Arg-n"
+- "STANDING, while: Acon" → rubric_en: "VERTIGO - STANDING - while", medicine: "Acon"
+- "SITTING, while: bell" → rubric_en: "VERTIGO - SITTING - while", medicine: "bell"
 
-OUTPUT: One JSON object per medicine.
-{
-  "chapter_en": "VERTIGO",
-  "chapter_hi": "",
-  "rubric_en": "VERTIGO - SITTING - while",
-  "rubric_hi": "",
-  "medicine": "bell",
-  "grading": 1
-}
+SLEEP is a RUBRIC under VERTIGO, NOT a new chapter!
 
 RULES:
-1. Prefix rubric with CHAPTER name
-2. ONE ROW per medicine (if 50 medicines, output 50 objects)
-3. Remove trailing periods from medicine names
-4. Extract ALL medicines in list, not just first 20
+1. Find chapter at top ONCE, use for ALL rows
+2. ALL BOLD CAPS words below = rubrics under that chapter
+3. ONE ROW per medicine (50 medicines = 50 objects)
+4. Remove periods from medicine names
+5. Extract ALL medicines
+
+OUTPUT: {"chapter_en": "VERTIGO", "chapter_hi": "", "rubric_en": "VERTIGO - SLEEP - during", "rubric_hi": "", "medicine": "Eth", "grading": 1}
 
 OCR TEXT:
 ${chunkText}
 
-Return JSON only: {"data": [...]}`;
+Return JSON: {"data": [...]}`;
 
   const result = await model.generateContent({
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
