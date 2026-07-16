@@ -22,13 +22,13 @@ const parseOcrToStructuredJson = async (ocrText) => {
   const prompt = `You are an expert homeopathic repertory data extraction assistant specializing in Kent's Repertory.
 I will provide you with raw OCR text from a single page of Kent's Repertory. The page may be from any chapter (e.g., VERTIGO, MIND, HEAD, etc.).
 
-Your task is to extract EVERY rubric, sub-rubric, and each individual medicine listed under them.
+Your task is to extract EVERY rubric, sub-rubric, and **EACH INDIVIDUAL MEDICINE** listed under them.
 
 --- KENT'S REPERTORY PAGE STRUCTURE ---
 - The CHAPTER name is usually at the very top of the page in ALL CAPS (e.g., "VERTIGO.", "MIND.", "HEAD.").
 - MAIN RUBRICS are in BOLD ALL CAPS (e.g., "ROCKING", "SITTING", "SLEEP").
 - SUB-RUBRICS are indented qualifiers (e.g., "from:", "amel.:", "as if:", "while:", "on going to:", "during:", "after:", "bed, up in:", "eating before:", "high, as if too:", etc.)
-- MEDICINES are listed after the rubric/sub-rubric, separated by commas.
+- MEDICINES are listed after the rubric/sub-rubric, separated by commas or semicolons.
 - Medicine GRADING:
   * Grade 3 (highest) = ALL CAPS medicine name (e.g., "ACON", "PHOS", "NUX-V")
   * Grade 2 (medium)  = Italicised medicine name — in OCR output often appears with slightly different casing or surrounded by styling markers
@@ -36,11 +36,14 @@ Your task is to extract EVERY rubric, sub-rubric, and each individual medicine l
   * IMPORTANT: If a word is ALL CAPS → Grade 3. If mixed/title case but not all caps → Grade 2. If lowercase → Grade 1. When uncertain → Grade 1.
 
 --- REQUIRED OUTPUT SCHEMA ---
-For EACH medicine under EACH rubric/sub-rubric, output ONE JSON object:
+For EACH MEDICINE under EACH rubric/sub-rubric, output ONE JSON object.
+
+**CRITICAL**: If a rubric has 50 medicines, you MUST output 50 separate JSON objects - one for each medicine.
+
 {
   "chapter_en": "The chapter name (e.g., 'VERTIGO', 'MIND', 'HEAD')",
   "chapter_hi": "Hindi chapter name if present, else empty string",
-  "rubric_en": "Full rubric path using ' - ' as separator (e.g., 'VERTIGO - SITTING - bed, up in')",
+  "rubric_en": "Full rubric path using ' - ' as separator (e.g., 'VERTIGO - SITTING - while')",
   "rubric_hi": "Hindi rubric translation if present in text, else empty string",
   "medicine": "Medicine abbreviation exactly as it appears, without trailing period (e.g., 'bell', 'Acon', 'PHOS', 'carb-an')",
   "grading": 1
@@ -52,11 +55,27 @@ For EACH medicine under EACH rubric/sub-rubric, output ONE JSON object:
    - "ROCKING" → rubric_en = "VERTIGO - ROCKING"
    - "   from: Bor., coff." → rubric_en = "VERTIGO - ROCKING - from"
    - "   amel.: Secale." → rubric_en = "VERTIGO - ROCKING - amel"
-3. Create a SEPARATE object for EACH medicine. If "ROCKING" has 5 medicines, output 5 objects.
-4. Do NOT merge medicines into a single object. One medicine = one row.
-5. Remove trailing periods from medicine names: "bell." → "bell", "Phos." → "Phos".
-6. Skip page numbers, headers, footers, or any non-medicinal text.
-7. If a line has no medicines (e.g., cross-references like "See Alcoholic"), skip it.
+3. **EXPAND EVERY MEDICINE INTO A SEPARATE ROW**. This is the MOST IMPORTANT rule.
+   Example: "SITTING, while: bell., calc., phos." should produce 3 rows:
+   - { "rubric_en": "VERTIGO - SITTING - while", "medicine": "bell", "grading": 1 }
+   - { "rubric_en": "VERTIGO - SITTING - while", "medicine": "calc", "grading": 1 }
+   - { "rubric_en": "VERTIGO - SITTING - while", "medicine": "phos", "grading": 1 }
+4. Remove trailing periods from medicine names: "bell." → "bell", "Phos." → "Phos".
+5. Skip page numbers, headers, footers, or any non-medicinal text.
+6. If a line has no medicines (e.g., cross-references like "See Alcoholic"), skip it.
+7. Medicine lists are usually comma-separated. Parse EACH medicine individually.
+8. A single rubric line can have 50+ medicines - create ONE ROW for EACH medicine.
+
+--- EXAMPLE INPUT ---
+"SITTING, while: Æth., aloe, alum., bell., calc., PHOS."
+
+--- EXAMPLE OUTPUT (6 separate objects, one per medicine) ---
+{ "chapter_en": "VERTIGO", "chapter_hi": "", "rubric_en": "VERTIGO - SITTING - while", "rubric_hi": "", "medicine": "Æth", "grading": 1 }
+{ "chapter_en": "VERTIGO", "chapter_hi": "", "rubric_en": "VERTIGO - SITTING - while", "rubric_hi": "", "medicine": "aloe", "grading": 1 }
+{ "chapter_en": "VERTIGO", "chapter_hi": "", "rubric_en": "VERTIGO - SITTING - while", "rubric_hi": "", "medicine": "alum", "grading": 1 }
+{ "chapter_en": "VERTIGO", "chapter_hi": "", "rubric_en": "VERTIGO - SITTING - while", "rubric_hi": "", "medicine": "bell", "grading": 1 }
+{ "chapter_en": "VERTIGO", "chapter_hi": "", "rubric_en": "VERTIGO - SITTING - while", "rubric_hi": "", "medicine": "calc", "grading": 1 }
+{ "chapter_en": "VERTIGO", "chapter_hi": "", "rubric_en": "VERTIGO - SITTING - while", "rubric_hi": "", "medicine": "PHOS", "grading": 3 }
 
 --- RAW OCR TEXT FROM PAGE ---
 ${truncatedText}
