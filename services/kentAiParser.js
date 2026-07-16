@@ -39,9 +39,9 @@ const parseInChunks = async (ocrText, chunkSize) => {
       const chunkResults = await parseSingleChunk(chunks[i], i + 1, chunks.length);
       allResults.push(...chunkResults);
       
-      // Small delay between chunks to avoid rate limiting
+      // Delay between chunks to avoid rate limiting (increased to 2s)
       if (i < chunks.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
     } catch (error) {
       console.error(`[Kent AI Parser] Chunk ${i + 1} failed:`, error.message);
@@ -123,7 +123,7 @@ Return ONLY a valid JSON object with a single key "data" containing the array. N
     generationConfig: {
       temperature: 0.05,
       responseMimeType: 'application/json',
-      maxOutputTokens: 8192 // Reduced to 8192 to stay under rate limits
+      maxOutputTokens: 12000 // Increased to extract more medicines per chunk
     }
   });
 
@@ -186,8 +186,9 @@ const parseOcrToStructuredJson = async (ocrText) => {
   console.log(`[Kent AI Parser] OCR text length: ${ocrText.length} characters`);
   
   // Check if we need to chunk the text to avoid Groq's 12k token limit
-  // 8000 chars ≈ 6000 tokens (including prompt overhead)
-  const MAX_CHUNK_SIZE = 8000;
+  // Reduced to 6000 chars per chunk for more manageable processing
+  // This allows ~4500 input tokens + ~3000 prompt tokens = ~7500 total (under 12k limit)
+  const MAX_CHUNK_SIZE = 6000;
   const needsChunking = ocrText.length > MAX_CHUNK_SIZE;
   
   if (needsChunking) {
