@@ -1,6 +1,8 @@
 'use strict';
 
 const { initAI, getVisionModel, isAIReady } = require('../config/aiConfig');
+const fs = require('fs');
+const path = require('path');
 
 /**
  * Initialize AI specifically for Kent OCR extraction
@@ -12,11 +14,73 @@ const initKentAI = () => {
   return true;
 };
 
-const fs = require('fs');
-const path = require('path');
+/**
+ * Robustly parse and repair truncated or slightly malformed JSON from AI.
+ * Handles cases where the model cuts off mid-array due to token limits.
+ */
+const repairAndParseJson = (rawText) => {
+  let text = rawText.trim();
+
+  // Strip markdown code fences
+  if (text.startsWith('```')) {
+    text = text.replace(/^```(json)?/i, '').replace(/```[\s]*$/m, '').trim();
+  }
+
+  // Extract the outermost JSON object using greedy regex
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (jsonMatch) text = jsonMatch[0];
+
+  // Attempt 1: clean parse
+  try {
+    return JSON.parse(text);
+  } catch (_) {
+    // Attempt 2: repair truncated JSON by cutting to last complete object
+    try {
+      let repaired = text;
+
+      // Find the last '},' which marks the end of a complete array element
+      const lastGoodClose = repaired.lastIndexOf('},');
+      const lastBraceClose = repaired.lastIndexOf('}');
+
+      let cutPos = -1;
+      if (lastGoodClose > 0) {
+        cutPos = lastGoodClose + 1; // include the '}'
+      } else if (lastBraceClose > 0) {
+        cutPos = lastBraceClose + 1;
+      }
+
+      if (cutPos > 0) {
+        repaired = repaired.substring(0, cutPos);
+
+        // Count unclosed brackets/braces and close them
+        let openBraces = 0, openBrackets = 0;
+        let inString = false, escape = false;
+        for (const ch of repaired) {
+          if (escape) { escape = false; continue; }
+          if (ch === '\\') { escape = true; continue; }
+          if (ch === '"') { inString = !inString; continue; }
+          if (inString) continue;
+          if (ch === '{') openBraces++;
+          else if (ch === '}') openBraces--;
+          else if (ch === '[') openBrackets++;
+          else if (ch === ']') openBrackets--;
+        }
+
+        repaired += ']'.repeat(Math.max(0, openBrackets));
+        repaired += '}'.repeat(Math.max(0, openBraces));
+
+        return JSON.parse(repaired);
+      }
+    } catch (repairErr) {
+      // Repair also failed — fall through to throw
+    }
+
+    throw new SyntaxError(`Could not parse AI response. Snippet: ${text.substring(0, 300)}`);
+  }
+};
 
 /**
- * Generate content using the Unified AI Model for Kent OCR
+ * Generate content using Gemini Vision for Kent OCR
  */
 const generateKentContent = async (prompt, imagePath) => {
   if (!isAIReady()) {
@@ -26,58 +90,29 @@ const generateKentContent = async (prompt, imagePath) => {
     }
   }
 
+  const model = getVisionModel();
+  const parts = [{ text: prompt }];
+
+  if (imagePath) {
+    const ext = path.extname(imagePath).toLowerCase();
+    let mimeType = 'image/jpeg';
+    if (ext === '.png') mimeType = 'image/png';
+    else if (ext === '.webp') mimeType = 'image/webp';
+    else if (ext === '.pdf') mimeType = 'application/pdf';
+
+    const base64Data = fs.readFileSync(imagePath, { encoding: 'base64' });
+    parts.push({ inlineData: { data: base64Data, mimeType } });
+  }
+
   try {
-    const model = getVisionModel();
-    const parts = [{ text: prompt }];
-
-    if (imagePath) {
-      const ext = path.extname(imagePath).toLowerCase();
-      let mimeType = 'image/jpeg';
-      if (ext === '.png') mimeType = 'image/png';
-      else if (ext === '.webp') mimeType = 'image/webp';
-      else if (ext === '.pdf') mimeType = 'application/pdf';
-
-      const base64Data = fs.readFileSync(imagePath, { encoding: 'base64' });
-      parts.push({
-        inlineData: {
-          data: base64Data,
-          mimeType: mimeType
-        }
-      });
-    }
-
-    const { SchemaType } = require('@google/generative-ai');
-    
     const result = await model.generateContent({
-      contents: [{ role: 'user', parts: parts }],
+      contents: [{ role: 'user', parts }],
       generationConfig: {
         temperature: 0.1,
-        maxOutputTokens: 8000,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: SchemaType.OBJECT,
-          properties: {
-            data: {
-              type: SchemaType.ARRAY,
-              items: {
-                type: SchemaType.OBJECT,
-                properties: {
-                  chapter_en: { type: SchemaType.STRING, description: "The chapter name in English" },
-                  chapter_hi: { type: SchemaType.STRING, description: "The chapter name in Hindi, if any, else empty" },
-                  rubric_en: { type: SchemaType.STRING, description: "The full rubric path in English, e.g., VERTIGO - SLEEP - during" },
-                  rubric_hi: { type: SchemaType.STRING, description: "The full rubric path in Hindi, if any, else empty" },
-                  medicine: { type: SchemaType.STRING, description: "The single medicine name, e.g., Nux-v" },
-                  grading: { type: SchemaType.INTEGER, description: "The grade 1, 2, or 3 based on normal, italic, or bold font weight" }
-                },
-                required: ["chapter_en", "rubric_en", "medicine", "grading"]
-              }
-            }
-          },
-          required: ["data"]
-        }
+        maxOutputTokens: 16000,        // Large enough for dense pages
+        responseMimeType: 'application/json'
       }
     });
-    
     return await result.response.text();
   } catch (error) {
     console.error('❌ AI generation failed:', error.message);
@@ -86,87 +121,62 @@ const generateKentContent = async (prompt, imagePath) => {
 };
 
 /**
- * Prompts the AI (Gemini Vision) to parse an image from Kent's Repertory
- * directly into a structured JSON array, extracting gradings from bold/italics.
+ * Prompts Gemini Vision to parse a Kent's Repertory image into structured JSON.
+ * Extracts chapter, rubric, sub-rubric, medicine, and grading (from bold/italic/normal).
  *
- * @param {string} imagePath The absolute path to the uploaded image/pdf
- * @returns {Promise<Array>} Parsed rows
+ * @param {string} imagePath - Absolute path to the uploaded image
+ * @returns {Promise<Array>} - Parsed and expanded rows
  */
 const parseImageToStructuredJson = async (imagePath) => {
   initKentAI();
-  console.log(`[Kent AI Parser] Processing image visually: ${imagePath}...`);
-  
-  const prompt = `Extract ALL medicines from this Kent's Repertory page image.
-You are equipped with advanced vision. Read the text directly from the image.
+  console.log(`[Kent AI Parser] Processing image: ${path.basename(imagePath)}...`);
 
-CRITICAL: ONE page = ONE chapter. CHAPTER is ONLY at the very top.
-Example: If "VERTIGO." is at the top, then ALL rubrics below use VERTIGO as the chapter.
+  const prompt = `You are a medical data extraction expert. Extract ALL medicines from this Kent's Repertory page image.
 
-STRUCTURE:
-- CHAPTER (top of page only): VERTIGO, MIND, HEAD
-- RUBRICS (everything else): ALL CAPS words like ROCKING, SITTING, SLEEP, STANDING
-- Sub-rubrics: indented words like while:, from:, amel.:, during:
-- Medicines: comma-separated
-- GRADING: You MUST assign grades based on the font style in the image:
-  - BOLD text = Grade 3 (e.g. Nux-v)
-  - ITALIC text = Grade 2 (e.g. coff)
-  - NORMAL text = Grade 1 (e.g. merc)
+CRITICAL RULES:
+1. ONE page = ONE chapter. The CHAPTER is at the very top (e.g., "VERTIGO.", "MIND.", "HEAD."). Use it for EVERY row.
+2. RUBRICS are ALL-CAPS words below the chapter (e.g., ROCKING, SLEEP, STANDING).
+3. Sub-rubrics are indented modifiers (e.g., while:, from:, amel.:, during:).
+4. ONE ROW per medicine. If 5 medicines are listed under a rubric, output 5 objects.
+5. Remove trailing periods from medicine names.
+6. GRADING by font weight visible in image:
+   - BOLD font -> grading: 3
+   - Italic font -> grading: 2
+   - Normal font -> grading: 1
 
-RULES:
-1. Find the chapter at the top ONCE, use it for ALL rows.
-2. ALL BOLD CAPS words below = rubrics under that chapter.
-3. ONE ROW per medicine.
-4. Remove periods from medicine names.
-5. Accurately assign the grading (1, 2, or 3) by visually inspecting the font weight in the image!
-6. DO NOT include any explanations or conversational text. Return ONLY the JSON object.
+OUTPUT: Return a JSON object with a "data" array. Each element:
+  { "chapter_en": string, "chapter_hi": string, "rubric_en": string, "rubric_hi": string, "medicine": string, "grading": 1|2|3 }`;
 
-OUTPUT FORMAT:
-{
-  "data": [
-    {"chapter_en": "VERTIGO", "chapter_hi": "", "rubric_en": "VERTIGO - SLEEP - during", "rubric_hi": "", "medicine": "Nux-v", "grading": 3}
-  ]
-}
-`;
+  const textResponse = await generateKentContent(prompt, imagePath);
+  console.log(`[Kent AI Parser] Raw AI response: ${textResponse.length} chars`);
 
-  try {
-    const textResponse = await generateKentContent(prompt, imagePath);
-    let text = textResponse.trim();
-  
-    // Robustly extract JSON object using regex in case AI adds conversational text
-    let jsonStr = text;
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      jsonStr = jsonMatch[0];
-    } else if (text.startsWith('```')) {
-      jsonStr = text.replace(/^```(json)?/i, '').replace(/```$/, '').trim();
-    }
+  const parsedJson = repairAndParseJson(textResponse);
 
-    const parsedJson = JSON.parse(jsonStr);
-    if (!parsedJson.data || !Array.isArray(parsedJson.data)) {
-      throw new Error('AI did not return a valid "data" array as expected.');
-    }
-
-    console.log(`[Kent AI Parser] Vision extracted ${parsedJson.data.length} rows directly from image!`);
-    
-    // POST-PROCESSING: Expand any rows where medicine field contains multiple medicines
-    const expandedData = [];
-    for (const row of parsedJson.data) {
-      const medicineField = (row.medicine || '').trim();
-      if (medicineField.includes(',')) {
-        const medicines = medicineField.split(',').map(m => m.trim()).filter(m => m.length > 0);
-        for (const med of medicines) {
-          expandedData.push({ ...row, medicine: med.replace(/\.$/, '') });
-        }
-      } else if (medicineField.length > 0) {
-        expandedData.push({ ...row, medicine: medicineField.replace(/\.$/, '') });
-      }
-    }
-    
-    return expandedData;
-  } catch (error) {
-    console.error(`❌ Vision parsing failed:`, error.message);
-    throw error;
+  if (!parsedJson.data || !Array.isArray(parsedJson.data)) {
+    throw new Error('AI did not return a valid "data" array.');
   }
+
+  console.log(`[Kent AI Parser] ✅ Extracted ${parsedJson.data.length} rows from image!`);
+
+  // Expand any rows where medicine accidentally has multiple comma-separated values
+  const expandedData = [];
+  for (const row of parsedJson.data) {
+    const medField = (row.medicine || '').trim();
+    if (medField.includes(',')) {
+      medField.split(',').map(m => m.trim()).filter(Boolean).forEach(med => {
+        expandedData.push({ ...row, medicine: med.replace(/\.$/, '') });
+      });
+    } else if (medField) {
+      expandedData.push({ ...row, medicine: medField.replace(/\.$/, '') });
+    }
+  }
+
+  return expandedData;
 };
 
-module.exports = { initKentAI, generateKentContent, parseImageToStructuredJson, parseOcrToStructuredJson: parseImageToStructuredJson };
+module.exports = {
+  initKentAI,
+  generateKentContent,
+  parseImageToStructuredJson,
+  parseOcrToStructuredJson: parseImageToStructuredJson   // backward compat alias
+};
