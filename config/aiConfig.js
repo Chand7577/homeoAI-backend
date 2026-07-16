@@ -1,22 +1,23 @@
 const Groq = require('groq-sdk');
+const OpenAI = require('openai');
 
-let groqClient = null;
+let aiClient = null;
 let model = null;
 let isReady = false;
+let usingProvider = null; // 'groq' or 'openai'
 
 /**
- * Groq adapter that mimics the Gemini model.generateContent() interface
- * so aiService.js needs zero changes.
+ * Unified adapter for both Groq and OpenAI that mimics Gemini's interface
  */
-class GroqModelAdapter {
-  constructor(client, modelName) {
+class UnifiedModelAdapter {
+  constructor(client, modelName, provider) {
     this.client = client;
     this.modelName = modelName;
+    this.provider = provider;
   }
 
   async generateContent({ contents, generationConfig }) {
     // Extract the text prompt from Gemini-style contents array
-    // Skip any inlineData (PDF base64) parts — Groq is text-only
     const messages = contents.map(c => ({
       role: c.role === 'model' ? 'assistant' : 'user',
       content: c.parts
@@ -25,15 +26,31 @@ class GroqModelAdapter {
         .join('\n')
     })).filter(m => m.content.trim());
 
-    const completion = await this.client.chat.completions.create({
-      model: this.modelName,
-      messages,
-      temperature: generationConfig?.temperature ?? 0.3,
-      response_format: generationConfig?.responseMimeType === 'application/json'
-        ? { type: 'json_object' }
-        : undefined,
-      max_tokens: generationConfig?.maxOutputTokens || 8000, // Use config value or default to 8000
-    });
+    let completion;
+    
+    if (this.provider === 'openai') {
+      // OpenAI API call
+      completion = await this.client.chat.completions.create({
+        model: this.modelName,
+        messages,
+        temperature: generationConfig?.temperature ?? 0.3,
+        response_format: generationConfig?.responseMimeType === 'application/json'
+          ? { type: 'json_object' }
+          : undefined,
+        max_tokens: generationConfig?.maxOutputTokens || 8000,
+      });
+    } else {
+      // Groq API call (fallback)
+      completion = await this.client.chat.completions.create({
+        model: this.modelName,
+        messages,
+        temperature: generationConfig?.temperature ?? 0.3,
+        response_format: generationConfig?.responseMimeType === 'application/json'
+          ? { type: 'json_object' }
+          : undefined,
+        max_tokens: generationConfig?.maxOutputTokens || 8000,
+      });
+    }
 
     const text = completion.choices[0]?.message?.content || '';
 
@@ -49,25 +66,34 @@ class GroqModelAdapter {
 
 const initAI = () => {
   try {
-    const apiKey = process.env.GROQ_API_KEY;
-    if (!apiKey) {
-      console.warn('⚠️ GROQ_API_KEY not found. Using keyword matching for symptom analysis.');
-      isReady = false;
-      return false;
+    // Try OpenAI first (preferred for Kent OCR)
+    const openaiKey = process.env.OPENAI_API_KEY;
+    if (openaiKey) {
+      aiClient = new OpenAI({ apiKey: openaiKey });
+      // gpt-4o-mini: fast, affordable, 128k context, great for structured extraction
+      model = new UnifiedModelAdapter(aiClient, 'gpt-4o-mini', 'openai');
+      usingProvider = 'openai';
+      isReady = true;
+      console.log('✅ OpenAI (GPT-4o-mini) initialized successfully.');
+      return true;
     }
 
-    groqClient = new Groq({ apiKey });
+    // Fallback to Groq if OpenAI not available
+    const groqKey = process.env.GROQ_API_KEY;
+    if (groqKey) {
+      aiClient = new Groq({ apiKey: groqKey });
+      model = new UnifiedModelAdapter(aiClient, 'llama-3.3-70b-versatile', 'groq');
+      usingProvider = 'groq';
+      isReady = true;
+      console.log('✅ Groq AI (Llama 3.3 70B) initialized successfully.');
+      return true;
+    }
 
-    // llama-3.3-70b-versatile: 12k TPM limit (vs 8b-instant's 6k limit)
-    // Better for structured extraction despite being slower
-    model = new GroqModelAdapter(groqClient, 'llama-3.3-70b-versatile');
-
-    isReady = true;
-    console.log('✅ Groq AI (Llama 3.3 70B Versatile) initialized successfully for symptom analysis.');
-    return true;
+    console.warn('⚠️ No AI API key found (OPENAI_API_KEY or GROQ_API_KEY).');
+    isReady = false;
+    return false;
   } catch (error) {
-    console.error('❌ Groq AI initialization failed:', error.message);
-    console.warn('⚠️ Falling back to keyword matching.');
+    console.error('❌ AI initialization failed:', error.message);
     isReady = false;
     return false;
   }
@@ -75,5 +101,6 @@ const initAI = () => {
 
 const getModel = () => model;
 const isAIReady = () => isReady;
+const getProvider = () => usingProvider;
 
-module.exports = { initAI, getModel, isAIReady };
+module.exports = { initAI, getModel, isAIReady, getProvider };
