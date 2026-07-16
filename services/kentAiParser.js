@@ -46,12 +46,35 @@ const generateKentContent = async (prompt, imagePath) => {
       });
     }
 
+    const { SchemaType } = require('@google/generative-ai');
+    
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: parts }],
       generationConfig: {
         temperature: 0.1,
         maxOutputTokens: 8000,
-        responseMimeType: 'application/json'
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: SchemaType.OBJECT,
+          properties: {
+            data: {
+              type: SchemaType.ARRAY,
+              items: {
+                type: SchemaType.OBJECT,
+                properties: {
+                  chapter_en: { type: SchemaType.STRING, description: "The chapter name in English" },
+                  chapter_hi: { type: SchemaType.STRING, description: "The chapter name in Hindi, if any, else empty" },
+                  rubric_en: { type: SchemaType.STRING, description: "The full rubric path in English, e.g., VERTIGO - SLEEP - during" },
+                  rubric_hi: { type: SchemaType.STRING, description: "The full rubric path in Hindi, if any, else empty" },
+                  medicine: { type: SchemaType.STRING, description: "The single medicine name, e.g., Nux-v" },
+                  grading: { type: SchemaType.INTEGER, description: "The grade 1, 2, or 3 based on normal, italic, or bold font weight" }
+                },
+                required: ["chapter_en", "rubric_en", "medicine", "grading"]
+              }
+            }
+          },
+          required: ["data"]
+        }
       }
     });
     

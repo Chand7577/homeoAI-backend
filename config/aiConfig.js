@@ -22,7 +22,8 @@ class UnifiedModelAdapter {
         generationConfig: {
           temperature: generationConfig?.temperature ?? 0.3,
           maxOutputTokens: generationConfig?.maxOutputTokens || 8000,
-          responseMimeType: generationConfig?.responseMimeType || 'text/plain'
+          responseMimeType: generationConfig?.responseMimeType || 'text/plain',
+          responseSchema: generationConfig?.responseSchema
         }
       });
       return await model.generateContent({
