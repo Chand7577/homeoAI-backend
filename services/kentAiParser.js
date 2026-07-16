@@ -16,8 +16,15 @@ const parseOcrToStructuredJson = async (ocrText) => {
 
   const model = getModel();
   
-  // Truncate to avoid token limits (separate from the prompt template)
-  const truncatedText = ocrText.substring(0, 7500);
+  // Log original text length for debugging
+  console.log(`[Kent AI Parser] OCR text length: ${ocrText.length} characters`);
+  
+  // Increase truncation limit to capture full page (was 7500, now 20000)
+  const truncatedText = ocrText.substring(0, 20000);
+  
+  if (ocrText.length > 20000) {
+    console.warn(`[Kent AI Parser] ⚠️ OCR text was truncated from ${ocrText.length} to 20000 characters`);
+  }
 
   const prompt = `You are an expert homeopathic repertory data extraction assistant specializing in Kent's Repertory.
 I will provide you with raw OCR text from a single page of Kent's Repertory. The page may be from any chapter (e.g., VERTIGO, MIND, HEAD, etc.).
@@ -126,10 +133,16 @@ Return ONLY a valid JSON object with a single key "data" containing the array. N
       throw new Error('AI did not return a valid "data" array as expected.');
     }
 
-    console.log(`[Kent AI Parser] AI returned ${parsedJson.data.length} rows from AI`);
+    console.log(`[Kent AI Parser] AI returned ${parsedJson.data.length} rows`);
+    
+    // Log first few rows to see structure
+    if (parsedJson.data.length > 0) {
+      console.log('[Kent AI Parser] Sample rows:', JSON.stringify(parsedJson.data.slice(0, 3), null, 2));
+    }
     
     // POST-PROCESSING: Expand any rows where medicine field contains multiple medicines
     const expandedData = [];
+    let expansionCount = 0;
     
     for (const row of parsedJson.data) {
       const medicineField = (row.medicine || '').trim();
@@ -139,7 +152,8 @@ Return ONLY a valid JSON object with a single key "data" containing the array. N
         // Split by comma and create separate rows
         const medicines = medicineField.split(',').map(m => m.trim()).filter(m => m.length > 0);
         
-        console.log(`[Kent AI Parser] Expanding row with ${medicines.length} medicines: ${medicineField}`);
+        console.log(`[Kent AI Parser] Expanding: "${medicineField}" → ${medicines.length} medicines`);
+        expansionCount++;
         
         for (const med of medicines) {
           expandedData.push({
@@ -157,7 +171,8 @@ Return ONLY a valid JSON object with a single key "data" containing the array. N
       // Skip rows with no medicine
     }
     
-    console.log(`[Kent AI Parser] ✅ Final count after expansion: ${expandedData.length} medicine-rubric rows`);
+    console.log(`[Kent AI Parser] Expanded ${expansionCount} rows with comma-separated medicines`);
+    console.log(`[Kent AI Parser] ✅ Final count: ${expandedData.length} medicine-rubric rows (from ${parsedJson.data.length} AI rows)`);
     return expandedData;
   } catch (error) {
     console.error('❌ AI parsing failed:', error);
