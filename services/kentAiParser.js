@@ -50,7 +50,8 @@ const generateKentContent = async (prompt, imagePath) => {
       contents: [{ role: 'user', parts: parts }],
       generationConfig: {
         temperature: 0.1,
-        maxOutputTokens: 8000
+        maxOutputTokens: 8000,
+        responseMimeType: 'application/json'
       }
     });
     
@@ -94,20 +95,30 @@ RULES:
 3. ONE ROW per medicine.
 4. Remove periods from medicine names.
 5. Accurately assign the grading (1, 2, or 3) by visually inspecting the font weight in the image!
+6. DO NOT include any explanations or conversational text. Return ONLY the JSON object.
 
-OUTPUT: {"chapter_en": "VERTIGO", "chapter_hi": "", "rubric_en": "VERTIGO - SLEEP - during", "rubric_hi": "", "medicine": "Nux-v", "grading": 3}
-
-Return JSON: {"data": [...]}`;
+OUTPUT FORMAT:
+{
+  "data": [
+    {"chapter_en": "VERTIGO", "chapter_hi": "", "rubric_en": "VERTIGO - SLEEP - during", "rubric_hi": "", "medicine": "Nux-v", "grading": 3}
+  ]
+}
+`;
 
   try {
     const textResponse = await generateKentContent(prompt, imagePath);
     let text = textResponse.trim();
   
-    if (text.startsWith('```')) {
-      text = text.replace(/^```(json)?/i, '').replace(/```$/, '').trim();
+    // Robustly extract JSON object using regex in case AI adds conversational text
+    let jsonStr = text;
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      jsonStr = jsonMatch[0];
+    } else if (text.startsWith('```')) {
+      jsonStr = text.replace(/^```(json)?/i, '').replace(/```$/, '').trim();
     }
 
-    const parsedJson = JSON.parse(text);
+    const parsedJson = JSON.parse(jsonStr);
     if (!parsedJson.data || !Array.isArray(parsedJson.data)) {
       throw new Error('AI did not return a valid "data" array as expected.');
     }
