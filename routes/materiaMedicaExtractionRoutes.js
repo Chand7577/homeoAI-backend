@@ -29,17 +29,17 @@ const upload = multer({
   limits: { fileSize: 200 * 1024 * 1024 }, // 200MB limit
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
-    if (ext === '.pdf') {
+    if (ext === '.pdf' || ext === '.jpg' || ext === '.jpeg' || ext === '.png') {
       cb(null, true);
     } else {
-      cb(new Error('Only PDF files are supported for full extraction.'));
+      cb(new Error('Only PDF, JPG, and PNG files are supported for extraction.'));
     }
   }
 });
 
 /**
  * @route POST /api/materia-medica-extract/upload
- * @desc Upload a Materia Medica/Repertory PDF, extract all content, generate Excel
+ * @desc Upload a Materia Medica/Repertory PDF or scanned image, extract all content, generate Excel
  */
 router.post('/upload', upload.single('pdf'), async (req, res, next) => {
   const sessionId = uuidv4();
@@ -47,22 +47,56 @@ router.post('/upload', upload.single('pdf'), async (req, res, next) => {
   
   try {
     if (!req.file) {
-      return res.status(400).json({ success: false, message: 'No PDF file uploaded' });
+      return res.status(400).json({ success: false, message: 'No file uploaded' });
     }
 
-    console.log(`[MM Extract] Processing: ${req.file.originalname} (${(req.file.size / 1024 / 1024).toFixed(2)} MB)`);
+    const fileExt = path.extname(req.file.originalname).toLowerCase();
+    const isImage = ['.jpg', '.jpeg', '.png'].includes(fileExt);
+    const isPdf = fileExt === '.pdf';
+
+    console.log(`[MM Extract] Processing ${isImage ? 'image' : 'PDF'}: ${req.file.originalname} (${(req.file.size / 1024 / 1024).toFixed(2)} MB)`);
     fs.ensureDirSync(sessionDir);
 
-    // Step 1: Extract full PDF content with AI parsing
-    console.log('[MM Extract] Step 1: Extracting and parsing PDF...');
-    const { data: structuredData, totalPages, totalEntries } = await extractMaterialMedicaFromPdf(req.file.path);
-    
-    if (!structuredData || structuredData.length === 0) {
-      throw new Error('No data could be extracted from the PDF. Please ensure the PDF contains readable text.');
+    let structuredData, totalPages, totalEntries;
+
+    if (isImage) {
+      // For images: Use OCR extraction (same as Kent OCR single page)
+      console.log('[MM Extract] Using OCR for image extraction...');
+      const { extractTextFromImage } = require('../services/kentOcrService');
+      const { parseOcrToStructuredJson } = require('../services/kentAiParser');
+      
+      // Step 1: OCR extraction
+      const { ocrText } = await extractTextFromImage(req.file.path, sessionDir);
+      
+      if (!ocrText || ocrText.trim().length < 10) {
+        throw new Error('OCR failed or found too little text.');
+      }
+      
+      // Step 2: AI parsing
+      structuredData = await parseOcrToStructuredJson(ocrText);
+      totalPages = 1;
+      totalEntries = structuredData.length;
+      
+    } else if (isPdf) {
+      // For PDFs: Use text extraction
+      console.log('[MM Extract] Using PDF text extraction...');
+      const { extractMaterialMedicaFromPdf } = require('../services/materiaMedicaPdfExtractor');
+      
+      const result = await extractMaterialMedicaFromPdf(req.file.path);
+      structuredData = result.data;
+      totalPages = result.totalPages;
+      totalEntries = result.totalEntries;
+    } else {
+      throw new Error('Unsupported file format');
     }
     
-    // Step 2: Generate Excel file
-    console.log('[MM Extract] Step 2: Generating Excel file...');
+    if (!structuredData || structuredData.length === 0) {
+      throw new Error('No data could be extracted from the file. Please ensure it contains readable text.');
+    }
+    
+    // Step 3: Generate Excel file
+    console.log('[MM Extract] Generating Excel file...');
+    const { generateKentExcel } = require('../services/kentExcelGenerator');
     const excelFilePath = await generateKentExcel(structuredData, sessionDir);
     
     // Create download URL
@@ -72,7 +106,7 @@ router.post('/upload', upload.single('pdf'), async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      message: `Successfully extracted ${totalEntries} entries from ${totalPages} pages`,
+      message: `Successfully extracted ${totalEntries} entries from ${totalPages} page${totalPages > 1 ? 's' : ''}`,
       data: {
         excelUrl: relativeUrl,
         totalPages: totalPages,
@@ -86,7 +120,7 @@ router.post('/upload', upload.single('pdf'), async (req, res, next) => {
     console.error('[MM Extract Error]', error);
     res.status(500).json({
       success: false,
-      message: error.message || 'An error occurred during PDF extraction.'
+      message: error.message || 'An error occurred during extraction.'
     });
   } finally {
     // Cleanup uploaded file
