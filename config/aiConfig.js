@@ -58,12 +58,12 @@ const initAI = () => {
 
     groqClient = new Groq({ apiKey });
 
-    // llama-3.1-8b-instant: faster, more token-efficient for structured extraction
-    // Switched from llama-3.3-70b-versatile to avoid 12k TPM limits on Kent OCR
-    model = new GroqModelAdapter(groqClient, 'llama-3.1-8b-instant');
+    // llama-3.3-70b-versatile: 12k TPM limit (vs 8b-instant's 6k limit)
+    // Better for structured extraction despite being slower
+    model = new GroqModelAdapter(groqClient, 'llama-3.3-70b-versatile');
 
     isReady = true;
-    console.log('✅ Groq AI (Llama 3.1 8B Instant) initialized successfully for symptom analysis.');
+    console.log('✅ Groq AI (Llama 3.3 70B Versatile) initialized successfully for symptom analysis.');
     return true;
   } catch (error) {
     console.error('❌ Groq AI initialization failed:', error.message);

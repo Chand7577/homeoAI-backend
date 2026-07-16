@@ -145,7 +145,7 @@ Return JSON only: {"data": [...]}`;
     generationConfig: {
       temperature: 0.05,
       responseMimeType: 'application/json',
-      maxOutputTokens: 12000 // Increased to extract more medicines per chunk
+      maxOutputTokens: 8000 // 70B model has 12k TPM: ~2k prompt + ~1.5k input + 8k output = 11.5k
     }
   });
 
@@ -207,10 +207,10 @@ const parseOcrToStructuredJson = async (ocrText) => {
   // Log original text length for debugging
   console.log(`[Kent AI Parser] OCR text length: ${ocrText.length} characters`);
   
-  // Check if we need to chunk the text to avoid Groq's 12k token limit
-  // Using llama-3.1-8b-instant (more token-efficient than 70B model)
-  // Increased to 3000 chars per chunk - 8B model uses fewer tokens per char
-  const MAX_CHUNK_SIZE = 3000;
+  // Check if we need to chunk the text to avoid Groq's token limits
+  // llama-3.3-70b-versatile: 12k TPM limit
+  // Balance: 1800 char chunks + compact prompt (~1.5k tokens) + 8k output = ~11.5k total
+  const MAX_CHUNK_SIZE = 1800;
   const needsChunking = ocrText.length > MAX_CHUNK_SIZE;
   
   if (needsChunking) {
