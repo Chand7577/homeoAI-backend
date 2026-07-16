@@ -3,25 +3,32 @@
 const { getModel, isAIReady } = require('../config/aiConfig');
 
 /**
- * Process large OCR text in chunks with overlap to avoid Groq's 12k token limit
+ * Process large OCR text in chunks with generous overlap to ensure 80%+ extraction
  * @param {string} ocrText Full OCR text
  * @param {number} chunkSize Max characters per chunk
  * @returns {Promise<Array>} Combined parsed rows
  */
 const parseInChunks = async (ocrText, chunkSize) => {
   const chunks = [];
-  const OVERLAP = 500; // Characters to overlap between chunks
+  const OVERLAP = 800; // Generous overlap to prevent data loss
   let startIdx = 0;
   
-  // Split text into overlapping chunks, trying to break at rubric boundaries
+  // Split text into heavily overlapping chunks
   while (startIdx < ocrText.length) {
     let endIdx = Math.min(startIdx + chunkSize, ocrText.length);
     
-    // If not the last chunk, try to break at a line boundary
+    // If not the last chunk, try to break at a paragraph/rubric boundary
     if (endIdx < ocrText.length) {
-      const nextNewline = ocrText.indexOf('\n', endIdx);
-      if (nextNewline !== -1 && nextNewline - endIdx < 300) {
-        endIdx = nextNewline;
+      // Look for double newline (rubric separator) first
+      const doubleNewline = ocrText.indexOf('\n\n', endIdx);
+      if (doubleNewline !== -1 && doubleNewline - endIdx < 400) {
+        endIdx = doubleNewline;
+      } else {
+        // Otherwise break at single newline
+        const nextNewline = ocrText.indexOf('\n', endIdx);
+        if (nextNewline !== -1 && nextNewline - endIdx < 200) {
+          endIdx = nextNewline;
+        }
       }
     }
     
@@ -31,45 +38,64 @@ const parseInChunks = async (ocrText, chunkSize) => {
       end: endIdx
     });
     
-    // Move forward but overlap by OVERLAP characters
-    startIdx = Math.max(endIdx - OVERLAP, startIdx + 1);
+    // Move forward but overlap generously
+    startIdx = endIdx - OVERLAP;
+    
+    // Prevent infinite loop - always move forward at least 1 char
+    if (startIdx <= chunks[chunks.length - 1].start && endIdx < ocrText.length) {
+      startIdx = chunks[chunks.length - 1].start + 100;
+    }
     
     // Break if we've reached the end
     if (endIdx >= ocrText.length) break;
   }
   
-  console.log(`[Kent AI Parser] Split into ${chunks.length} overlapping chunks`);
+  console.log(`[Kent AI Parser] Split into ${chunks.length} chunks with ${OVERLAP} char overlap`);
+  console.log(`[Kent AI Parser] Target: Extract 80%+ medicines (224+ out of ~280 estimated)`);
   
   // Process each chunk sequentially (to avoid rate limits)
   const allResults = [];
   const seenMedicines = new Set(); // Deduplicate overlapping entries
   
   for (let i = 0; i < chunks.length; i++) {
-    console.log(`[Kent AI Parser] Processing chunk ${i + 1}/${chunks.length} (${chunks[i].text.length} chars, pos ${chunks[i].start}-${chunks[i].end})...`);
+    const percentage = Math.round(((i + 1) / chunks.length) * 100);
+    console.log(`[Kent AI Parser] 📊 Processing chunk ${i + 1}/${chunks.length} (${percentage}% progress, ${chunks[i].text.length} chars, pos ${chunks[i].start}-${chunks[i].end})...`);
     
     try {
       const chunkResults = await parseSingleChunk(chunks[i].text, i + 1, chunks.length);
       
       // Deduplicate based on rubric + medicine combination
+      let newEntries = 0;
       for (const row of chunkResults) {
         const key = `${row.rubric_en}|||${row.medicine}`;
         if (!seenMedicines.has(key)) {
           seenMedicines.add(key);
           allResults.push(row);
+          newEntries++;
         }
       }
       
+      console.log(`[Kent AI Parser] Chunk ${i + 1} added ${newEntries} new medicines (total: ${allResults.length})`);
+      
       // Delay between chunks to avoid rate limiting
       if (i < chunks.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 2500));
+        await new Promise(resolve => setTimeout(resolve, 3000)); // 3s delay for stability
       }
     } catch (error) {
-      console.error(`[Kent AI Parser] Chunk ${i + 1} failed:`, error.message);
+      console.error(`[Kent AI Parser] ⚠️ Chunk ${i + 1} failed:`, error.message);
+      console.error(`[Kent AI Parser] Continuing with next chunk...`);
       // Continue with next chunk even if one fails
     }
   }
   
-  console.log(`[Kent AI Parser] ✅ Combined total: ${allResults.length} unique rows from ${chunks.length} chunks`);
+  const extractionRate = Math.round((allResults.length / 280) * 100);
+  console.log(`[Kent AI Parser] ✅ Extraction complete: ${allResults.length} unique rows from ${chunks.length} chunks`);
+  console.log(`[Kent AI Parser] 📈 Estimated extraction rate: ${extractionRate}% (target: 80%+)`);
+  
+  if (extractionRate < 80) {
+    console.warn(`[Kent AI Parser] ⚠️ WARNING: Extraction rate ${extractionRate}% is below 80% target`);
+  }
+  
   return allResults;
 };
 
@@ -86,57 +112,56 @@ const parseSingleChunk = async (chunkText, chunkNum, totalChunks) => {
   const prompt = `You are an expert homeopathic repertory data extraction assistant specializing in Kent's Repertory.
 I will provide you with raw OCR text from a Kent's Repertory page (chunk ${chunkNum}/${totalChunks}).
 
+**CRITICAL MISSION: Extract EVERY SINGLE medicine from this chunk. Missing even one medicine is a failure.**
+
 Your task is to extract EVERY rubric, sub-rubric, and **EACH INDIVIDUAL MEDICINE** listed under them.
 
 --- KENT'S REPERTORY PAGE STRUCTURE ---
 - The CHAPTER name is usually at the very top of the page in ALL CAPS (e.g., "VERTIGO.", "MIND.", "HEAD.").
-- MAIN RUBRICS are in BOLD ALL CAPS (e.g., "ROCKING", "SITTING", "SLEEP").
+- MAIN RUBRICS are in BOLD ALL CAPS (e.g., "ROCKING", "SITTING", "SLEEP", "STAGGERING", "STANDING").
 - SUB-RUBRICS are indented qualifiers (e.g., "from:", "amel.:", "as if:", "while:", "on going to:", "during:", "after:", "bed, up in:", "eating before:", "high, as if too:", etc.)
 - MEDICINES are listed after the rubric/sub-rubric, separated by commas or semicolons.
+- A SINGLE rubric line can have 50-70+ medicines - YOU MUST extract ALL of them, not just the first 20-30.
 - Medicine GRADING:
   * Grade 3 (highest) = ALL CAPS medicine name (e.g., "ACON", "PHOS", "NUX-V")
-  * Grade 2 (medium)  = Italicised medicine name — in OCR output often appears with slightly different casing or surrounded by styling markers
+  * Grade 2 (medium)  = Italicised medicine name — in OCR output often appears with slightly different casing
   * Grade 1 (lowest)  = Plain lowercase medicine name (e.g., "bell.", "calc.", "ars.")
-  * IMPORTANT: If a word is ALL CAPS → Grade 3. If mixed/title case but not all caps → Grade 2. If lowercase → Grade 1. When uncertain → Grade 1.
 
 --- REQUIRED OUTPUT SCHEMA ---
 For EACH MEDICINE under EACH rubric/sub-rubric, output ONE JSON object.
 
-**CRITICAL**: If a rubric has 50 medicines, you MUST output 50 separate JSON objects - one for each medicine.
+**YOU MUST CREATE ONE ROW PER MEDICINE. If you see 70 medicines, output 70 objects.**
 
 {
   "chapter_en": "The chapter name (e.g., 'VERTIGO', 'MIND', 'HEAD')",
   "chapter_hi": "Hindi chapter name if present, else empty string",
   "rubric_en": "Full rubric path using ' - ' as separator (e.g., 'VERTIGO - SITTING - while')",
   "rubric_hi": "Hindi rubric translation if present in text, else empty string",
-  "medicine": "Medicine abbreviation exactly as it appears, without trailing period (e.g., 'bell', 'Acon', 'PHOS', 'carb-an')",
+  "medicine": "Medicine abbreviation exactly as it appears, without trailing period",
   "grading": 1
 }
 
---- CRITICAL RULES ---
-1. ALWAYS prefix the rubric path with the CHAPTER name (e.g., "VERTIGO - ROCKING - from", not just "ROCKING - from").
-2. Build the FULL hierarchical path for sub-rubrics by combining parent rubrics with sub-rubrics.
-3. **EXPAND EVERY MEDICINE INTO A SEPARATE ROW**. This is the MOST IMPORTANT rule.
-   Example: "SITTING, while: bell., calc., phos." should produce 3 separate rows:
-   - { "rubric_en": "VERTIGO - SITTING - while", "medicine": "bell", "grading": 1 }
-   - { "rubric_en": "VERTIGO - SITTING - while", "medicine": "calc", "grading": 1 }
-   - { "rubric_en": "VERTIGO - SITTING - while", "medicine": "phos", "grading": 1 }
-4. Remove trailing periods from medicine names: "bell." → "bell", "Phos." → "Phos".
-5. Skip page numbers, headers, footers, or any non-medicinal text.
-6. Medicine lists are usually comma-separated. Parse EACH medicine individually.
-7. A single rubric line can have 50+ medicines - create ONE ROW for EACH medicine.
+--- CRITICAL EXTRACTION RULES ---
+1. ALWAYS prefix the rubric path with the CHAPTER name.
+2. Build the FULL hierarchical path for sub-rubrics.
+3. **NEVER TRUNCATE THE MEDICINE LIST. Extract ALL medicines, even if there are 70+ in one rubric.**
+4. If a rubric line says "bell., calc., phos., ... [50 more medicines]", you MUST extract all 53 medicines.
+5. Do NOT stop at the 20th or 30th medicine. Continue until the LAST medicine in the list.
+6. Remove trailing periods: "bell." → "bell"
+7. Skip page numbers, headers, footers only.
+8. Medicine lists are comma-separated. Parse EACH one.
+
+--- EXAMPLE: LONG MEDICINE LIST ---
+Input: "SITTING, while: Æth., aloe, alum., am-c., anac., apis, arg-m., ars., bell., calc., camph., carb-ac., carb-an., carb-s., carb-v., caust., cham., chin., cic., coca., cocc., colch., coloc., cop., croth., crot-t., cupr., dig., eugen."
+
+YOU MUST OUTPUT 28 SEPARATE OBJECTS (one per medicine), NOT just the first 10.
 
 --- RAW OCR TEXT FROM PAGE ---
 ${chunkText}
 --- END OF OCR TEXT ---
 
-Return ONLY a valid JSON object with a single key "data" containing the array. No markdown, no extra text.
-{
-  "data": [
-    { "chapter_en": "VERTIGO", "chapter_hi": "", "rubric_en": "VERTIGO - ROCKING", "rubric_hi": "", "medicine": "Bell", "grading": 3 },
-    { "chapter_en": "VERTIGO", "chapter_hi": "", "rubric_en": "VERTIGO - ROCKING", "rubric_hi": "", "medicine": "calad", "grading": 1 }
-  ]
-}`;
+Return ONLY valid JSON with a "data" array. No markdown, no truncation, no shortcuts.
+Extract EVERY medicine you see. This is critical for medical accuracy.`;
 
   const result = await model.generateContent({
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -206,9 +231,9 @@ const parseOcrToStructuredJson = async (ocrText) => {
   console.log(`[Kent AI Parser] OCR text length: ${ocrText.length} characters`);
   
   // Check if we need to chunk the text to avoid Groq's 12k token limit
-  // Reduced to 4500 chars per chunk with 500 char overlap for complete extraction
-  // This allows ~3400 input tokens + ~3000 prompt tokens = ~6400 total (well under 12k limit)
-  const MAX_CHUNK_SIZE = 4500;
+  // Aggressive chunking: 3500 chars per chunk with 800 char overlap
+  // Target: 80%+ extraction (224+ out of 280 medicines)
+  const MAX_CHUNK_SIZE = 3500;
   const needsChunking = ocrText.length > MAX_CHUNK_SIZE;
   
   if (needsChunking) {
