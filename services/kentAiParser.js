@@ -51,20 +51,36 @@ For EACH MEDICINE under EACH rubric/sub-rubric, output ONE JSON object.
 
 --- CRITICAL RULES ---
 1. ALWAYS prefix the rubric path with the CHAPTER name (e.g., "VERTIGO - ROCKING - from", not just "ROCKING - from").
-2. Build the FULL hierarchical path for sub-rubrics. Example:
-   - "ROCKING" → rubric_en = "VERTIGO - ROCKING"
-   - "   from: Bor., coff." → rubric_en = "VERTIGO - ROCKING - from"
-   - "   amel.: Secale." → rubric_en = "VERTIGO - ROCKING - amel"
+2. Build the FULL hierarchical path for sub-rubrics by combining parent rubrics with sub-rubrics:
+   Example from the page:
+   - "SITTING" is the main rubric → rubric_en = "VERTIGO - SITTING"
+   - "while:" is a sub-rubric → rubric_en = "VERTIGO - SITTING - while"
+   - "eating before:" is another sub-rubric → rubric_en = "VERTIGO - SITTING - eating before"
+   - "amel.:" is a modifier → rubric_en = "VERTIGO - SITTING - amel"
+   
+   Another example:
+   - "SLEEP" is main rubric → rubric_en = "VERTIGO - SLEEP"
+   - "on going to:" is sub-rubric → rubric_en = "VERTIGO - SLEEP - on going to"
+   - "during:" is sub-rubric → rubric_en = "VERTIGO - SLEEP - during"
+   
 3. **EXPAND EVERY MEDICINE INTO A SEPARATE ROW**. This is the MOST IMPORTANT rule.
-   Example: "SITTING, while: bell., calc., phos." should produce 3 rows:
+   Example: "SITTING, eating before: Kali-c." should produce:
+   - { "rubric_en": "VERTIGO - SITTING - eating before", "medicine": "Kali-c", "grading": 1 }
+   
+   Example: "SITTING, while: bell., calc., phos." should produce 3 separate rows:
    - { "rubric_en": "VERTIGO - SITTING - while", "medicine": "bell", "grading": 1 }
    - { "rubric_en": "VERTIGO - SITTING - while", "medicine": "calc", "grading": 1 }
    - { "rubric_en": "VERTIGO - SITTING - while", "medicine": "phos", "grading": 1 }
-4. Remove trailing periods from medicine names: "bell." → "bell", "Phos." → "Phos".
-5. Skip page numbers, headers, footers, or any non-medicinal text.
-6. If a line has no medicines (e.g., cross-references like "See Alcoholic"), skip it.
-7. Medicine lists are usually comma-separated. Parse EACH medicine individually.
-8. A single rubric line can have 50+ medicines - create ONE ROW for EACH medicine.
+   
+4. Indentation indicates sub-rubric hierarchy. Look for patterns like:
+   - Main rubric in CAPS
+   - Indented qualifiers with colons (from:, while:, during:, after:, amel.:, eating before:, etc.)
+   
+5. Remove trailing periods from medicine names: "bell." → "bell", "Phos." → "Phos".
+6. Skip page numbers, headers, footers, or any non-medicinal text.
+7. If a line has no medicines (e.g., cross-references like "See Alcoholic"), skip it.
+8. Medicine lists are usually comma-separated. Parse EACH medicine individually.
+9. A single rubric line can have 50+ medicines - create ONE ROW for EACH medicine.
 
 --- EXAMPLE INPUT ---
 "SITTING, while: Æth., aloe, alum., bell., calc., PHOS."
