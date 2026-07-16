@@ -3,45 +3,65 @@
 const { getModel, isAIReady } = require('../config/aiConfig');
 
 /**
- * Process large OCR text in chunks to avoid Groq's 12k token limit
+ * Process large OCR text in chunks with overlap to avoid Groq's 12k token limit
  * @param {string} ocrText Full OCR text
  * @param {number} chunkSize Max characters per chunk
  * @returns {Promise<Array>} Combined parsed rows
  */
 const parseInChunks = async (ocrText, chunkSize) => {
   const chunks = [];
+  const OVERLAP = 500; // Characters to overlap between chunks
   let startIdx = 0;
   
-  // Split text into chunks, trying to break at rubric boundaries
+  // Split text into overlapping chunks, trying to break at rubric boundaries
   while (startIdx < ocrText.length) {
     let endIdx = Math.min(startIdx + chunkSize, ocrText.length);
     
     // If not the last chunk, try to break at a line boundary
     if (endIdx < ocrText.length) {
       const nextNewline = ocrText.indexOf('\n', endIdx);
-      if (nextNewline !== -1 && nextNewline - endIdx < 500) {
+      if (nextNewline !== -1 && nextNewline - endIdx < 300) {
         endIdx = nextNewline;
       }
     }
     
-    chunks.push(ocrText.substring(startIdx, endIdx));
-    startIdx = endIdx;
+    chunks.push({
+      text: ocrText.substring(startIdx, endIdx),
+      start: startIdx,
+      end: endIdx
+    });
+    
+    // Move forward but overlap by OVERLAP characters
+    startIdx = Math.max(endIdx - OVERLAP, startIdx + 1);
+    
+    // Break if we've reached the end
+    if (endIdx >= ocrText.length) break;
   }
   
-  console.log(`[Kent AI Parser] Split into ${chunks.length} chunks`);
+  console.log(`[Kent AI Parser] Split into ${chunks.length} overlapping chunks`);
   
   // Process each chunk sequentially (to avoid rate limits)
   const allResults = [];
+  const seenMedicines = new Set(); // Deduplicate overlapping entries
+  
   for (let i = 0; i < chunks.length; i++) {
-    console.log(`[Kent AI Parser] Processing chunk ${i + 1}/${chunks.length} (${chunks[i].length} chars)...`);
+    console.log(`[Kent AI Parser] Processing chunk ${i + 1}/${chunks.length} (${chunks[i].text.length} chars, pos ${chunks[i].start}-${chunks[i].end})...`);
     
     try {
-      const chunkResults = await parseSingleChunk(chunks[i], i + 1, chunks.length);
-      allResults.push(...chunkResults);
+      const chunkResults = await parseSingleChunk(chunks[i].text, i + 1, chunks.length);
       
-      // Delay between chunks to avoid rate limiting (increased to 2s)
+      // Deduplicate based on rubric + medicine combination
+      for (const row of chunkResults) {
+        const key = `${row.rubric_en}|||${row.medicine}`;
+        if (!seenMedicines.has(key)) {
+          seenMedicines.add(key);
+          allResults.push(row);
+        }
+      }
+      
+      // Delay between chunks to avoid rate limiting
       if (i < chunks.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise(resolve => setTimeout(resolve, 2500));
       }
     } catch (error) {
       console.error(`[Kent AI Parser] Chunk ${i + 1} failed:`, error.message);
@@ -49,7 +69,7 @@ const parseInChunks = async (ocrText, chunkSize) => {
     }
   }
   
-  console.log(`[Kent AI Parser] ✅ Combined total: ${allResults.length} rows from ${chunks.length} chunks`);
+  console.log(`[Kent AI Parser] ✅ Combined total: ${allResults.length} unique rows from ${chunks.length} chunks`);
   return allResults;
 };
 
@@ -186,9 +206,9 @@ const parseOcrToStructuredJson = async (ocrText) => {
   console.log(`[Kent AI Parser] OCR text length: ${ocrText.length} characters`);
   
   // Check if we need to chunk the text to avoid Groq's 12k token limit
-  // Reduced to 6000 chars per chunk for more manageable processing
-  // This allows ~4500 input tokens + ~3000 prompt tokens = ~7500 total (under 12k limit)
-  const MAX_CHUNK_SIZE = 6000;
+  // Reduced to 4500 chars per chunk with 500 char overlap for complete extraction
+  // This allows ~3400 input tokens + ~3000 prompt tokens = ~6400 total (well under 12k limit)
+  const MAX_CHUNK_SIZE = 4500;
   const needsChunking = ocrText.length > MAX_CHUNK_SIZE;
   
   if (needsChunking) {
