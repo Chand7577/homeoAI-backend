@@ -1,7 +1,6 @@
 const { PDFDocument } = require('pdf-lib');
 const fs = require('fs');
 const path = require('path');
-const pdfParse = require('pdf-parse');
 
 /**
  * Extracts specific page ranges (0-indexed) from a source PDF and writes to a new PDF.
@@ -53,6 +52,14 @@ const extractPageRanges = async (inputPath, outputPath, ranges) => {
 const extractFullPdfText = async (inputPath) => {
   if (!fs.existsSync(inputPath)) {
     throw new Error(`Source PDF file not found at: ${inputPath}`);
+  }
+
+  // Lazy load pdf-parse only when needed
+  let pdfParse;
+  try {
+    pdfParse = require('pdf-parse');
+  } catch (err) {
+    throw new Error('pdf-parse package is not installed. Run: npm install pdf-parse');
   }
 
   console.log(`📄 Extracting text from PDF: ${path.basename(inputPath)}`);
