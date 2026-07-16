@@ -10,7 +10,7 @@ const { getModel, isAIReady } = require('../config/aiConfig');
  */
 const parseInChunks = async (ocrText, chunkSize) => {
   const chunks = [];
-  const OVERLAP = 800; // Generous overlap to prevent data loss
+  const OVERLAP = 600; // 600 char overlap (reduced from 800 for token balance)
   let startIdx = 0;
   
   // Split text into heavily overlapping chunks
@@ -51,7 +51,7 @@ const parseInChunks = async (ocrText, chunkSize) => {
   }
   
   console.log(`[Kent AI Parser] Split into ${chunks.length} chunks with ${OVERLAP} char overlap`);
-  console.log(`[Kent AI Parser] Target: Extract 80%+ medicines (224+ out of ~280 estimated)`);
+  console.log(`[Kent AI Parser] Target: Extract 80%+ medicines (using ${chunks.length} small chunks to avoid 12k token limit)`);
   
   // Process each chunk sequentially (to avoid rate limits)
   const allResults = [];
@@ -109,59 +109,36 @@ const parseInChunks = async (ocrText, chunkSize) => {
 const parseSingleChunk = async (chunkText, chunkNum, totalChunks) => {
   const model = getModel();
   
-  const prompt = `You are an expert homeopathic repertory data extraction assistant specializing in Kent's Repertory.
-I will provide you with raw OCR text from a Kent's Repertory page (chunk ${chunkNum}/${totalChunks}).
+  const prompt = `Extract ALL medicines from Kent's Repertory OCR text (chunk ${chunkNum}/${totalChunks}).
 
-**CRITICAL MISSION: Extract EVERY SINGLE medicine from this chunk. Missing even one medicine is a failure.**
+STRUCTURE:
+- CHAPTER: ALL CAPS at top (VERTIGO, MIND, HEAD)
+- RUBRICS: BOLD CAPS (SITTING, STANDING, STAGGERING)
+- Sub-rubrics: lowercase with colon (while:, from:, amel.:)
+- Medicines: comma-separated list after rubric
 
-Your task is to extract EVERY rubric, sub-rubric, and **EACH INDIVIDUAL MEDICINE** listed under them.
+GRADING: ALL CAPS=3, Mixed case=2, lowercase=1
 
---- KENT'S REPERTORY PAGE STRUCTURE ---
-- The CHAPTER name is usually at the very top of the page in ALL CAPS (e.g., "VERTIGO.", "MIND.", "HEAD.").
-- MAIN RUBRICS are in BOLD ALL CAPS (e.g., "ROCKING", "SITTING", "SLEEP", "STAGGERING", "STANDING").
-- SUB-RUBRICS are indented qualifiers (e.g., "from:", "amel.:", "as if:", "while:", "on going to:", "during:", "after:", "bed, up in:", "eating before:", "high, as if too:", etc.)
-- MEDICINES are listed after the rubric/sub-rubric, separated by commas or semicolons.
-- A SINGLE rubric line can have 50-70+ medicines - YOU MUST extract ALL of them, not just the first 20-30.
-- Medicine GRADING:
-  * Grade 3 (highest) = ALL CAPS medicine name (e.g., "ACON", "PHOS", "NUX-V")
-  * Grade 2 (medium)  = Italicised medicine name — in OCR output often appears with slightly different casing
-  * Grade 1 (lowest)  = Plain lowercase medicine name (e.g., "bell.", "calc.", "ars.")
-
---- REQUIRED OUTPUT SCHEMA ---
-For EACH MEDICINE under EACH rubric/sub-rubric, output ONE JSON object.
-
-**YOU MUST CREATE ONE ROW PER MEDICINE. If you see 70 medicines, output 70 objects.**
-
+OUTPUT: One JSON object per medicine.
 {
-  "chapter_en": "The chapter name (e.g., 'VERTIGO', 'MIND', 'HEAD')",
-  "chapter_hi": "Hindi chapter name if present, else empty string",
-  "rubric_en": "Full rubric path using ' - ' as separator (e.g., 'VERTIGO - SITTING - while')",
-  "rubric_hi": "Hindi rubric translation if present in text, else empty string",
-  "medicine": "Medicine abbreviation exactly as it appears, without trailing period",
+  "chapter_en": "VERTIGO",
+  "chapter_hi": "",
+  "rubric_en": "VERTIGO - SITTING - while",
+  "rubric_hi": "",
+  "medicine": "bell",
   "grading": 1
 }
 
---- CRITICAL EXTRACTION RULES ---
-1. ALWAYS prefix the rubric path with the CHAPTER name.
-2. Build the FULL hierarchical path for sub-rubrics.
-3. **NEVER TRUNCATE THE MEDICINE LIST. Extract ALL medicines, even if there are 70+ in one rubric.**
-4. If a rubric line says "bell., calc., phos., ... [50 more medicines]", you MUST extract all 53 medicines.
-5. Do NOT stop at the 20th or 30th medicine. Continue until the LAST medicine in the list.
-6. Remove trailing periods: "bell." → "bell"
-7. Skip page numbers, headers, footers only.
-8. Medicine lists are comma-separated. Parse EACH one.
+RULES:
+1. Prefix rubric with CHAPTER name
+2. ONE ROW per medicine (if 50 medicines, output 50 objects)
+3. Remove trailing periods from medicine names
+4. Extract ALL medicines in list, not just first 20
 
---- EXAMPLE: LONG MEDICINE LIST ---
-Input: "SITTING, while: Æth., aloe, alum., am-c., anac., apis, arg-m., ars., bell., calc., camph., carb-ac., carb-an., carb-s., carb-v., caust., cham., chin., cic., coca., cocc., colch., coloc., cop., croth., crot-t., cupr., dig., eugen."
-
-YOU MUST OUTPUT 28 SEPARATE OBJECTS (one per medicine), NOT just the first 10.
-
---- RAW OCR TEXT FROM PAGE ---
+OCR TEXT:
 ${chunkText}
---- END OF OCR TEXT ---
 
-Return ONLY valid JSON with a "data" array. No markdown, no truncation, no shortcuts.
-Extract EVERY medicine you see. This is critical for medical accuracy.`;
+Return JSON only: {"data": [...]}`;
 
   const result = await model.generateContent({
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -231,9 +208,10 @@ const parseOcrToStructuredJson = async (ocrText) => {
   console.log(`[Kent AI Parser] OCR text length: ${ocrText.length} characters`);
   
   // Check if we need to chunk the text to avoid Groq's 12k token limit
-  // Aggressive chunking: 3500 chars per chunk with 800 char overlap
-  // Target: 80%+ extraction (224+ out of 280 medicines)
-  const MAX_CHUNK_SIZE = 3500;
+  // CRITICAL: Groq free tier = 12k tokens total (input + output)
+  // With our prompt ~2.5k tokens, we need chunks of ~2500 chars max
+  // This leaves: 2.5k prompt + 2k input + 7.5k output = 12k total
+  const MAX_CHUNK_SIZE = 2500;
   const needsChunking = ocrText.length > MAX_CHUNK_SIZE;
   
   if (needsChunking) {
