@@ -126,8 +126,39 @@ Return ONLY a valid JSON object with a single key "data" containing the array. N
       throw new Error('AI did not return a valid "data" array as expected.');
     }
 
-    console.log(`[Kent AI Parser] Extracted ${parsedJson.data.length} medicine-rubric rows.`);
-    return parsedJson.data;
+    console.log(`[Kent AI Parser] AI returned ${parsedJson.data.length} rows from AI`);
+    
+    // POST-PROCESSING: Expand any rows where medicine field contains multiple medicines
+    const expandedData = [];
+    
+    for (const row of parsedJson.data) {
+      const medicineField = (row.medicine || '').trim();
+      
+      // Check if medicine field contains comma-separated medicines
+      if (medicineField.includes(',')) {
+        // Split by comma and create separate rows
+        const medicines = medicineField.split(',').map(m => m.trim()).filter(m => m.length > 0);
+        
+        console.log(`[Kent AI Parser] Expanding row with ${medicines.length} medicines: ${medicineField}`);
+        
+        for (const med of medicines) {
+          expandedData.push({
+            ...row,
+            medicine: med.replace(/\.$/, '') // Remove trailing period
+          });
+        }
+      } else if (medicineField.length > 0) {
+        // Single medicine, keep as is
+        expandedData.push({
+          ...row,
+          medicine: medicineField.replace(/\.$/, '') // Remove trailing period
+        });
+      }
+      // Skip rows with no medicine
+    }
+    
+    console.log(`[Kent AI Parser] ✅ Final count after expansion: ${expandedData.length} medicine-rubric rows`);
+    return expandedData;
   } catch (error) {
     console.error('❌ AI parsing failed:', error);
     throw new Error('Failed to parse OCR text into structured data: ' + error.message);
