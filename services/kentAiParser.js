@@ -208,10 +208,9 @@ const parseOcrToStructuredJson = async (ocrText) => {
   console.log(`[Kent AI Parser] OCR text length: ${ocrText.length} characters`);
   
   // Check if we need to chunk the text to avoid Groq's 12k token limit
-  // CRITICAL: Groq free tier = 12k tokens total (input + output)
-  // With our prompt ~2.5k tokens, we need chunks of ~2500 chars max
-  // This leaves: 2.5k prompt + 2k input + 7.5k output = 12k total
-  const MAX_CHUNK_SIZE = 2500;
+  // Using llama-3.1-8b-instant (more token-efficient than 70B model)
+  // Increased to 3000 chars per chunk - 8B model uses fewer tokens per char
+  const MAX_CHUNK_SIZE = 3000;
   const needsChunking = ocrText.length > MAX_CHUNK_SIZE;
   
   if (needsChunking) {
