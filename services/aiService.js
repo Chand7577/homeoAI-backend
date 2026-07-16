@@ -1,4 +1,4 @@
-const { getModel, isAIReady } = require('../config/aiConfig');
+const { getAnalysisModel, isAIReady } = require('../config/aiConfig');
 const Rubric = require('../models/Rubric');
 const fs = require('fs');
 const HINDI_TO_ENGLISH = {
@@ -254,7 +254,7 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
  * Returns array of matched rubric objects.
  */
 const matchWithAI = async (symptoms, rubrics, repertoryName) => {
-  const model = getModel();
+  const model = getAnalysisModel();
   const rubricSummaries = buildRubricSummary(rubrics);
 
   const prompt = `You are an expert homeopathic physician and repertory specialist.

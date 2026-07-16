@@ -52,19 +52,16 @@ router.post('/upload', upload.single('page'), async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'No file uploaded' });
     }
 
-    console.log(`[Kent OCR] Started processing for file: ${req.file.filename}`);
+    console.log(`Processing upload: ${req.file.originalname}`);
     fs.ensureDirSync(sessionDir);
 
-    // 1. Preprocess & Extract Text (OCR)
-    const { ocrText, processedPath } = await extractTextFromImage(req.file.path, sessionDir);
+    // Pass the raw image directly to Gemini Vision!
+    const structuredData = await parseOcrToStructuredJson(req.file.path);
     
-    if (!ocrText || ocrText.trim().length < 10) {
+    if (!structuredData || structuredData.length === 0) {
       throw new Error('OCR failed or found too little text.');
     }
     
-    // 2. AI Parsing
-    console.log(`[Kent OCR] Parsing extracted text via AI...`);
-    const structuredData = await parseOcrToStructuredJson(ocrText);
     
     // 3. Generate Excel
     console.log(`[Kent OCR] Generating Excel file...`);

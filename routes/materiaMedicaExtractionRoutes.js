@@ -62,18 +62,9 @@ router.post('/upload', upload.single('pdf'), async (req, res, next) => {
     if (isImage) {
       // For images: Use OCR extraction (same as Kent OCR single page)
       console.log('[MM Extract] Using OCR for image extraction...');
-      const { extractTextFromImage } = require('../services/kentOcrService');
+      // Use Gemini Vision directly on the uploaded image
       const { parseOcrToStructuredJson } = require('../services/kentAiParser');
-      
-      // Step 1: OCR extraction
-      const { ocrText } = await extractTextFromImage(req.file.path, sessionDir);
-      
-      if (!ocrText || ocrText.trim().length < 10) {
-        throw new Error('OCR failed or found too little text.');
-      }
-      
-      // Step 2: AI parsing
-      structuredData = await parseOcrToStructuredJson(ocrText);
+      structuredData = await parseOcrToStructuredJson(req.file.path);
       totalPages = 1;
       totalEntries = structuredData.length;
       
