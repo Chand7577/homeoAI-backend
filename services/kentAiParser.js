@@ -117,7 +117,8 @@ Return ONLY a valid JSON object with a single key "data" containing the array. N
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generationConfig: {
         temperature: 0.05, // Very low — factual extraction, not creative
-        responseMimeType: 'application/json'
+        responseMimeType: 'application/json',
+        maxOutputTokens: 8192 // Increase from default (~2048) to allow more medicines
       }
     });
 
