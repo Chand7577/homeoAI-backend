@@ -19,6 +19,7 @@ const messageRoutes      = require('./routes/messageRoutes');
 const doctorRoutes       = require('./routes/doctorRoutes');
 const consultationRoutes = require('./routes/consultationRoutes');
 const kentOcrRoutes      = require('./routes/kentOcrRoutes');
+const mmExtractRoutes    = require('./routes/materiaMedicaExtractionRoutes');
 
 const app = express();
 
@@ -122,6 +123,7 @@ app.use('/api/messages',      messageRoutes);
 app.use('/api/doctors',       doctorRoutes);
 app.use('/api/consultations', consultationRoutes);
 app.use('/api/kent-ocr',      kentOcrRoutes);
+app.use('/api/materia-medica-extract', mmExtractRoutes);
 
 // 404 handler
 app.use((req, res) => {

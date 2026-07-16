@@ -1,6 +1,7 @@
 const { PDFDocument } = require('pdf-lib');
 const fs = require('fs');
 const path = require('path');
+const pdfParse = require('pdf-parse');
 
 /**
  * Extracts specific page ranges (0-indexed) from a source PDF and writes to a new PDF.
@@ -45,4 +46,33 @@ const extractPageRanges = async (inputPath, outputPath, ranges) => {
   console.log(`Successfully extracted ${pageIndices.length} pages to ${outputPath}`);
 };
 
-module.exports = { extractPageRanges };
+/**
+ * Extracts full text content from a PDF file (all pages)
+ * Returns the complete text content for AI parsing
+ */
+const extractFullPdfText = async (inputPath) => {
+  if (!fs.existsSync(inputPath)) {
+    throw new Error(`Source PDF file not found at: ${inputPath}`);
+  }
+
+  console.log(`📄 Extracting text from PDF: ${path.basename(inputPath)}`);
+  
+  const pdfBuffer = fs.readFileSync(inputPath);
+  const pdfData = await pdfParse(pdfBuffer, { max: 0 }); // Extract all pages
+  
+  const totalPages = pdfData.numpages;
+  const fullText = pdfData.text;
+  
+  console.log(`✅ Extracted ${fullText.length} characters from ${totalPages} pages`);
+  
+  return {
+    text: fullText,
+    totalPages: totalPages,
+    info: pdfData.info
+  };
+};
+
+module.exports = { 
+  extractPageRanges,
+  extractFullPdfText
+};
