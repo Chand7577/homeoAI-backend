@@ -73,7 +73,7 @@ const repairAndParseJson = (rawText) => {
  * @param {string} columnHint - "left", "right", or "all"
  * @param {string} chapterHint - Already-detected chapter name to enforce consistency
  */
-const extractColumnPass = async (imagePath, columnHint, chapterHint = '') => {
+const extractColumnPass = async (imagePath, columnHint, lastRubricContext = '') => {
   const model = getVisionModel();
 
   const ext = path.extname(imagePath).toLowerCase();
@@ -93,9 +93,14 @@ const extractColumnPass = async (imagePath, columnHint, chapterHint = '') => {
 
   const chapterInstruction = 'Extract the main CHAPTER NAME from the top of the page. Prepend this chapter name to all rubric_en paths.';
 
+  const contextInstruction = lastRubricContext
+    ? `CONTEXT FROM LEFT COLUMN: The left column's last extracted rubric path was "${lastRubricContext}". If this column starts with a comma-separated continuation header (e.g. "COLOR, redness, inside."), reconstruct the parent path from this context and use it for all sub-rubrics beneath it.`
+    : '';
+
   const prompt = `You are a medical data extraction expert extracting from Kent's Repertory.
 ${columnInstruction}
 ${chapterInstruction}
+${contextInstruction}
 
 --- PAGE LAYOUT & HIERARCHY RULES ---
 1. TWO-COLUMN LAYOUT: Focus ONLY on your designated column. Do not read the other half.
@@ -251,10 +256,12 @@ const parseImageToStructuredJson = async (imagePath) => {
   // Small delay between passes to avoid rate limiting
   await new Promise(r => setTimeout(r, 1500));
 
-  // Pass 2: Right column
+  // Pass 2: Right column — pass the last rubric path from left pass as context
+  const lastRubricFromLeft = allResults.length > 0 ? allResults[allResults.length - 1].rubric_en : '';
   try {
     console.log('[Kent AI Parser] Pass 2: Extracting RIGHT column...');
-    const rightResponse = await extractColumnPass(imagePath, 'right');
+    console.log(`[Kent AI Parser] Passing last rubric context to right pass: "${lastRubricFromLeft}"`);
+    const rightResponse = await extractColumnPass(imagePath, 'right', lastRubricFromLeft);
     console.log(`[Kent AI Parser] Right column response: ${rightResponse.length} chars`);
     const rightJson = repairAndParseJson(rightResponse);
     addResults(rightJson.data, rightJson.chapter_en);
