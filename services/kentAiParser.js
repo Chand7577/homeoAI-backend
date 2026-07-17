@@ -103,8 +103,8 @@ RULES:
 1. Extract ALL medicines visible in your designated half.
 2. RUBRICS = ALL-CAPS words (e.g., ROCKING, SLEEP, STANDING).
 3. Sub-rubrics = indented modifiers (while:, from:, amel.:, during:, agg.:).
-4. rubric_en format: "CHAPTER - RUBRIC - sub-rubric" (e.g., "VERTIGO - SLEEP - during").
-5. ONE object per medicine.
+4. Full rubric path format: "CHAPTER - RUBRIC - sub-rubric" (e.g., "VERTIGO - SLEEP - during").
+5. Group all medicines under their full rubric path to save output tokens. Do NOT output a separate object per medicine.
 6. GRADING from font style:
    - BOLD → 3
    - Italic → 2  
@@ -113,7 +113,17 @@ RULES:
 8. Return ONLY the JSON object, no explanation.
 
 OUTPUT FORMAT:
-{"data": [{"chapter_en":"VERTIGO","chapter_hi":"","rubric_en":"VERTIGO - SLEEP - during","rubric_hi":"","medicine":"Nux-v","grading":3}]}`;
+{
+  "data": [
+    {
+      "rubric_en": "VERTIGO - SLEEP - during",
+      "medicines": [
+        {"name": "Nux-v", "grading": 3},
+        {"name": "Sulph", "grading": 1}
+      ]
+    }
+  ]
+}`;
 
   const result = await model.generateContent({
     contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { data: base64Data, mimeType } }] }],
@@ -178,18 +188,48 @@ const parseImageToStructuredJson = async (imagePath) => {
   const allResults = [];
 
   const addResults = (rows) => {
-    for (const row of (rows || [])) {
-      const medField = (row.medicine || '').trim();
-      const meds = medField.includes(',')
-        ? medField.split(',').map(m => m.trim()).filter(Boolean)
-        : medField ? [medField] : [];
-
-      for (const med of meds) {
-        const cleanMed = med.replace(/\.$/, '');
-        const key = `${row.rubric_en}|||${cleanMed}`.toLowerCase();
+    for (const group of (rows || [])) {
+      const rubric_en = group.rubric_en || '';
+      
+      // Handle the case where the model still outputs legacy flat rows
+      if (group.medicine && typeof group.medicine === 'string') {
+        const cleanMed = group.medicine.replace(/\.$/, '').trim();
+        const key = `${rubric_en}|||${cleanMed}`.toLowerCase();
         if (!seenKeys.has(key)) {
           seenKeys.add(key);
-          allResults.push({ ...row, medicine: cleanMed });
+          allResults.push({
+            chapter_en: chapter,
+            chapter_hi: '',
+            rubric_en: rubric_en,
+            rubric_hi: '',
+            medicine: cleanMed,
+            grading: group.grading || 1
+          });
+        }
+        continue;
+      }
+      
+      // Handle token-efficient grouped format
+      for (const medObj of (group.medicines || [])) {
+        const medField = (medObj.name || '').trim();
+        const meds = medField.includes(',')
+          ? medField.split(',').map(m => m.trim()).filter(Boolean)
+          : medField ? [medField] : [];
+
+        for (const med of meds) {
+          const cleanMed = med.replace(/\.$/, '');
+          const key = `${rubric_en}|||${cleanMed}`.toLowerCase();
+          if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            allResults.push({
+              chapter_en: chapter,
+              chapter_hi: '',
+              rubric_en: rubric_en,
+              rubric_hi: '',
+              medicine: cleanMed,
+              grading: medObj.grading || 1
+            });
+          }
         }
       }
     }
