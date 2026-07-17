@@ -98,37 +98,57 @@ ${columnInstruction}
 ${chapterInstruction}
 
 --- PAGE LAYOUT & HIERARCHY RULES ---
-1. The text is organized in a two-column layout. Focus ONLY on your designated column.
-2. EXHAUSTIVE EXTRACTION (CRITICAL): You MUST extract EVERY SINGLE medicine abbreviation visible under each rubric. DO NOT skip, summarize, or truncate any medicines. Every comma-separated word must be captured. Read all deeply indented wrapped lines thoroughly.
-3. HIERARCHY by Indentation:
-   - NO INDENT (Starts at left margin): MAIN RUBRIC (often ALL CAPS, e.g., "EXTERNAL:", "AGGLUTINATION of nostrils:").
-   - 1st INDENT: Sub-rubric (e.g., "morning:", "at root:").
-   - 2nd INDENT: Sub-sub-rubric.
-   - HANGING INDENT: Medicines belonging to the rubric above them wrap onto deeply indented lines.
-4. MEDICINES:
-   - They appear immediately after a rubric name (often after a colon ":") and continue on subsequent deeply indented lines.
-   - They are comma-separated and usually end with a period (e.g., "Acon., alum., ambr.,").
-   - Remove the trailing periods from medicine abbreviations (e.g. "Acon." -> "Acon").
-5. RUBRIC PATHS:
-   - Combine the Chapter, Main Rubric, and any Sub-rubrics to form the full path.
-   - Format: "CHAPTER - MAIN RUBRIC - sub-rubric" (e.g., "NOSE - ABSCESS - at root").
-6. GRADING (Font Styles):
-   - BOLD (or ALL-CAPS medicines) → Grade 3
-   - Italic → Grade 2
-   - Normal Roman text → Grade 1
-7. CROSS REFERENCES: Skip lines like "(See 'SMELL.')" or "(See 'Epistaxis.')".
-8. COLUMN CONTINUATION: If a column starts with a deeply indented list of medicines, they belong to the LAST rubric from the previous column. If the column repeats a rubric name at the very top (e.g., "ROOT."), continue attaching the medicines to that rubric.
+1. TWO-COLUMN LAYOUT: Focus ONLY on your designated column. Do not read the other half.
+
+2. EXHAUSTIVE EXTRACTION (CRITICAL): You MUST capture EVERY SINGLE medicine abbreviation on every line. Do NOT skip, summarize, or truncate. Read every deeply wrapped hanging-indent line completely.
+
+3. HIERARCHY by Indentation Level:
+   - LEVEL 0 (flush left margin, often ALL CAPS or bold): MAIN RUBRIC.
+   - LEVEL 1 (small indent): Sub-rubric (e.g., "redness", "right side of:").
+   - LEVEL 2 (medium indent): Sub-sub-rubric (e.g., "tip:", "septum:", "wings:").
+   - LEVEL 3+ (deep indent): Sub-sub-sub-rubric (e.g., "evening:", "edges:", "corners:").
+   - HANGING INDENT: A deeply indented line with ONLY medicine names is a CONTINUATION of the medicines belonging to the rubric directly above it. It is NOT a new rubric.
+
+4. COLUMN HEADER CONTINUATION (VERY IMPORTANT):
+   A column sometimes starts with a line like "COLOR, redness, inside." using commas as separators. This is a CONTINUATION HEADER, not a new top-level rubric. It means: all sub-rubrics beneath it belong to that inherited parent path.
+   Example from this actual page:
+     Right column starts with: "COLOR, redness, inside."  → parent path = "NOSE - COLOR, redness - inside"
+       "septum: Alum., bov., bor., lil-t."  → rubric = "NOSE - COLOR, redness - inside - septum"
+       "tip: Alum., aur., bell., ..."        → rubric = "NOSE - COLOR, redness - inside - tip"
+         "evening: Caps."                    → rubric = "NOSE - COLOR, redness - inside - tip - evening"
+         "menses, during: Carb-an."          → rubric = "NOSE - COLOR, redness - inside - tip - menses, during"
+       "wings: Calc., kali-bi., ..."         → rubric = "NOSE - COLOR, redness - inside - wings"
+         "right: Canth., gins."              → rubric = "NOSE - COLOR, redness - inside - wings - right"
+         "edges: Coc-c., gels., phos-ac."    → rubric = "NOSE - COLOR, redness - inside - wings - edges"
+         "corners: Benz-ac., plb."           → rubric = "NOSE - COLOR, redness - inside - wings - corners"
+     Then the next unindented ALL-CAPS entry "COMEDONES" starts a fresh top-level rubric.
+
+5. RUBRIC PATH FORMAT: "CHAPTER - MAIN RUBRIC, qualifier - sub-rubric - sub-sub-rubric"
+   e.g., "NOSE - COLOR, redness - inside - tip - evening"
+
+6. MEDICINES:
+   - Comma-separated, usually ending with a period. Remove trailing periods.
+   - Grading: BOLD/ALL-CAPS medicine = 3, Italic = 2, Normal = 1.
+
+7. SKIP: Cross-references like "(See 'FACE, Eruptions.')" — skip entirely.
 
 --- OUTPUT FORMAT ---
-Group all extracted medicines under their full rubric path. Do NOT output a separate object per medicine. Return ONLY the JSON object, no markdown or explanations.
+Group medicines under their full rubric path. Return ONLY valid JSON, no markdown.
 
 {
   "chapter_en": "NOSE",
   "data": [
     {
-      "rubric_en": "NOSE - ABSCESS - at root",
+      "rubric_en": "NOSE - COLOR, redness - inside - septum",
       "medicines": [
-        {"name": "Puls", "grading": 2}
+        {"name": "Alum", "grading": 1},
+        {"name": "bov", "grading": 1}
+      ]
+    },
+    {
+      "rubric_en": "NOSE - COLOR, redness - inside - tip - evening",
+      "medicines": [
+        {"name": "Caps", "grading": 1}
       ]
     }
   ]
