@@ -91,9 +91,7 @@ const extractColumnPass = async (imagePath, columnHint, chapterHint = '') => {
     columnInstruction = 'FOCUS ONLY on the RIGHT half of the image. Ignore all text in the left half.';
   }
 
-  const chapterInstruction = chapterHint
-    ? `The chapter for this page is "${chapterHint}" — use it for all rows.`
-    : 'The CHAPTER is the large heading at the very top of the page. Use it for ALL rows.';
+  const chapterInstruction = 'Extract the main CHAPTER NAME from the top of the page. Prepend this chapter name to all rubric_en paths.';
 
   const prompt = `You are a medical data extraction expert extracting from Kent's Repertory.
 ${columnInstruction}
@@ -114,6 +112,7 @@ RULES:
 
 OUTPUT FORMAT:
 {
+  "chapter_en": "VERTIGO",
   "data": [
     {
       "rubric_en": "VERTIGO - SLEEP - during",
@@ -137,33 +136,6 @@ OUTPUT FORMAT:
   return await result.response.text();
 };
 
-/**
- * Detect the chapter name from the image (lightweight first pass).
- */
-const detectChapter = async (imagePath) => {
-  const model = getVisionModel();
-  const ext = path.extname(imagePath).toLowerCase();
-  let mimeType = 'image/jpeg';
-  if (ext === '.png') mimeType = 'image/png';
-  else if (ext === '.webp') mimeType = 'image/webp';
-
-  const base64Data = fs.readFileSync(imagePath, { encoding: 'base64' });
-
-  const result = await model.generateContent({
-    contents: [{
-      role: 'user',
-      parts: [
-        { text: 'What is the chapter heading at the very top of this Kent\'s Repertory page? Reply with ONLY the chapter name in uppercase, nothing else. Example: VERTIGO' },
-        { inlineData: { data: base64Data, mimeType } }
-      ]
-    }],
-    generationConfig: { temperature: 0, maxOutputTokens: 20 }
-  });
-
-  const chapter = (await result.response.text()).trim().replace(/\.$/, '').toUpperCase();
-  console.log(`[Kent AI Parser] Detected chapter: ${chapter}`);
-  return chapter;
-};
 
 /**
  * Main export: parse a Kent's Repertory image via two-pass column extraction.
@@ -176,18 +148,17 @@ const parseImageToStructuredJson = async (imagePath) => {
   initKentAI();
   console.log(`[Kent AI Parser] Starting two-pass extraction: ${path.basename(imagePath)}`);
 
-  // Step 0: Detect chapter (cheap call, enforces consistency across both passes)
-  let chapter = '';
-  try {
-    chapter = await detectChapter(imagePath);
-  } catch (e) {
-    console.warn('[Kent AI Parser] Chapter detection failed, will infer from columns.');
-  }
-
   const seenKeys = new Set();
   const allResults = [];
+  let mainChapter = '';
 
-  const addResults = (rows) => {
+  const addResults = (rows, detectedChapter) => {
+    // Save the first valid chapter detected
+    if (detectedChapter && !mainChapter) {
+      mainChapter = detectedChapter.toUpperCase();
+    }
+    const currentChapter = mainChapter || detectedChapter || 'UNKNOWN';
+
     for (const group of (rows || [])) {
       const rubric_en = group.rubric_en || '';
       
@@ -198,7 +169,7 @@ const parseImageToStructuredJson = async (imagePath) => {
         if (!seenKeys.has(key)) {
           seenKeys.add(key);
           allResults.push({
-            chapter_en: chapter,
+            chapter_en: currentChapter,
             chapter_hi: '',
             rubric_en: rubric_en,
             rubric_hi: '',
@@ -222,7 +193,7 @@ const parseImageToStructuredJson = async (imagePath) => {
           if (!seenKeys.has(key)) {
             seenKeys.add(key);
             allResults.push({
-              chapter_en: chapter,
+              chapter_en: currentChapter,
               chapter_hi: '',
               rubric_en: rubric_en,
               rubric_hi: '',
@@ -238,10 +209,10 @@ const parseImageToStructuredJson = async (imagePath) => {
   // Pass 1: Left column
   try {
     console.log('[Kent AI Parser] Pass 1: Extracting LEFT column...');
-    const leftResponse = await extractColumnPass(imagePath, 'left', chapter);
+    const leftResponse = await extractColumnPass(imagePath, 'left');
     console.log(`[Kent AI Parser] Left column response: ${leftResponse.length} chars`);
     const leftJson = repairAndParseJson(leftResponse);
-    addResults(leftJson.data);
+    addResults(leftJson.data, leftJson.chapter_en);
     console.log(`[Kent AI Parser] Left column: ${allResults.length} rows so far`);
   } catch (e) {
     console.error('[Kent AI Parser] Left column pass failed:', e.message);
@@ -253,10 +224,10 @@ const parseImageToStructuredJson = async (imagePath) => {
   // Pass 2: Right column
   try {
     console.log('[Kent AI Parser] Pass 2: Extracting RIGHT column...');
-    const rightResponse = await extractColumnPass(imagePath, 'right', chapter);
+    const rightResponse = await extractColumnPass(imagePath, 'right');
     console.log(`[Kent AI Parser] Right column response: ${rightResponse.length} chars`);
     const rightJson = repairAndParseJson(rightResponse);
-    addResults(rightJson.data);
+    addResults(rightJson.data, rightJson.chapter_en);
     console.log(`[Kent AI Parser] Right column: ${allResults.length} total rows after merge`);
   } catch (e) {
     console.error('[Kent AI Parser] Right column pass failed:', e.message);
