@@ -97,28 +97,37 @@ const extractColumnPass = async (imagePath, columnHint, chapterHint = '') => {
 ${columnInstruction}
 ${chapterInstruction}
 
-RULES:
-1. Extract ALL medicines visible in your designated half.
-2. RUBRICS = ALL-CAPS words (e.g., ROCKING, SLEEP, STANDING).
-3. Sub-rubrics = indented modifiers (while:, from:, amel.:, during:, agg.:).
-4. Full rubric path format: "CHAPTER - RUBRIC - sub-rubric" (e.g., "VERTIGO - SLEEP - during").
-5. Group all medicines under their full rubric path to save output tokens. Do NOT output a separate object per medicine.
-6. GRADING from font style:
-   - BOLD → 3
-   - Italic → 2  
-   - Normal → 1
-7. Remove trailing periods from medicine names.
-8. Return ONLY the JSON object, no explanation.
+--- PAGE LAYOUT & HIERARCHY RULES ---
+1. The text is organized in a two-column layout. Focus ONLY on your designated column.
+2. HIERARCHY by Indentation:
+   - NO INDENT (Starts at left margin): MAIN RUBRIC (often ALL CAPS, e.g., "EXTERNAL:", "AGGLUTINATION of nostrils:").
+   - 1st INDENT: Sub-rubric (e.g., "morning:", "at root:").
+   - 2nd INDENT: Sub-sub-rubric.
+   - HANGING INDENT: Medicines belonging to the rubric above them wrap onto deeply indented lines.
+3. MEDICINES:
+   - They appear immediately after a rubric name (often after a colon ":") and continue on subsequent deeply indented lines.
+   - They are comma-separated and usually end with a period (e.g., "Acon., alum., ambr.,").
+   - Remove the trailing periods from medicine abbreviations (e.g. "Acon." -> "Acon").
+4. RUBRIC PATHS:
+   - Combine the Chapter, Main Rubric, and any Sub-rubrics to form the full path.
+   - Format: "CHAPTER - MAIN RUBRIC - sub-rubric" (e.g., "NOSE - ABSCESS - at root").
+5. GRADING (Font Styles):
+   - BOLD (or ALL-CAPS medicines) → Grade 3
+   - Italic → Grade 2
+   - Normal Roman text → Grade 1
+6. CROSS REFERENCES: Skip lines like "(See 'SMELL.')" or "(See 'Epistaxis.')".
+7. COLUMN CONTINUATION: If a column starts with a deeply indented list of medicines, they belong to the LAST rubric from the previous column. If the column repeats a rubric name at the very top (e.g., "ROOT."), continue attaching the medicines to that rubric.
 
-OUTPUT FORMAT:
+--- OUTPUT FORMAT ---
+Group all extracted medicines under their full rubric path. Do NOT output a separate object per medicine. Return ONLY the JSON object, no markdown or explanations.
+
 {
-  "chapter_en": "VERTIGO",
+  "chapter_en": "NOSE",
   "data": [
     {
-      "rubric_en": "VERTIGO - SLEEP - during",
+      "rubric_en": "NOSE - ABSCESS - at root",
       "medicines": [
-        {"name": "Nux-v", "grading": 3},
-        {"name": "Sulph", "grading": 1}
+        {"name": "Puls", "grading": 2}
       ]
     }
   ]
