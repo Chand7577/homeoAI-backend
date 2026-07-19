@@ -241,37 +241,93 @@ const parseImageToStructuredJson = async (imagePath) => {
     }
   };
 
+  /**
+   * Helper to safely extract data array from parsed JSON.
+   * The AI might return: {data: [...]}, {chapter_en: "...", data: [...]}, or just [...]
+   */
+  const extractDataArray = (parsed) => {
+    if (Array.isArray(parsed)) return { data: parsed, chapter: '' };
+    if (parsed && Array.isArray(parsed.data)) return { data: parsed.data, chapter: parsed.chapter_en || '' };
+    // Maybe it's wrapped differently
+    const keys = Object.keys(parsed || {});
+    for (const key of keys) {
+      if (Array.isArray(parsed[key])) return { data: parsed[key], chapter: parsed.chapter_en || '' };
+    }
+    return { data: [], chapter: '' };
+  };
+
   // Pass 1: Left column
   try {
     console.log('[Kent AI Parser] Pass 1: Extracting LEFT column...');
     const leftResponse = await extractColumnPass(imagePath, 'left');
     console.log(`[Kent AI Parser] Left column response: ${leftResponse.length} chars`);
-    const leftJson = repairAndParseJson(leftResponse);
-    addResults(leftJson.data, leftJson.chapter_en);
+    console.log(`[Kent AI Parser] Left response preview: ${leftResponse.substring(0, 200)}`);
+    const leftParsed = repairAndParseJson(leftResponse);
+    const { data: leftData, chapter: leftChapter } = extractDataArray(leftParsed);
+    console.log(`[Kent AI Parser] Left column parsed: ${leftData.length} groups, chapter="${leftChapter}"`);
+    addResults(leftData, leftChapter);
     console.log(`[Kent AI Parser] Left column: ${allResults.length} rows so far`);
   } catch (e) {
     console.error('[Kent AI Parser] Left column pass failed:', e.message);
   }
 
-  // Small delay between passes to avoid rate limiting
-  await new Promise(r => setTimeout(r, 1500));
+  // Longer delay between passes to avoid rate limiting
+  await new Promise(r => setTimeout(r, 3000));
 
   // Pass 2: Right column — pass the last rubric path from left pass as context
   const lastRubricFromLeft = allResults.length > 0 ? allResults[allResults.length - 1].rubric_en : '';
-  try {
-    console.log('[Kent AI Parser] Pass 2: Extracting RIGHT column...');
-    console.log(`[Kent AI Parser] Passing last rubric context to right pass: "${lastRubricFromLeft}"`);
-    const rightResponse = await extractColumnPass(imagePath, 'right', lastRubricFromLeft);
-    console.log(`[Kent AI Parser] Right column response: ${rightResponse.length} chars`);
-    const rightJson = repairAndParseJson(rightResponse);
-    addResults(rightJson.data, rightJson.chapter_en);
-    console.log(`[Kent AI Parser] Right column: ${allResults.length} total rows after merge`);
-  } catch (e) {
-    console.error('[Kent AI Parser] Right column pass failed:', e.message);
+  const leftRowCount = allResults.length;
+  let rightAttempts = 0;
+  const maxRetries = 2;
+
+  while (rightAttempts < maxRetries) {
+    rightAttempts++;
+    try {
+      console.log(`[Kent AI Parser] Pass 2 (attempt ${rightAttempts}): Extracting RIGHT column...`);
+      console.log(`[Kent AI Parser] Passing last rubric context: "${lastRubricFromLeft}"`);
+      const rightResponse = await extractColumnPass(imagePath, 'right', lastRubricFromLeft);
+      console.log(`[Kent AI Parser] Right column response: ${rightResponse.length} chars`);
+      console.log(`[Kent AI Parser] Right response preview: ${rightResponse.substring(0, 300)}`);
+      
+      const rightParsed = repairAndParseJson(rightResponse);
+      const { data: rightData, chapter: rightChapter } = extractDataArray(rightParsed);
+      console.log(`[Kent AI Parser] Right column parsed: ${rightData.length} groups, chapter="${rightChapter}"`);
+      
+      addResults(rightData, rightChapter);
+      const rightRowsAdded = allResults.length - leftRowCount;
+      console.log(`[Kent AI Parser] Right column: +${rightRowsAdded} rows (${allResults.length} total)`);
+      
+      if (rightRowsAdded > 0) break; // Success
+      console.warn(`[Kent AI Parser] Right column returned 0 new rows. Retrying...`);
+    } catch (e) {
+      console.error(`[Kent AI Parser] Right column pass attempt ${rightAttempts} failed:`, e.message);
+      console.error(`[Kent AI Parser] Full error:`, e.stack);
+    }
+    
+    if (rightAttempts < maxRetries) {
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  }
+
+  // Fallback: If right column produced 0 rows, try a FULL PAGE pass
+  if (allResults.length === leftRowCount) {
+    console.warn('[Kent AI Parser] ⚠️ Right column extraction failed after retries. Trying FULL PAGE fallback...');
+    await new Promise(r => setTimeout(r, 3000));
+    try {
+      const fullResponse = await extractColumnPass(imagePath, 'all', lastRubricFromLeft);
+      console.log(`[Kent AI Parser] Full page response: ${fullResponse.length} chars`);
+      const fullParsed = repairAndParseJson(fullResponse);
+      const { data: fullData, chapter: fullChapter } = extractDataArray(fullParsed);
+      console.log(`[Kent AI Parser] Full page parsed: ${fullData.length} groups`);
+      addResults(fullData, fullChapter);
+      console.log(`[Kent AI Parser] After full page fallback: ${allResults.length} total rows`);
+    } catch (e) {
+      console.error('[Kent AI Parser] Full page fallback also failed:', e.message);
+    }
   }
 
   if (allResults.length === 0) {
-    throw new Error('Both column extraction passes failed. No data extracted.');
+    throw new Error('All extraction passes failed. No data extracted.');
   }
 
   console.log(`[Kent AI Parser] ✅ Final: ${allResults.length} unique medicine-rubric rows extracted!`);
