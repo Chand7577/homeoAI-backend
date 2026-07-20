@@ -145,7 +145,7 @@ const login = async (req, res) => {
       const token = generateToken(adminUser._id);
       res.cookie('homeo_token', token, { ...authCookieOptions(), maxAge: 7 * 24 * 60 * 60 * 1000 });
       const { password: _, ...userResponse } = adminUser.toObject();
-      return res.json({ success: true, message: 'Local test admin login successful', user: userResponse });
+      return res.json({ success: true, message: 'Local test admin login successful', user: userResponse, token });
     }
 
     // Find user by email
@@ -204,8 +204,10 @@ const login = async (req, res) => {
     res.json({
       success: true,
       message: 'Login successful',
-      user: userResponse
-      // No token in response body anymore
+      user: userResponse,
+      // Enables Netlify/Render deployments where browsers block third-party
+      // cookies. The client sends this only in an Authorization header.
+      token,
     });
   } catch (error) {
     console.error('Login error:', error);
