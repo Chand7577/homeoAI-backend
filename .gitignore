@@ -24,6 +24,8 @@ migrations/
 
 # Scratch/test files
 scratch/
+test_*.js
+list_*.js
 
 # OS files
 .DS_Store
