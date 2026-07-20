@@ -4,13 +4,14 @@ const ConsultationSchema = new mongoose.Schema({
   // Patient Information
   patientName: { type: String, required: true, trim: true },
   patientAge: { type: String, required: true },
-  
+  patientGender: { type: String, enum: ['Male', 'Female', 'Other'], default: 'Male' },
+  patientWeight: { type: Number, default: null },
+
   // Symptom Details
   mainConcern: { type: String, required: true },
   severity: { type: String, enum: ['Mild', 'Moderate', 'Severe'], required: true },
   duration: { type: String, required: true },
   symptomsDescription: { type: String, required: true },
-  medications: { type: String, default: '' },
   
   // File Attachment
   attachmentUrl: { type: String, default: '' },
