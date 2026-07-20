@@ -10,30 +10,43 @@ const runAnalysisHandler = async (req, res) => {
 
   // Validate
   if (!repertoryId) { res.status(400); throw new Error('repertoryId is required'); }
-  const cleanSymptoms = (symptoms || []).map(s => String(s).trim()).filter(Boolean);
+  // The UI provides five slots; enforce the same bound at the API boundary so
+  // a malformed client cannot create an oversized DB/AI workload.
+  const rawSymptoms = Array.isArray(symptoms) ? symptoms : [symptoms];
+  const cleanSymptoms = rawSymptoms
+    .map(s => String(s).trim().slice(0, 500))
+    .filter(Boolean)
+    .slice(0, 5);
   if (cleanSymptoms.length === 0) { res.status(400); throw new Error('At least one symptom is required'); }
 
   // Get repertory name
-  const repertory = await Repertory.findById(repertoryId);
+  const repertory = await Repertory.findById(repertoryId).select('name').lean();
   if (!repertory) { res.status(404); throw new Error('Repertory not found'); }
 
-  // Run AI analysis
-  const { matchedRubrics, medicineDistribution, aiUsed, stats } = await runAnalysis({
+  // The patient read does not depend on matching, so overlap it with the
+  // substantially slower candidate search / model request.
+  const analysisPromise = runAnalysis({
     symptoms: cleanSymptoms,
     repertoryId,
     repertoryName: repertory.name,
   });
+  const patientPromise = patientId
+    ? Patient.findById(patientId).select('name').lean()
+    : Promise.resolve(null);
+  const [{ matchedRubrics, medicineDistribution, aiUsed, stats }, patient] = await Promise.all([
+    analysisPromise,
+    patientPromise,
+  ]);
 
   // Resolve patient
   let resolvedPatientId = null;
   let resolvedPatientName = patientName || 'Patient';
-  if (patientId) {
-    const patient = await Patient.findById(patientId);
-    if (patient) {
-      resolvedPatientId = patient._id;
-      resolvedPatientName = patient.name;
-    }
+  if (patient) {
+    resolvedPatientId = patient._id;
+    resolvedPatientName = patient.name;
   }
+
+  console.info('⏱️ [ANALYSIS] phase timings (ms):', stats.timingsMs);
 
   // Normalise matchedRubrics: ensure medicines is a plain object (Mixed type allows dotted keys like 'Sulph.')
   const normalisedRubrics = matchedRubrics.map(r => ({

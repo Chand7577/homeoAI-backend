@@ -94,14 +94,14 @@ const translateHindiTerms = (text) => {
 const buildRubricSummary = (rubrics) => {
   return rubrics.map(r => ({
     id: r._id.toString(),
-    chapter: r.chapter?.en || '',
-    chapter_hi: r.chapter?.hi || '',
-    rubric: r.rubric?.en || '',
-    rubric_hi: r.rubric?.hi || '',
-    subrubric: r.subrubric?.en || '',
-    agg: (r.modalities?.aggravation || []).join(', '),
-    amel: (r.modalities?.amelioration || []).join(', '),
-    synonyms: (r.synonyms?.en || []).join(', ')
+    chapter: (r.chapter?.en || '').slice(0, 100),
+    chapter_hi: (r.chapter?.hi || '').slice(0, 100),
+    rubric: (r.rubric?.en || '').slice(0, 220),
+    rubric_hi: (r.rubric?.hi || '').slice(0, 220),
+    subrubric: (r.subrubric?.en || '').slice(0, 220),
+    agg: (r.modalities?.aggravation || []).slice(0, 5).join(', ').slice(0, 180),
+    amel: (r.modalities?.amelioration || []).slice(0, 5).join(', ').slice(0, 180),
+    synonyms: (r.synonyms?.en || []).slice(0, 8).join(', ').slice(0, 250)
   }));
 };
 
@@ -124,8 +124,6 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
     'and', 'the', 'for', 'with', 'worse', 'better', 'from', 'after', 'before', 'without', 'about', 'feels',
     'में', 'से', 'का', 'की', 'के', 'को', 'पर', 'है', 'हैं', 'हो', 'होता', 'होती', 'और', 'तथा', 'ने', 'भी', 'ही', 'तो', 'कर', 'करने', 'किया'
   ]);
-  const chapterStopWords = new Set(['mind', 'head', 'eye', 'eyes', 'ear', 'ears', 'nose', 'face', 'mouth', 'throat', 'stomach', 'abdomen', 'stool', 'urine', 'cough', 'fever', 'chill', 'sleep', 'skin', 'chest', 'back', 'extremities']);
-
   const extractSearchTerms = (text) => {
     return text.toLowerCase()
       .replace(/[^\w\s\u0900-\u097F]/g, ' ')  // strip semicolons, punctuation
@@ -134,73 +132,43 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
       .filter(w => w.length > 1 && !stopWords.has(w));
   };
 
-  // ── Run all symptom DB lookups IN PARALLEL ───────────────────────────────
-  await Promise.all(symptoms.map(async (symptom) => {
-    if (!symptom.trim()) return;
-
-    const symptomCandidates = new Map();
-
-    const findCandidatesForTerms = async (terms) => {
-      if (!terms || terms.length === 0) return;
-      const textQuery = terms.join(' ');
-      try {
-        const matches = await Rubric.find(
-          { repertoryId, $text: { $search: textQuery } },
-          { score: { $meta: 'textScore' } }
-        ).sort({ score: { $meta: 'textScore' } }).limit(10).lean();
-        matches.forEach(m => { symptomCandidates.set(m._id.toString(), m); });
-      } catch (e) {
-        console.error('Text query failed:', e.message);
-      }
-    };
-
-    const isTabSeparated = symptom.includes('\t');
-    const tabSegments = isTabSeparated ? symptom.split('\t').map(s => s.trim()).filter(Boolean) : null;
-
-    if (isTabSeparated && tabSegments && tabSegments.length > 1) {
-      await Promise.all(tabSegments.map(async (segment) => {
-        const segTerms = extractSearchTerms(segment);
-        await findCandidatesForTerms(segTerms);
-        if (/[\u0900-\u097F]/.test(segment)) {
-          const translation = await translateSymptomToEnglish(segment);
-          if (translation) await findCandidatesForTerms(extractSearchTerms(translation));
-        }
-      }));
-    } else {
-      const semicolonSegments = symptom.includes(';')
-        ? symptom.split(';').map(s => s.trim()).filter(Boolean)
-        : null;
-
-      if (semicolonSegments && semicolonSegments.length > 1) {
-        await Promise.all(semicolonSegments.map(async (segment) => {
-          const segTerms = extractSearchTerms(segment);
-          await findCandidatesForTerms(segTerms);
-          if (/[\u0900-\u097F]/.test(segment)) {
-            const translation = await translateSymptomToEnglish(segment);
-            if (translation) await findCandidatesForTerms(extractSearchTerms(translation));
-          }
-        }));
-      } else {
-        const originalTerms = extractSearchTerms(symptom);
-        if (originalTerms.length > 0) {
-          await findCandidatesForTerms(originalTerms);
-          if (/[\u0900-\u097F]/.test(symptom)) {
-            const translation = await translateSymptomToEnglish(symptom);
-            if (translation) await findCandidatesForTerms(extractSearchTerms(translation));
-          }
-        }
-      }
+  // Each symptom produces at most one indexed lookup. Splitting every tab or
+  // semicolon segment used to fan one request out into dozens of DB queries.
+  const candidateGroups = await Promise.all(symptoms.map(async (symptom) => {
+    if (!symptom.trim()) return [];
+    const terms = extractSearchTerms(symptom);
+    if (/[\u0900-\u097F]/.test(symptom)) {
+      terms.push(...extractSearchTerms(await translateSymptomToEnglish(symptom)));
     }
+    const textQuery = [...new Set(terms)].join(' ');
+    if (!textQuery) return [];
 
-    // Merge into global candidate map (Map is not thread-safe but JS is single-threaded, so this is safe)
-    symptomCandidates.forEach((m, id) => { candidateMap.set(id, m); });
+    try {
+      return await Rubric.find(
+        { repertoryId, $text: { $search: textQuery } },
+        { score: { $meta: 'textScore' } }
+      )
+        .select('_id chapter rubric subrubric modalities synonyms searchText')
+        .sort({ score: { $meta: 'textScore' } })
+        .limit(10)
+        .lean();
+    } catch (e) {
+      console.error('Text query failed:', e.message);
+      return [];
+    }
   }));
+
+  candidateGroups.flat().forEach(m => {
+    if (candidateMap.size < 40) candidateMap.set(m._id.toString(), m);
+  });
 
 
   // Fallback: If no candidate matched, get first 30 rubrics so AI has options
   if (candidateMap.size === 0) {
     try {
-      const fallback = await Rubric.find({ repertoryId }).limit(30).lean();
+      const fallback = await Rubric.find({ repertoryId })
+        .select('_id chapter rubric subrubric modalities synonyms searchText')
+        .limit(30).lean();
       fallback.forEach(m => {
         candidateMap.set(m._id.toString(), m);
       });
@@ -232,22 +200,23 @@ ${symptoms.map((s, i) => `${i + 1}. ${s}`).join('\n')}
 AVAILABLE RUBRICS:
 ${JSON.stringify(rubricSummaries)}
 
-Return ONLY a valid JSON array with this structure:
-[
+Return ONLY a valid JSON object with this structure:
+{ "matches": [
   {
     "symptom": "exact patient symptom text",
     "matched_rubric_id": "rubric_id or null",
     "confidence": 0-100,
     "reasoning": "brief clinical reason"
   }
-]`;
+] }`;
 
   // Race against a 25-second timeout so slow Groq responses don't hang the request
   const aiCall = model.generateContent({
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     generationConfig: {
       temperature: 0.3,
-      responseMimeType: "application/json"
+      responseMimeType: "application/json",
+      maxOutputTokens: 600
     }
   });
 
@@ -426,6 +395,9 @@ const mergeDuplicateRubrics = (rubrics) => {
  * Main analysis function — orchestrates AI matching + medicine distribution.
  */
 const runAnalysis = async ({ symptoms, repertoryId, repertoryName }) => {
+  const startedAt = Date.now();
+  let candidateFinishedAt;
+  let matchingFinishedAt;
   let rubrics;
   let aiMatches;
   let aiUsed = false;
@@ -435,6 +407,7 @@ const runAnalysis = async ({ symptoms, repertoryId, repertoryName }) => {
     // regardless of whether we use AI or fallback keyword matching.
     rubrics = await getCandidateRubrics(symptoms, repertoryId);
     rubrics = mergeDuplicateRubrics(rubrics);
+    candidateFinishedAt = Date.now();
     
     if (isAIReady() && rubrics.length > 0) {
       try {
@@ -447,16 +420,27 @@ const runAnalysis = async ({ symptoms, repertoryId, repertoryName }) => {
     } else {
       aiMatches = matchWithKeywords(symptoms, rubrics);
     }
+    matchingFinishedAt = Date.now();
   } catch (err) {
     console.error('Fatal analysis error, using extreme fallback:', err.message);
     rubrics = await Rubric.find({ repertoryId }).limit(500).lean();
     rubrics = mergeDuplicateRubrics(rubrics);
     aiMatches = matchWithKeywords(symptoms, rubrics);
+    candidateFinishedAt = Date.now();
+    matchingFinishedAt = candidateFinishedAt;
   }
 
   // Enrich AI matches with full rubric data
   const rubricMap = {};
   rubrics.forEach(r => { rubricMap[r._id.toString()] = r; });
+
+  const selectedIds = [...new Set(aiMatches
+    .map(m => m.matched_rubric_id)
+    .filter(Boolean))];
+  const selectedRubrics = selectedIds.length
+    ? await Rubric.find({ repertoryId, _id: { $in: selectedIds } }).select('_id medicines').lean()
+    : [];
+  const medicinesByRubricId = new Map(selectedRubrics.map(r => [r._id.toString(), r.medicines || {}]));
 
   const matchedRubrics = aiMatches
     .filter(m => m.matched_rubric_id)
@@ -470,9 +454,7 @@ const runAnalysis = async ({ symptoms, repertoryId, repertoryName }) => {
         rubric:    rubric.rubric,
         subrubric: rubric.subrubric,
         modalities: rubric.modalities,
-        medicines:  rubric.medicines instanceof Map
-          ? Object.fromEntries(rubric.medicines)
-          : rubric.medicines,
+        medicines: medicinesByRubricId.get(rubric._id.toString()) || {},
         confidence: m.confidence,
         reasoning:  m.reasoning,
       };
@@ -495,7 +477,13 @@ const runAnalysis = async ({ symptoms, repertoryId, repertoryName }) => {
     stats: {
       totalMatched: matchedRubrics.length,
       withMedicines: rubricsWithMedicines,
-      withoutMedicines: rubricsWithoutMedicines
+      withoutMedicines: rubricsWithoutMedicines,
+      timingsMs: {
+        candidates: candidateFinishedAt - startedAt,
+        matching: matchingFinishedAt - candidateFinishedAt,
+        enrichmentAndScoring: Date.now() - matchingFinishedAt,
+        total: Date.now() - startedAt,
+      }
     }
   };
 };

@@ -53,6 +53,9 @@ RubricSchema.pre('save', function(next) {
 });
 
 RubricSchema.index({ repertoryId: 1, 'chapter.en': 1, 'rubric.en': 1 });
-RubricSchema.index({ searchText: 'text' });
+// A text index may have equality fields before it.  Keeping repertoryId first
+// means analysis searches do not scan text matches from every repertory and
+// filter them afterwards.
+RubricSchema.index({ repertoryId: 1, searchText: 'text' }, { name: 'repertory_search_text' });
 
 module.exports = mongoose.model('Rubric', RubricSchema);

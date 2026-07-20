@@ -25,9 +25,43 @@ const connectDB = async () => {
     if (!hasRun.messages) {
       setTimeout(seedMessages, 200);
     }
+
+    // MongoDB permits only one text index per collection. Upgrade the legacy
+    // searchText-only index so analysis queries can use repertoryId as an
+    // equality prefix. This changes an index only; it never changes rubric data.
+    await ensureRubricSearchIndex();
   } catch (error) {
     console.error(`❌ MongoDB Connection Error: ${error.message}`);
     process.exit(1);
+  }
+};
+
+const ensureRubricSearchIndex = async () => {
+  try {
+    const Rubric = require('../models/Rubric');
+    const collection = Rubric.collection;
+    const indexes = await collection.indexes();
+    const desiredName = 'repertory_search_text';
+
+    if (indexes.some(index => index.name === desiredName)) return;
+
+    const legacyTextIndex = indexes.find(index =>
+      Object.values(index.key).includes('text')
+    );
+
+    if (legacyTextIndex) {
+      await collection.dropIndex(legacyTextIndex.name);
+    }
+
+    await collection.createIndex(
+      { repertoryId: 1, searchText: 'text' },
+      { name: desiredName }
+    );
+    console.log('✅ Created scoped rubric text index for faster analysis searches.');
+  } catch (err) {
+    // A restrictive production DB role should not prevent the API starting.
+    // In that case an operator can create the index with the same name manually.
+    console.warn('⚠️ Could not upgrade rubric text index:', err.message);
   }
 };
 
