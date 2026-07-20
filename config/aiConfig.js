@@ -83,10 +83,13 @@ const initAI = () => {
     const geminiKey = process.env.GEMINI_API_KEY;
     if (geminiKey) {
       const aiClient = new GoogleGenerativeAI(geminiKey);
-      geminiAdapter = new UnifiedModelAdapter(aiClient, 'gemini-1.5-flash', 'gemini');
+      // gemini-1.5-flash has been retired. Use the current stable Flash model;
+      // an environment override keeps future model upgrades deployment-only.
+      const geminiModel = process.env.GEMINI_ANALYSIS_MODEL || 'gemini-3.5-flash';
+      geminiAdapter = new UnifiedModelAdapter(aiClient, geminiModel, 'gemini');
       defaultAdapter = defaultAdapter || geminiAdapter;
       isReady = true;
-      console.log('✅ Google Gemini 1.5 Flash initialized successfully (Fast & Efficient).');
+      console.log(`✅ Google Gemini ${geminiModel} initialized successfully.`);
     }
 
     const groqKey = process.env.GROQ_API_KEY;
