@@ -19,6 +19,7 @@ const UserSchema = new mongoose.Schema({
   specialization: { type: String, default: '' }, // For doctors
   experience: { type: String, default: '' }, // Years of experience
   qualifications: { type: String, default: '' }, // Medical qualifications
+  registrationNumber: { type: String, default: '' }, // Medical council registration number (for doctors only - admin verification)
   
   // Profile information
   profilePicture: { type: String, default: '' },
