@@ -210,7 +210,8 @@ Return ONLY a valid JSON object with this structure:
   }
 ] }`;
 
-  // Race against a 25-second timeout so slow Groq responses don't hang the request
+  // Return the deterministic keyword fallback promptly when the provider is
+  // unavailable. A long model wait made the analyzer appear frozen in the UI.
   const aiCall = model.generateContent({
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     generationConfig: {
@@ -221,7 +222,7 @@ Return ONLY a valid JSON object with this structure:
   });
 
   const timeout = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error('AI timeout after 25s')), 25000)
+    setTimeout(() => reject(new Error('AI timeout after 10s')), 10000)
   );
 
   const result = await Promise.race([aiCall, timeout]);
