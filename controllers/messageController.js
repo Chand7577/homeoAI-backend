@@ -3,6 +3,9 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
+const isRoomParticipant = (roomId, userId) =>
+  typeof roomId === 'string' && roomId.split('_').includes(String(userId));
+
 // Configure disk storage for chat attachments (PDFs, Docs, Images, etc.)
 const diskStorage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -20,17 +23,39 @@ const diskStorage = multer.diskStorage({
 
 const uploadAttachment = multer({
   storage: diskStorage,
-  limits: { fileSize: 50 * 1024 * 1024 } // 50MB file size limit
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = new Set([
+      'application/pdf', 'image/jpeg', 'image/png',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ]);
+    if (!allowed.has(file.mimetype)) return cb(new Error('Unsupported attachment type'));
+    cb(null, true);
+  }
 });
 
 const getMessagesByRoom = async (req, res) => {
   const { roomId } = req.params;
+  if (!isRoomParticipant(roomId, req.user._id)) {
+    res.status(403);
+    throw new Error('You are not a participant in this conversation');
+  }
   const messages = await Message.find({ roomId }).sort({ createdAt: 1 });
   res.json({ success: true, data: messages });
 };
 
 const createMessage = async (req, res) => {
-  const { senderId, receiverId, text, roomId, time, attachmentUrl, attachmentName, attachmentType } = req.body;
+  const { text, roomId, time, attachmentUrl, attachmentName, attachmentType } = req.body;
+  const senderId = String(req.user._id);
+  if (!isRoomParticipant(roomId, senderId)) {
+    res.status(403);
+    throw new Error('You are not a participant in this conversation');
+  }
+  const receiverId = roomId.split('_').find(id => id !== senderId);
+  if (!receiverId) {
+    res.status(400);
+    throw new Error('Invalid conversation room');
+  }
   const message = await Message.create({
     senderId,
     receiverId,
@@ -63,7 +88,7 @@ const uploadAttachmentFile = async (req, res) => {
 
 const deleteMessage = async (req, res) => {
   const { id } = req.params;
-  const { senderId } = req.body; // Who is trying to delete
+  const senderId = String(req.user._id);
   
   const message = await Message.findById(id);
   

@@ -6,6 +6,8 @@ const { Server } = require('socket.io');
 const app = require('./app');
 const connectDB = require('./config/db');
 const { initAI } = require('./config/aiConfig');
+const jwt = require('jsonwebtoken');
+const { getJwtSecret } = require('./middleware/auth');
 
 const PORT = process.env.PORT || 5000;
 
@@ -29,31 +31,63 @@ const io = new Server(server, {
 const Message = require('./models/Message');
 const User = require('./models/User');
 
+const parseCookieToken = (cookieHeader = '') => {
+  const cookie = cookieHeader.split(';').map(item => item.trim())
+    .find(item => item.startsWith('homeo_token='));
+  return cookie ? decodeURIComponent(cookie.slice('homeo_token='.length)) : null;
+};
+
+const isRoomParticipant = (roomId, userId) =>
+  typeof roomId === 'string' && roomId.split('_').includes(String(userId));
+
+io.use(async (socket, next) => {
+  try {
+    const token = socket.handshake.auth?.token || parseCookieToken(socket.handshake.headers.cookie);
+    if (!token) return next(new Error('Authentication required'));
+    const decoded = jwt.verify(token, getJwtSecret());
+    const user = await User.findById(decoded.userId).select('_id role status isActive name').lean();
+    if (!user || !user.isActive || user.status !== 'Approved') {
+      return next(new Error('Account is not authorized'));
+    }
+    socket.user = user;
+    next();
+  } catch (_) {
+    next(new Error('Authentication failed'));
+  }
+});
+
 // Socket.IO Connection Handler
 io.on('connection', (socket) => {
   // User connected (removed console.log for production)
 
   // When a user joins a room (e.g., patient-doctor specific room)
   socket.on('join_room', (roomId) => {
+    if (!isRoomParticipant(roomId, socket.user._id)) return;
     socket.join(roomId);
   });
 
   // Join doctor notification room for symptom submissions
   socket.on('join_doctor_notifications', (doctorId) => {
+    const isClinical = ['Admin', 'Core Team', 'External Doctor'].includes(socket.user.role);
+    if (!isClinical || String(socket.user._id) !== String(doctorId)) return;
     socket.join(`doctor_${doctorId}`);
   });
 
   // When a message is sent - OPTIMIZED: Non-blocking DB write
   socket.on('send_message', async (data, callback) => {
     try {
+      if (!isRoomParticipant(data.roomId, socket.user._id)) {
+        throw new Error('You are not a participant in this conversation');
+      }
       // Immediately acknowledge to sender (optimistic UI)
       const tempId = `temp_${Date.now()}`;
+      const senderId = String(socket.user._id);
 
       // Look up sender's name for dynamic contact addition on receiver side
       let senderName = data.senderName || '';
-      if (!senderName && data.senderId) {
+      if (!senderName) {
         try {
-          const senderUser = await User.findById(data.senderId).select('name');
+          const senderUser = await User.findById(senderId).select('name');
           if (senderUser) senderName = senderUser.name;
         } catch (_) {
           // Non-critical: if lookup fails, senderName stays empty
@@ -62,6 +96,7 @@ io.on('connection', (socket) => {
 
       const responseData = {
         ...data,
+        senderId,
         senderName,
         _id: tempId
       };
@@ -76,10 +111,10 @@ io.on('connection', (socket) => {
 
       // Save to DB asynchronously (non-blocking)
       const parts = data.roomId.split('_');
-      const receiverId = parts.find(p => p !== data.senderId) || '';
+      const receiverId = parts.find(p => p !== senderId) || '';
       
       Message.create({
-        senderId: data.senderId,
+        senderId,
         receiverId: receiverId,
         text: data.text || '',
         roomId: data.roomId,
@@ -111,7 +146,12 @@ io.on('connection', (socket) => {
   socket.on('delete_message', async (data) => {
     try {
       const message = await Message.findById(data.messageId);
-      if (message) {
+      if (
+        message &&
+        message.senderId === String(socket.user._id) &&
+        message.roomId === data.roomId &&
+        isRoomParticipant(data.roomId, socket.user._id)
+      ) {
         if (message.attachmentUrl) {
           const filename = path.basename(message.attachmentUrl);
           const filePath = path.join(__dirname, 'uploads', filename);
@@ -124,9 +164,8 @@ io.on('connection', (socket) => {
           }
         }
         await Message.findByIdAndDelete(data.messageId);
+        socket.to(data.roomId).emit('message_deleted', { messageId: data.messageId });
       }
-      // Broadcast deletion notification to the other users in the room
-      socket.to(data.roomId).emit('message_deleted', { messageId: data.messageId });
     } catch (err) {
       console.error('Failed to delete message from DB:', err);
     }
@@ -134,19 +173,21 @@ io.on('connection', (socket) => {
 
   // Typing indicator events
   socket.on('typing', (data) => {
+    if (!isRoomParticipant(data.roomId, socket.user._id)) return;
     // Broadcast typing status to others in the room (not to sender)
     socket.to(data.roomId).emit('user_typing', {
-      userId: data.userId,
-      userName: data.userName,
+      userId: String(socket.user._id),
+      userName: socket.user.name,
       isTyping: true
     });
   });
 
   socket.on('stop_typing', (data) => {
+    if (!isRoomParticipant(data.roomId, socket.user._id)) return;
     // Broadcast stop typing status to others in the room
     socket.to(data.roomId).emit('user_typing', {
-      userId: data.userId,
-      userName: data.userName,
+      userId: String(socket.user._id),
+      userName: socket.user.name,
       isTyping: false
     });
   });
@@ -154,6 +195,7 @@ io.on('connection', (socket) => {
   // When a patient submits new symptoms
   socket.on('submit_patient_symptoms', async (data) => {
     try {
+      if (!['Admin', 'Core Team', 'External Doctor'].includes(socket.user.role)) return;
       // Removed console.log for production
       
       // Broadcast to all doctors (in real applications, you'd target specific doctors)
@@ -187,6 +229,8 @@ io.on('connection', (socket) => {
 });
 
 const start = async () => {
+  // Fail closed: a missing/weak secret must never produce forgeable tokens.
+  getJwtSecret();
   await connectDB();
   initAI();
   

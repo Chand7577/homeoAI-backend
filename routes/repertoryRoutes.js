@@ -6,21 +6,24 @@ const {
   uploadPDF, uploadPDFFile, updateChapterPages,
   getRepertoryChapters
 } = require('../controllers/repertoryController');
+const { authenticate, requireAdmin } = require('../middleware/auth');
+
+router.use(authenticate);
 
 router.get('/',                  getRepertories);
 router.get('/:id/chapters',      getRepertoryChapters);
 router.get('/:id',               getRepertory);
-router.post('/',                 createRepertory);
+router.post('/',                 requireAdmin, createRepertory);
 
 // Upload endpoint with extended timeout for large files
 router.post('/:id/upload', (req, res, next) => {
   req.setTimeout(600000); // 10 minutes timeout for large Excel files
   res.setTimeout(600000);
   next();
-}, upload.single('file'), uploadExcel);
+}, requireAdmin, upload.single('file'), uploadExcel);
 
-router.post('/:id/upload-pdf',   uploadPDF.single('pdf'), uploadPDFFile);
-router.put('/:id/chapter-pages', updateChapterPages);
-router.delete('/:id',            deleteRepertory);
+router.post('/:id/upload-pdf',   requireAdmin, uploadPDF.single('pdf'), uploadPDFFile);
+router.put('/:id/chapter-pages', requireAdmin, updateChapterPages);
+router.delete('/:id',            requireAdmin, deleteRepertory);
 
 module.exports = router;

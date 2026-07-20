@@ -1,6 +1,21 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
+const isInsecureTestMode = () =>
+  process.env.ENABLE_INSECURE_TEST_AUTH === 'true';
+
+const getJwtSecret = () => {
+  // This opt-in test mode is off by default. Do not enable it on an internet-
+  // facing deployment unless accepting the risk of a known administrator login.
+  if (isInsecureTestMode()) {
+    return process.env.JWT_SECRET || 'local-test-only-jwt-secret-change-before-production-2026';
+  }
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+    throw new Error('JWT_SECRET must be configured with at least 32 characters');
+  }
+  return process.env.JWT_SECRET;
+};
+
 // Middleware to verify JWT token
 const authenticate = async (req, res, next) => {
   try {
@@ -15,7 +30,7 @@ const authenticate = async (req, res, next) => {
     }
 
     // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'homeo-ai-secret-key');
+    const decoded = jwt.verify(token, getJwtSecret());
     
     // Find user
     const user = await User.findById(decoded.userId).select('-password');
@@ -86,8 +101,13 @@ const requireRoles = (roles) => {
   };
 };
 
+const requireClinicalUser = requireRoles(['Admin', 'Core Team', 'External Doctor']);
+
 module.exports = {
   authenticate,
   requireAdmin,
-  requireRoles
+  requireRoles,
+  requireClinicalUser,
+  getJwtSecret,
+  isInsecureTestMode,
 };

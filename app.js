@@ -7,6 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const errorHandler = require('./middleware/errorHandler');
 const rateLimit = require('express-rate-limit');
+const { authenticate } = require('./middleware/auth');
 
 const authRoutes         = require('./routes/authRoutes');
 const repertoryRoutes    = require('./routes/repertoryRoutes');
@@ -55,10 +56,10 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Stricter rate limiter for authentication routes: max 50 requests per 15 minutes
+// Stricter rate limiter for authentication routes to reduce password spraying.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 50,
+  max: 10,
   message: {
     success: false,
     message: 'Too many authentication attempts. Please try again after 15 minutes'
@@ -76,18 +77,34 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// Static files serving
-app.use('/uploads', express.static(uploadsDir));
-
 // Middleware
 app.use(compression()); // Gzip compression for all responses
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  next();
+});
 // CORS configuration - Allow specific origins
 const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:3000',
+  ...(process.env.NODE_ENV !== 'production' ? ['http://localhost:5173', 'http://localhost:3000'] : []),
   'https://homeoai13.netlify.app',
   process.env.FRONTEND_URL
 ].filter(Boolean);
+
+// Cookie-authenticated browsers always send Origin on cross-site writes.
+// Rejecting untrusted origins prevents CSRF without blocking API clients that
+// use bearer tokens and do not send an Origin header.
+app.use((req, res, next) => {
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
+  const origin = req.get('origin');
+  if (origin && !allowedOrigins.includes(origin)) {
+    return res.status(403).json({ success: false, message: 'Untrusted request origin' });
+  }
+  next();
+});
 
 app.use(cors({ 
   origin: function(origin, callback) {
@@ -103,8 +120,10 @@ app.use(cors({
   credentials: true 
 }));
 app.use(cookieParser());
-app.use(express.json({ limit: '200mb' }));
-app.use(express.urlencoded({ extended: true, limit: '200mb' }));
+// Uploaded patient and generated files must not be publicly guessable.
+app.use('/uploads', authenticate, express.static(uploadsDir, { index: false, fallthrough: false }));
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
 // Health check
 app.get('/api/health', (req, res) => {

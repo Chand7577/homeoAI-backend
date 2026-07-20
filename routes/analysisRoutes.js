@@ -1,11 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const { runAnalysisHandler, getAnalyses, getAnalysis, deleteAnalysis } = require('../controllers/analysisController');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, requireClinicalUser } = require('../middleware/auth');
 
-router.post('/run',  authenticate, runAnalysisHandler);
-router.get('/',      authenticate, getAnalyses);
-router.get('/:id',   authenticate, getAnalysis);
-router.delete('/:id', authenticate, deleteAnalysis);
+router.use(authenticate, requireClinicalUser);
+router.post('/run',  runAnalysisHandler);
+router.get('/',      getAnalyses);
+router.get('/:id',   getAnalysis);
+router.delete('/:id', deleteAnalysis);
 
 module.exports = router;

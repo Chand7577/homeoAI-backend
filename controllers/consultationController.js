@@ -170,10 +170,10 @@ exports.getConsultations = async (req, res) => {
   try {
     const { doctorId, status, search, page = 1, limit = 20 } = req.query;
 
-    const query = {};
+    const query = req.user.role === 'Admin' ? {} : { assignedDoctorId: req.user._id };
 
     // Filter by assigned doctor if provided
-    if (doctorId) {
+    if (doctorId && req.user.role === 'Admin') {
       query.assignedDoctorId = doctorId;
     }
 
@@ -219,7 +219,10 @@ exports.getConsultations = async (req, res) => {
 // Get single consultation by ID
 exports.getConsultation = async (req, res) => {
   try {
-    const consultation = await Consultation.findById(req.params.id)
+    const ownershipFilter = req.user.role === 'Admin'
+      ? { _id: req.params.id }
+      : { _id: req.params.id, assignedDoctorId: req.user._id };
+    const consultation = await Consultation.findOne(ownershipFilter)
       .populate('assignedDoctorId', 'name email phone role specialization')
       .populate('analysisId');
 
@@ -260,8 +263,11 @@ exports.updateConsultation = async (req, res) => {
       updates.completedAt = new Date();
     }
 
-    const consultation = await Consultation.findByIdAndUpdate(
-      req.params.id,
+    const ownershipFilter = req.user.role === 'Admin'
+      ? { _id: req.params.id }
+      : { _id: req.params.id, assignedDoctorId: req.user._id };
+    const consultation = await Consultation.findOneAndUpdate(
+      ownershipFilter,
       updates,
       { new: true, runValidators: true }
     ).populate('assignedDoctorId', 'name email phone role');
@@ -290,7 +296,10 @@ exports.updateConsultation = async (req, res) => {
 // Delete consultation
 exports.deleteConsultation = async (req, res) => {
   try {
-    const consultation = await Consultation.findByIdAndDelete(req.params.id);
+    const ownershipFilter = req.user.role === 'Admin'
+      ? { _id: req.params.id }
+      : { _id: req.params.id, assignedDoctorId: req.user._id };
+    const consultation = await Consultation.findOneAndDelete(ownershipFilter);
 
     if (!consultation) {
       return res.status(404).json({

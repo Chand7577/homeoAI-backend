@@ -2,10 +2,20 @@ const User = require('../models/User');
 const Message = require('../models/Message');
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
+const { getJwtSecret, isInsecureTestMode } = require('../middleware/auth');
+
+const authCookieOptions = () => {
+  const localTest = isInsecureTestMode() && process.env.NODE_ENV !== 'production';
+  return {
+    httpOnly: true,
+    secure: !localTest,
+    sameSite: localTest ? 'lax' : 'none',
+  };
+};
 
 // Generate JWT token
 const generateToken = (userId) => {
-  return jwt.sign({ userId }, process.env.JWT_SECRET || 'homeo-ai-secret-key', {
+  return jwt.sign({ userId }, getJwtSecret(), {
     expiresIn: '7d',
   });
 };
@@ -33,10 +43,19 @@ const register = async (req, res) => {
     }
 
     // Validate password length
-    if (password.length < 6) {
+    if (password.length < 12) {
       return res.status(400).json({
         success: false,
-        message: 'Password must be at least 6 characters long'
+        message: 'Password must be at least 12 characters long'
+      });
+    }
+
+    // Public registration must never mint privileged accounts. Administrators
+    // create Core Team accounts; external doctors stay pending until approved.
+    if (!['Patient', 'External Doctor'].includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Only Patient or External Doctor registration is allowed'
       });
     }
 
@@ -63,7 +82,7 @@ const register = async (req, res) => {
       specialization: specialization || '',
       experience: experience || '',
       qualifications: qualifications || '',
-      status: role === 'Admin' ? 'Approved' : 'Pending' // Auto-approve admins
+      status: 'Pending'
     });
 
     await user.save();
@@ -73,9 +92,7 @@ const register = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: role === 'Admin' 
-        ? 'Admin account created successfully' 
-        : 'Registration successful! Your account is pending admin approval.',
+      message: 'Registration successful! Your account is pending admin approval.',
       user: userResponse
     });
   } catch (error) {
@@ -100,58 +117,35 @@ const login = async (req, res) => {
       });
     }
 
-    // Check for admin credentials
-    if (email === 'admin@gmail.com' && password === 'admin') {
-      let adminUser = await User.findOne({ email: 'admin@gmail.com' });
-
+    // Explicit test shortcut. It is disabled unless ENABLE_INSECURE_TEST_AUTH
+    // is deliberately set in the environment.
+    if (isInsecureTestMode() && email === 'admin@gmail.com' && password === 'admin') {
+      let adminUser = await User.findOne({ email });
       if (!adminUser) {
-        // Create fresh admin user
         adminUser = new User({
-          name: 'System Administrator',
-          email: 'admin@gmail.com',
+          name: 'Local Test Administrator',
+          email,
           phone: '+91 99999 99999',
-          password: 'admin1',
+          password,
           role: 'Admin',
-          status: 'Approved'
+          status: 'Approved',
+          isActive: true,
         });
-        await adminUser.save();
       } else {
-        // Patch any stale data from old schema (old role:'admin', missing phone)
-        // Use updateOne with runValidators:false to avoid crashing on legacy docs
-        await User.updateOne(
-          { email: 'admin@gmail.com' },
-          {
-            $set: {
-              role: 'Admin',
-              status: 'Approved',
-              phone: adminUser.phone || '+91 99999 99999',
-              lastLogin: new Date(),
-            },
-            $inc: { loginCount: 1 },
-          },
-          { runValidators: false }
-        );
-        // Reload with updated fields
-        adminUser = await User.findOne({ email: 'admin@gmail.com' });
+        adminUser.password = password;
+        adminUser.role = 'Admin';
+        adminUser.status = 'Approved';
+        adminUser.isActive = true;
       }
+      // The production schema intentionally rejects short passwords. Bypass
+      // only that validator in explicit local-test mode; the pre-save hook
+      // still hashes the test password.
+      await adminUser.save({ validateBeforeSave: false });
 
       const token = generateToken(adminUser._id);
-
-      res.cookie('homeo_token', token, {
-        httpOnly: true,
-        secure: true, // HTTPS required for sameSite: 'none'
-        sameSite: 'none',
-        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-      });
-
+      res.cookie('homeo_token', token, { ...authCookieOptions(), maxAge: 7 * 24 * 60 * 60 * 1000 });
       const { password: _, ...userResponse } = adminUser.toObject();
-
-      return res.json({
-        success: true,
-        message: 'Admin login successful',
-        user: userResponse
-        // No token in response body anymore
-      });
+      return res.json({ success: true, message: 'Local test admin login successful', user: userResponse });
     }
 
     // Find user by email
@@ -202,12 +196,7 @@ const login = async (req, res) => {
     // Generate token
     const token = generateToken(user._id);
 
-    res.cookie('homeo_token', token, {
-      httpOnly: true,
-      secure: true, // HTTPS required for sameSite: 'none'
-      sameSite: 'none',
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-    });
+    res.cookie('homeo_token', token, { ...authCookieOptions(), maxAge: 7 * 24 * 60 * 60 * 1000 });
 
     // Don't include password in response
     const { password: _, ...userResponse } = user.toObject();
@@ -471,11 +460,7 @@ const getChatContacts = async (req, res) => {
 const logout = async (req, res) => {
   try {
     // Clear the httpOnly cookie
-    res.clearCookie('homeo_token', {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'none'
-    });
+    res.clearCookie('homeo_token', authCookieOptions());
 
     res.json({
       success: true,

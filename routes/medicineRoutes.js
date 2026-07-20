@@ -11,6 +11,9 @@ const {
 } = require('../controllers/medicineController');
 
 const router = express.Router();
+const { authenticate, requireAdmin } = require('../middleware/auth');
+
+router.use(authenticate);
 
 // GET /api/medicines - Get all medicines with filtering and pagination
 router.get('/', asyncHandler(getMedicines));
@@ -19,18 +22,18 @@ router.get('/', asyncHandler(getMedicines));
 router.get('/statistics', asyncHandler(getMedicineStatistics));
 
 // POST /api/medicines/sync-rubrics - Sync medicines from rubrics
-router.post('/sync-rubrics', asyncHandler(syncMedicinesFromRubrics));
+router.post('/sync-rubrics', requireAdmin, asyncHandler(syncMedicinesFromRubrics));
 
 // GET /api/medicines/:id - Get single medicine
 router.get('/:id', asyncHandler(getMedicine));
 
 // POST /api/medicines - Create new medicine
-router.post('/', asyncHandler(createMedicine));
+router.post('/', requireAdmin, asyncHandler(createMedicine));
 
 // PUT /api/medicines/:id - Update medicine
-router.put('/:id', asyncHandler(updateMedicine));
+router.put('/:id', requireAdmin, asyncHandler(updateMedicine));
 
 // DELETE /api/medicines/:id - Delete medicine (soft delete)
-router.delete('/:id', asyncHandler(deleteMedicine));
+router.delete('/:id', requireAdmin, asyncHandler(deleteMedicine));
 
-module.exports = router;  
+module.exports = router;

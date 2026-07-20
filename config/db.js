@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { isInsecureTestMode } = require('../middleware/auth');
 
 const connectDB = async () => {
   try {
@@ -26,6 +27,8 @@ const connectDB = async () => {
       setTimeout(seedMessages, 200);
     }
 
+    await disableLegacyDefaultAdmin();
+
     // MongoDB permits only one text index per collection. Upgrade the legacy
     // searchText-only index so analysis queries can use repertoryId as an
     // equality prefix. This changes an index only; it never changes rubric data.
@@ -33,6 +36,22 @@ const connectDB = async () => {
   } catch (error) {
     console.error(`❌ MongoDB Connection Error: ${error.message}`);
     process.exit(1);
+  }
+};
+
+const disableLegacyDefaultAdmin = async () => {
+  if (isInsecureTestMode()) return;
+  try {
+    const User = require('../models/User');
+    const legacyAdmin = await User.findOne({ email: 'admin@gmail.com' });
+    if (legacyAdmin && await legacyAdmin.comparePassword('admin1')) {
+      legacyAdmin.isActive = false;
+      legacyAdmin.status = 'Suspended';
+      await legacyAdmin.save();
+      console.warn('⚠️ Disabled the legacy default admin account. Create a secure admin before use.');
+    }
+  } catch (err) {
+    console.warn('⚠️ Could not check legacy default admin:', err.message);
   }
 };
 

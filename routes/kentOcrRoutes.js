@@ -10,6 +10,7 @@ const { v4: uuidv4 } = require('uuid');
 const { extractTextFromImage } = require('../services/kentOcrService');
 const { parseOcrToStructuredJson } = require('../services/kentAiParser');
 const { generateKentExcel } = require('../services/kentExcelGenerator');
+const { authenticate, requireClinicalUser } = require('../middleware/auth');
 
 // Set up local storage for temporary file uploads
 const tempUploadDir = path.join(__dirname, '../uploads/temp_kent');
@@ -43,7 +44,7 @@ const upload = multer({
  * @route POST /api/kent-ocr/upload
  * @desc Uploads a page, runs OCR, parses to JSON, generates Excel, and returns the download URL
  */
-router.post('/upload', upload.single('page'), async (req, res, next) => {
+router.post('/upload', authenticate, requireClinicalUser, upload.single('page'), async (req, res, next) => {
   const sessionId = uuidv4();
   const sessionDir = path.join(tempUploadDir, sessionId);
   
