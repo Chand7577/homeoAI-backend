@@ -83,10 +83,10 @@ const initAI = () => {
     const geminiKey = process.env.GEMINI_API_KEY;
     if (geminiKey) {
       const aiClient = new GoogleGenerativeAI(geminiKey);
-      geminiAdapter = new UnifiedModelAdapter(aiClient, 'gemini-3.5-flash', 'gemini');
+      geminiAdapter = new UnifiedModelAdapter(aiClient, 'gemini-1.5-flash', 'gemini');
       defaultAdapter = defaultAdapter || geminiAdapter;
       isReady = true;
-      console.log('✅ Google Gemini 3.5 Flash initialized successfully (Vision).');
+      console.log('✅ Google Gemini 1.5 Flash initialized successfully (Fast & Efficient).');
     }
 
     const groqKey = process.env.GROQ_API_KEY;
@@ -119,7 +119,7 @@ const initAI = () => {
 };
 
 const getModel = () => defaultAdapter;
-const getAnalysisModel = () => groqAdapter || openaiAdapter || defaultAdapter; // Prefer Groq for Analysis
+const getAnalysisModel = () => geminiAdapter || groqAdapter || openaiAdapter || defaultAdapter; // Prefer Gemini for Analysis
 const getVisionModel = () => geminiAdapter || openaiAdapter || defaultAdapter; // Prefer Gemini for Vision
 const isAIReady = () => isReady;
 const getProvider = () => defaultAdapter?.provider;
