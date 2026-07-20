@@ -134,105 +134,68 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
       .filter(w => w.length > 1 && !stopWords.has(w));
   };
 
-  for (const symptom of symptoms) {
-    if (!symptom.trim()) continue;
+  // ── Run all symptom DB lookups IN PARALLEL ───────────────────────────────
+  await Promise.all(symptoms.map(async (symptom) => {
+    if (!symptom.trim()) return;
 
-    // Detect tab-separated compound input: "chapter\trubric\thindi"
-    const isTabSeparated = symptom.includes('\t');
-    const tabSegments = isTabSeparated ? symptom.split('\t').map(s => s.trim()).filter(Boolean) : null;
-
-    // Keep track of candidates added for THIS specific symptom
     const symptomCandidates = new Map();
 
     const findCandidatesForTerms = async (terms) => {
       if (!terms || terms.length === 0) return;
-
       const textQuery = terms.join(' ');
       try {
-        // Use MongoDB $text index for lightning fast relevance ranking
         const matches = await Rubric.find(
           { repertoryId, $text: { $search: textQuery } },
           { score: { $meta: 'textScore' } }
-        ).sort({ score: { $meta: 'textScore' } }).limit(15).lean();
-
+        ).sort({ score: { $meta: 'textScore' } }).limit(10).lean();
         matches.forEach(m => { symptomCandidates.set(m._id.toString(), m); });
       } catch (e) {
         console.error('Text query failed:', e.message);
       }
     };
 
-    if (isTabSeparated && tabSegments && tabSegments.length > 1) {
-      // Tab-separated input: search each segment independently
-      // e.g. segment[0]="त्वचा" (chapter), segment[1]="BURNING; night" (rubric), segment[2]="रात्रि में जलन" (hindi)
-      for (const segment of tabSegments) {
-        const segTerms = extractSearchTerms(segment);
-        if (segTerms.length > 0) await findCandidatesForTerms(segTerms);
+    const isTabSeparated = symptom.includes('\t');
+    const tabSegments = isTabSeparated ? symptom.split('\t').map(s => s.trim()).filter(Boolean) : null;
 
-        // Also translate any Hindi segment
-        if (/[\u0900-\u097F]/.test(segment) && isAIReady()) {
-          try {
-            const translation = await translateSymptomToEnglish(segment);
-            if (translation) {
-              const translatedTerms = extractSearchTerms(translation);
-              if (translatedTerms.length > 0) await findCandidatesForTerms(translatedTerms);
-            }
-          } catch (err) {
-            console.error('Segment translation failed:', err.message);
-          }
+    if (isTabSeparated && tabSegments && tabSegments.length > 1) {
+      await Promise.all(tabSegments.map(async (segment) => {
+        const segTerms = extractSearchTerms(segment);
+        await findCandidatesForTerms(segTerms);
+        if (/[\u0900-\u097F]/.test(segment)) {
+          const translation = await translateSymptomToEnglish(segment);
+          if (translation) await findCandidatesForTerms(extractSearchTerms(translation));
         }
-      }
+      }));
     } else {
-      // Normal (non-tab) symptom
-      // Also treat semicolons as Kent-style rubric/subrubric separators
-      // e.g. "ARTHRITIC nodosities; Toes" → ["ARTHRITIC nodosities", "Toes"]
       const semicolonSegments = symptom.includes(';')
         ? symptom.split(';').map(s => s.trim()).filter(Boolean)
         : null;
 
       if (semicolonSegments && semicolonSegments.length > 1) {
-        // Search each semicolon-delimited segment independently
-        for (const segment of semicolonSegments) {
+        await Promise.all(semicolonSegments.map(async (segment) => {
           const segTerms = extractSearchTerms(segment);
-          if (segTerms.length > 0) await findCandidatesForTerms(segTerms);
-
-          if (/[\u0900-\u097F]/.test(segment) && isAIReady()) {
-            try {
-              const translation = await translateSymptomToEnglish(segment);
-              if (translation) {
-                const translatedTerms = extractSearchTerms(translation);
-                if (translatedTerms.length > 0) await findCandidatesForTerms(translatedTerms);
-              }
-            } catch (err) {
-              console.error('Segment translation failed:', err.message);
-            }
+          await findCandidatesForTerms(segTerms);
+          if (/[\u0900-\u097F]/.test(segment)) {
+            const translation = await translateSymptomToEnglish(segment);
+            if (translation) await findCandidatesForTerms(extractSearchTerms(translation));
           }
-        }
+        }));
       } else {
-        // Plain symptom: use all terms
         const originalTerms = extractSearchTerms(symptom);
-        if (originalTerms.length === 0) continue;
-
-        // 1. Search database using the original terms
-        await findCandidatesForTerms(originalTerms);
-
-        // 2. Translate Hindi if present
-        if (/[\u0900-\u097F]/.test(symptom) && isAIReady()) {
-          try {
+        if (originalTerms.length > 0) {
+          await findCandidatesForTerms(originalTerms);
+          if (/[\u0900-\u097F]/.test(symptom)) {
             const translation = await translateSymptomToEnglish(symptom);
-            if (translation) {
-              const translatedTerms = extractSearchTerms(translation);
-              if (translatedTerms.length > 0) await findCandidatesForTerms(translatedTerms);
-            }
-          } catch (err) {
-            console.error('Symptom translation search failed:', err.message);
+            if (translation) await findCandidatesForTerms(extractSearchTerms(translation));
           }
         }
       }
-    } // end if/else tab-separated
+    }
 
-    // Merge this symptom's candidates into the global candidate map
+    // Merge into global candidate map (Map is not thread-safe but JS is single-threaded, so this is safe)
     symptomCandidates.forEach((m, id) => { candidateMap.set(id, m); });
-  }
+  }));
+
 
   // Fallback: If no candidate matched, get first 30 rubrics so AI has options
   if (candidateMap.size === 0) {
@@ -267,7 +230,7 @@ PATIENT SYMPTOMS:
 ${symptoms.map((s, i) => `${i + 1}. ${s}`).join('\n')}
 
 AVAILABLE RUBRICS:
-${JSON.stringify(rubricSummaries, null, 2)}
+${JSON.stringify(rubricSummaries)}
 
 Return ONLY a valid JSON array with this structure:
 [
@@ -279,13 +242,20 @@ Return ONLY a valid JSON array with this structure:
   }
 ]`;
 
-  const result = await model.generateContent({
+  // Race against a 25-second timeout so slow Groq responses don't hang the request
+  const aiCall = model.generateContent({
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     generationConfig: {
       temperature: 0.3,
       responseMimeType: "application/json"
     }
   });
+
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('AI timeout after 25s')), 25000)
+  );
+
+  const result = await Promise.race([aiCall, timeout]);
 
   const response = result.response;
   const responseText = response.candidates[0].content.parts[0].text;
