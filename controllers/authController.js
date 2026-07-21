@@ -145,7 +145,7 @@ const login = async (req, res) => {
       const token = generateToken(adminUser._id);
       res.cookie('homeo_token', token, { ...authCookieOptions(), maxAge: 7 * 24 * 60 * 60 * 1000 });
       const { password: _, ...userResponse } = adminUser.toObject();
-      return res.json({ success: true, message: 'Local test admin login successful', user: userResponse, token });
+      return res.json({ success: true, message: 'Login successful', user: userResponse, token });
     }
 
     // Find user by email
