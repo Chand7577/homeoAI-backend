@@ -415,12 +415,12 @@ const runAnalysis = async ({ symptoms, repertoryId, repertoryName }) => {
     
     if (isAIReady() && rubrics.length > 0) {
       try {
-        console.log('🤖 [PERF] Starting AI matching with Gemini...');
+        console.log(`🤖 [PERF] Starting AI matching with ${getProvider() || 'AI'}...`);
         aiMatches = await matchWithAI(symptoms, rubrics, repertoryName);
         aiUsed = true;
         console.log(`✅ [PERF] AI matching completed in ${Date.now() - candidateFinishedAt}ms`);
       } catch (err) {
-        console.error('Gemini AI error, falling back to keyword logic:', err.message);
+        console.error('AI error, falling back to keyword logic:', err.message);
         aiMatches = matchWithKeywords(symptoms, rubrics);
       }
     } else {

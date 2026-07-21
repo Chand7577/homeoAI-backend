@@ -37,8 +37,12 @@ app.use((req, res, next) => {
       const timeInMs = (diff[0] * 1e3 + diff[1] * 1e-6).toFixed(2);
       // Ignore static files/assets logs if desired, but log all API calls
       if (req.originalUrl.startsWith('/api')) {
-        // Only log slow requests (>500ms) to reduce noise
-        if (parseFloat(timeInMs) > 500) {
+        // Different thresholds for different endpoints
+        const isSlow = req.originalUrl.includes('/analysis/run') 
+          ? parseFloat(timeInMs) > 3000  // 3s for AI analysis
+          : parseFloat(timeInMs) > 1000; // 1s for other endpoints
+        
+        if (isSlow) {
           console.log(`🐌 [SLOW] ${req.method} ${req.originalUrl} - ${res.statusCode} - ${timeInMs}ms`);
         }
       }
