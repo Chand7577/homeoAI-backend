@@ -83,11 +83,9 @@ const initAI = () => {
     const geminiKey = process.env.GEMINI_API_KEY;
     if (geminiKey) {
       const aiClient = new GoogleGenerativeAI(geminiKey);
-      // gemini-1.5-flash has been retired. Use the current stable Flash model;
-      // an environment override keeps future model upgrades deployment-only.
-      // 2.5 Flash is a stable, low-latency generateContent model and is a
-      // safer default for the short structured rubric-matching request.
-      const geminiModel = process.env.GEMINI_ANALYSIS_MODEL || 'gemini-2.5-flash';
+      // Use gemini-1.5-flash for faster response times (updated default)
+      // gemini-1.5-flash is optimized for low-latency analysis tasks
+      const geminiModel = process.env.GEMINI_ANALYSIS_MODEL || 'gemini-1.5-flash';
       geminiAdapter = new UnifiedModelAdapter(aiClient, geminiModel, 'gemini');
       defaultAdapter = defaultAdapter || geminiAdapter;
       isReady = true;

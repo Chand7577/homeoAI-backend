@@ -148,7 +148,7 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
         { repertoryId, $text: { $search: textQuery } },
         { score: { $meta: 'textScore' } }
       )
-        .select('_id chapter rubric subrubric modalities synonyms searchText')
+        .select('_id chapter rubric subrubric modalities synonyms searchText medicines')
         .sort({ score: { $meta: 'textScore' } })
         .limit(10)
         .lean();
@@ -159,16 +159,17 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
   }));
 
   candidateGroups.flat().forEach(m => {
-    if (candidateMap.size < 40) candidateMap.set(m._id.toString(), m);
+    // Reduced from 40 to 25 for faster AI processing with less prompt overhead
+    if (candidateMap.size < 25) candidateMap.set(m._id.toString(), m);
   });
 
 
-  // Fallback: If no candidate matched, get first 30 rubrics so AI has options
+  // Fallback: If no candidate matched, get first 20 rubrics so AI has options
   if (candidateMap.size === 0) {
     try {
       const fallback = await Rubric.find({ repertoryId })
-        .select('_id chapter rubric subrubric modalities synonyms searchText')
-        .limit(30).lean();
+        .select('_id chapter rubric subrubric modalities synonyms searchText medicines')
+        .limit(20).lean();
       fallback.forEach(m => {
         candidateMap.set(m._id.toString(), m);
       });
@@ -211,7 +212,7 @@ Return ONLY a valid JSON object with this structure:
 ] }`;
 
   // Return the deterministic keyword fallback promptly when the provider is
-  // unavailable. A long model wait made the analyzer appear frozen in the UI.
+  // unavailable. Extended timeout to 30s for Gemini API calls which can be slow.
   const aiCall = model.generateContent({
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     generationConfig: {
@@ -222,7 +223,7 @@ Return ONLY a valid JSON object with this structure:
   });
 
   const timeout = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error('AI timeout after 10s')), 10000)
+    setTimeout(() => reject(new Error('AI timeout after 30s')), 30000)
   );
 
   const result = await Promise.race([aiCall, timeout]);
@@ -406,14 +407,18 @@ const runAnalysis = async ({ symptoms, repertoryId, repertoryName }) => {
   try {
     // Always use the fast $text index to get best candidates first, 
     // regardless of whether we use AI or fallback keyword matching.
+    console.log('🔍 [PERF] Starting candidate rubric search...');
     rubrics = await getCandidateRubrics(symptoms, repertoryId);
     rubrics = mergeDuplicateRubrics(rubrics);
     candidateFinishedAt = Date.now();
+    console.log(`✅ [PERF] Found ${rubrics.length} candidates in ${candidateFinishedAt - startedAt}ms`);
     
     if (isAIReady() && rubrics.length > 0) {
       try {
+        console.log('🤖 [PERF] Starting AI matching with Gemini...');
         aiMatches = await matchWithAI(symptoms, rubrics, repertoryName);
         aiUsed = true;
+        console.log(`✅ [PERF] AI matching completed in ${Date.now() - candidateFinishedAt}ms`);
       } catch (err) {
         console.error('Gemini AI error, falling back to keyword logic:', err.message);
         aiMatches = matchWithKeywords(symptoms, rubrics);
@@ -431,17 +436,9 @@ const runAnalysis = async ({ symptoms, repertoryId, repertoryName }) => {
     matchingFinishedAt = candidateFinishedAt;
   }
 
-  // Enrich AI matches with full rubric data
+  // Enrich AI matches with full rubric data (medicines already included from first query)
   const rubricMap = {};
   rubrics.forEach(r => { rubricMap[r._id.toString()] = r; });
-
-  const selectedIds = [...new Set(aiMatches
-    .map(m => m.matched_rubric_id)
-    .filter(Boolean))];
-  const selectedRubrics = selectedIds.length
-    ? await Rubric.find({ repertoryId, _id: { $in: selectedIds } }).select('_id medicines').lean()
-    : [];
-  const medicinesByRubricId = new Map(selectedRubrics.map(r => [r._id.toString(), r.medicines || {}]));
 
   const matchedRubrics = aiMatches
     .filter(m => m.matched_rubric_id)
@@ -455,7 +452,7 @@ const runAnalysis = async ({ symptoms, repertoryId, repertoryName }) => {
         rubric:    rubric.rubric,
         subrubric: rubric.subrubric,
         modalities: rubric.modalities,
-        medicines: medicinesByRubricId.get(rubric._id.toString()) || {},
+        medicines: rubric.medicines || {},
         confidence: m.confidence,
         reasoning:  m.reasoning,
       };
