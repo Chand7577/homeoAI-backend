@@ -66,7 +66,7 @@ const apiLimiter = rateLimit({
 // Stricter rate limiter for authentication routes to reduce password spraying.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: process.env.NODE_ENV === 'production' ? 10 : 100, // 100 for dev, 10 for production
   message: {
     success: false,
     message: 'Too many authentication attempts. Please try again after 15 minutes'
