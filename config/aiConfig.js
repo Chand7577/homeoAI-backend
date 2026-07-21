@@ -80,16 +80,21 @@ class UnifiedModelAdapter {
 
 const initAI = () => {
   try {
+    // NOTE: Current Gemini API key (AQ.Ab8RN6JtKhT7...) does not work with Gemini API.
+    // Gemini initialization is disabled until a valid key is provided.
+    // Using Groq as primary AI provider (faster and working).
     const geminiKey = process.env.GEMINI_API_KEY;
-    if (geminiKey) {
+    const enableGemini = process.env.ENABLE_GEMINI === 'true'; // Must explicitly enable
+    
+    if (geminiKey && enableGemini) {
       const aiClient = new GoogleGenerativeAI(geminiKey);
-      // Use gemini-1.5-flash for faster response times (updated default)
-      // gemini-1.5-flash is optimized for low-latency analysis tasks
       const geminiModel = process.env.GEMINI_ANALYSIS_MODEL || 'gemini-1.5-flash';
       geminiAdapter = new UnifiedModelAdapter(aiClient, geminiModel, 'gemini');
       defaultAdapter = defaultAdapter || geminiAdapter;
       isReady = true;
       console.log(`✅ Google Gemini ${geminiModel} initialized successfully.`);
+    } else if (geminiKey && !enableGemini) {
+      console.log('ℹ️  Gemini API key found but DISABLED (set ENABLE_GEMINI=true to enable)');
     }
 
     const groqKey = process.env.GROQ_API_KEY;
@@ -122,7 +127,9 @@ const initAI = () => {
 };
 
 const getModel = () => defaultAdapter;
-// Use Groq as primary since Gemini key is not working (Groq is faster anyway - 300ms vs 8-10s)
+// IMPORTANT: Groq is primary because current Gemini key doesn't work
+// Groq (llama-3.3-70b) responds in ~800ms vs Gemini 8-10s
+// To use Gemini: Get valid key + set ENABLE_GEMINI=true
 const getAnalysisModel = () => groqAdapter || geminiAdapter || openaiAdapter || defaultAdapter;
 const getVisionModel = () => geminiAdapter || openaiAdapter || defaultAdapter; // Prefer Gemini for Vision
 const isAIReady = () => isReady;
