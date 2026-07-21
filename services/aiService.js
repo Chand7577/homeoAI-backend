@@ -211,8 +211,8 @@ Return ONLY a valid JSON object with this structure:
   }
 ] }`;
 
-  // Return the deterministic keyword fallback promptly when the provider is
-  // unavailable. Extended timeout to 30s for Gemini API calls which can be slow.
+  // Groq is primary and responds in ~300-500ms, so 15s timeout is plenty
+  // If using Gemini (when key is fixed), it may take up to 10s
   const aiCall = model.generateContent({
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     generationConfig: {
@@ -223,7 +223,7 @@ Return ONLY a valid JSON object with this structure:
   });
 
   const timeout = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error('AI timeout after 30s')), 30000)
+    setTimeout(() => reject(new Error('AI timeout after 15s')), 15000)
   );
 
   const result = await Promise.race([aiCall, timeout]);

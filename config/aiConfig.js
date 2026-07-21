@@ -122,7 +122,8 @@ const initAI = () => {
 };
 
 const getModel = () => defaultAdapter;
-const getAnalysisModel = () => geminiAdapter || groqAdapter || openaiAdapter || defaultAdapter; // Prefer Gemini for Analysis
+// Use Groq as primary since Gemini key is not working (Groq is faster anyway - 300ms vs 8-10s)
+const getAnalysisModel = () => groqAdapter || geminiAdapter || openaiAdapter || defaultAdapter;
 const getVisionModel = () => geminiAdapter || openaiAdapter || defaultAdapter; // Prefer Gemini for Vision
 const isAIReady = () => isReady;
 const getProvider = () => defaultAdapter?.provider;
