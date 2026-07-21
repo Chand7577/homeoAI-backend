@@ -37,7 +37,10 @@ app.use((req, res, next) => {
       const timeInMs = (diff[0] * 1e3 + diff[1] * 1e-6).toFixed(2);
       // Ignore static files/assets logs if desired, but log all API calls
       if (req.originalUrl.startsWith('/api')) {
-        console.log(`⏱️ [API] ${req.method} ${req.originalUrl} - Status: ${res.statusCode} - Duration: ${timeInMs}ms`);
+        // Only log slow requests (>500ms) to reduce noise
+        if (parseFloat(timeInMs) > 500) {
+          console.log(`🐌 [SLOW] ${req.method} ${req.originalUrl} - ${res.statusCode} - ${timeInMs}ms`);
+        }
       }
     });
   }
@@ -80,6 +83,19 @@ if (!fs.existsSync(uploadsDir)) {
 // Middleware
 app.use(compression()); // Gzip compression for all responses
 app.disable('x-powered-by');
+
+// Cache-Control headers for common GET requests (reduces DB load)
+app.use((req, res, next) => {
+  if (req.method === 'GET' && req.path.startsWith('/api/')) {
+    // Cache stats, lists for 30 seconds (reduce DB hits for frequent polling)
+    if (req.path.includes('/stats') || req.path.includes('/doctors') || 
+        req.path.includes('/patients') || req.path.includes('/repertories')) {
+      res.setHeader('Cache-Control', 'private, max-age=30');
+    }
+  }
+  next();
+});
+
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
