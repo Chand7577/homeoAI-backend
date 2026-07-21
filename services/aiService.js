@@ -1,4 +1,4 @@
-const { getAnalysisModel, isAIReady } = require('../config/aiConfig');
+const { getAnalysisModel, isAIReady, getProvider } = require('../config/aiConfig');
 const Rubric = require('../models/Rubric');
 const fs = require('fs');
 const HINDI_TO_ENGLISH = {
@@ -666,7 +666,7 @@ const extractChaptersFromPdf = async (filePath, fileName) => {
   
   // For Vertex AI, we upload to Google Cloud Storage or use inline data
   // Vertex AI doesn't have a separate file manager - we'll use inline base64
-  const model = getModel();
+  const model = getAnalysisModel();
   
   // Convert PDF to base64
   const base64Data = pdfBuffer.toString('base64');
