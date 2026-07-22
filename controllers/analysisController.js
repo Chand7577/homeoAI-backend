@@ -5,7 +5,7 @@ const { runAnalysis } = require('../services/aiService');
 
 // POST /api/analysis/run
 const runAnalysisHandler = async (req, res) => {
-  const { repertoryId, symptoms, patientId, patientName } = req.body;
+  const { repertoryId, symptoms, patientId, patientName, patientAge, patientGender, patientWeight, patientContact } = req.body;
   const doctorId = req.user._id; // From auth middleware
 
   // Validate
@@ -61,6 +61,10 @@ const runAnalysisHandler = async (req, res) => {
     doctorId,
     patientId: resolvedPatientId,
     patientName: resolvedPatientName,
+    patientAge: patientAge || '',
+    patientGender: patientGender || '',
+    patientWeight: patientWeight || '',
+    patientContact: patientContact || '',
     repertoryId,
     repertoryName: repertory.name,
     symptoms: cleanSymptoms,

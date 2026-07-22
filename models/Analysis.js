@@ -27,6 +27,10 @@ const AnalysisSchema = new mongoose.Schema({
   doctorId: { type: mongoose.Schema.Types.ObjectId, ref: 'Doctor', required: true, index: true },
   patientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Patient', default: null, index: true },
   patientName: { type: String, default: 'Anonymous' },
+  patientAge: { type: String, default: '' },
+  patientGender: { type: String, default: '' },
+  patientWeight: { type: String, default: '' },
+  patientContact: { type: String, default: '' },
   repertoryId: { type: mongoose.Schema.Types.ObjectId, ref: 'Repertory', required: true, index: true },
   repertoryName: { type: String, default: '' },
   symptoms: [{ type: String }],               // Up to 5 patient symptoms
