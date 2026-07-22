@@ -33,7 +33,7 @@ const AnalysisSchema = new mongoose.Schema({
   patientContact: { type: String, default: '' },
   repertoryId: { type: mongoose.Schema.Types.ObjectId, ref: 'Repertory', required: true, index: true },
   repertoryName: { type: String, default: '' },
-  symptoms: [{ type: String }],               // Up to 5 patient symptoms
+  symptoms: [{ type: String }],               // Up to 9 patient symptoms
   matchedRubrics: [MatchedRubricSchema],
   medicineDistribution: [MedicineDistributionSchema],
   aiUsed: { type: Boolean, default: false },

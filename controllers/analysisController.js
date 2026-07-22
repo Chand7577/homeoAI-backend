@@ -16,7 +16,7 @@ const runAnalysisHandler = async (req, res) => {
   const cleanSymptoms = rawSymptoms
     .map(s => String(s).trim().slice(0, 500))
     .filter(Boolean)
-    .slice(0, 5);
+    .slice(0, 9);
   if (cleanSymptoms.length === 0) { res.status(400); throw new Error('At least one symptom is required'); }
 
   // Get repertory name
