@@ -34,15 +34,8 @@ const getChapters = async (req, res) => {
     const keys = Object.keys(srcMap);
     if (keys.length > 0) {
       chapters = keys;
-    } else {
-      // Fallback: Default standard Boericke's Repertory chapters
-      chapters = [
-        "MIND", "HEAD", "EYES", "EARS", "NOSE", "FACE", "MOUTH", "THROAT", 
-        "STOMACH", "ABDOMEN", "RECTUM", "URINARY ORGANS", "MALE SEXUAL ORGANS", 
-        "FEMALE SEXUAL ORGANS", "RESPIRATORY ORGANS", "CIRCULATORY ORGANS", 
-        "BACK", "EXTREMITIES", "SLEEP", "FEVER", "SKIN", "GENERALITIES", "MODALITIES"
-      ];
     }
+    // No fallback - only return chapters that actually exist in the uploaded repertory
   }
 
   res.json({ success: true, data: chapters.sort() });
