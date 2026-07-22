@@ -111,6 +111,7 @@ app.use((req, res, next) => {
 const allowedOrigins = [
   ...(process.env.NODE_ENV !== 'production' ? ['http://localhost:5173', 'http://localhost:3000'] : []),
   'https://homeoai13.netlify.app',
+  'https://homeo-ai-nine.vercel.app',
   process.env.FRONTEND_URL
 ].filter(Boolean);
 
