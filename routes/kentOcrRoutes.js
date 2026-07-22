@@ -8,7 +8,7 @@ const fs = require('fs-extra');
 const { v4: uuidv4 } = require('uuid');
 
 const { extractTextFromImage } = require('../services/kentOcrService');
-const { parseOcrToStructuredJson } = require('../services/kentAiParser');
+const { parseOcrToStructuredJson, translateRubricsToHindi } = require('../services/kentAiParser');
 const { generateKentExcel } = require('../services/kentExcelGenerator');
 const { authenticate, requireClinicalUser } = require('../middleware/auth');
 
@@ -57,12 +57,15 @@ router.post('/upload', authenticate, requireClinicalUser, upload.single('page'),
     fs.ensureDirSync(sessionDir);
 
     // Pass the raw image directly to Gemini Vision!
-    const structuredData = await parseOcrToStructuredJson(req.file.path);
+    let structuredData = await parseOcrToStructuredJson(req.file.path);
     
     if (!structuredData || structuredData.length === 0) {
       throw new Error('OCR failed or found too little text.');
     }
     
+    // 2. Translate rubrics to Hindi
+    console.log(`[Kent OCR] Translating ${structuredData.length} rubrics to Hindi...`);
+    structuredData = await translateRubricsToHindi(structuredData);
     
     // 3. Generate Excel
     console.log(`[Kent OCR] Generating Excel file...`);

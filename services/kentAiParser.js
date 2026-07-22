@@ -334,6 +334,145 @@ const parseImageToStructuredJson = async (imagePath) => {
   return allResults;
 };
 
+/**
+ * Translate English rubrics and chapters to Hindi using AI.
+ * Batches translations to minimize API calls.
+ * 
+ * @param {Array} structuredData - Array of extracted rubric rows with chapter_en and rubric_en
+ * @returns {Promise<Array>} - Same data with chapter_hi and rubric_hi filled in
+ */
+const translateRubricsToHindi = async (structuredData) => {
+  const model = getVisionModel();
+  
+  if (!structuredData || structuredData.length === 0) {
+    console.log('[Hindi Translation] No data to translate');
+    return structuredData;
+  }
+
+  console.log(`[Hindi Translation] Translating ${structuredData.length} rubrics to Hindi...`);
+
+  // Collect unique chapters and rubrics to minimize redundant translations
+  const uniqueChapters = new Set();
+  const uniqueRubrics = new Set();
+  
+  structuredData.forEach(row => {
+    if (row.chapter_en) uniqueChapters.add(row.chapter_en);
+    if (row.rubric_en) uniqueRubrics.add(row.rubric_en);
+  });
+
+  const chaptersArray = Array.from(uniqueChapters);
+  const rubricsArray = Array.from(uniqueRubrics);
+
+  console.log(`[Hindi Translation] ${chaptersArray.length} unique chapters, ${rubricsArray.length} unique rubrics`);
+
+  // Build batch translation request
+  const prompt = `You are a medical translator specializing in homeopathic terminology.
+Translate the following Kent's Repertory terms from English to Hindi (Devanagari script).
+
+CRITICAL RULES:
+1. Preserve medical accuracy - use proper homeopathic Hindi terminology
+2. For body parts and symptoms, use standard medical Hindi terms
+3. Maintain the hierarchical structure (use commas and hyphens as in English)
+4. For modalities like "worse from", "better by", use: "बढ़ना", "घटना"
+5. Keep medicine names in Latin (do NOT translate)
+6. Return ONLY valid JSON, no markdown
+
+CHAPTERS TO TRANSLATE:
+${chaptersArray.map((ch, i) => `${i + 1}. ${ch}`).join('\n')}
+
+RUBRICS TO TRANSLATE (full hierarchical paths):
+${rubricsArray.slice(0, 100).map((r, i) => `${i + 1}. ${r}`).join('\n')}
+${rubricsArray.length > 100 ? `\n... and ${rubricsArray.length - 100} more` : ''}
+
+OUTPUT FORMAT (JSON only):
+{
+  "chapters": {
+    "NOSE": "नाक",
+    "MIND": "मन"
+  },
+  "rubrics": {
+    "NOSE - COLOR, redness": "नाक - रंग, लालिमा",
+    "NOSE - COLOR, redness - inside - tip": "नाक - रंग, लालिमा - अंदर - नोक"
+  }
+}`;
+
+  try {
+    // Handle large rubric lists by batching
+    const BATCH_SIZE = 80;
+    const translationMaps = { chapters: {}, rubrics: {} };
+
+    // Translate chapters (usually small, single batch)
+    if (chaptersArray.length > 0) {
+      const chapterPrompt = prompt.split('RUBRICS TO TRANSLATE')[0] + '\n\nReturn chapters object only:\n{"chapters": {...}}';
+      const result = await model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: chapterPrompt }] }],
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: 2000,
+          responseMimeType: 'application/json'
+        }
+      });
+      const text = await result.response.text();
+      const parsed = repairAndParseJson(text);
+      translationMaps.chapters = parsed.chapters || {};
+      console.log(`[Hindi Translation] Translated ${Object.keys(translationMaps.chapters).length} chapters`);
+    }
+
+    // Translate rubrics in batches
+    for (let i = 0; i < rubricsArray.length; i += BATCH_SIZE) {
+      const batch = rubricsArray.slice(i, i + BATCH_SIZE);
+      const batchPrompt = `Translate these Kent's Repertory rubric paths to Hindi. Use proper medical terminology. Return JSON only:
+
+RUBRICS:
+${batch.map((r, idx) => `${idx + 1}. ${r}`).join('\n')}
+
+OUTPUT:
+{
+  "rubrics": {
+    "NOSE - COLOR, redness": "नाक - रंग, लालिमा"
+  }
+}`;
+
+      const result = await model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: batchPrompt }] }],
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: 8000,
+          responseMimeType: 'application/json'
+        }
+      });
+      
+      const text = await result.response.text();
+      const parsed = repairAndParseJson(text);
+      Object.assign(translationMaps.rubrics, parsed.rubrics || {});
+      
+      console.log(`[Hindi Translation] Batch ${Math.floor(i / BATCH_SIZE) + 1}: Translated ${Object.keys(parsed.rubrics || {}).length} rubrics`);
+      
+      // Small delay between batches to avoid rate limiting
+      if (i + BATCH_SIZE < rubricsArray.length) {
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
+
+    // Apply translations to original data
+    const translatedData = structuredData.map(row => ({
+      ...row,
+      chapter_hi: translationMaps.chapters[row.chapter_en] || '',
+      rubric_hi: translationMaps.rubrics[row.rubric_en] || ''
+    }));
+
+    const translatedCount = translatedData.filter(r => r.chapter_hi || r.rubric_hi).length;
+    console.log(`[Hindi Translation] ✅ Successfully translated ${translatedCount}/${structuredData.length} rows`);
+    
+    return translatedData;
+
+  } catch (err) {
+    console.error('[Hindi Translation] Translation failed:', err.message);
+    console.warn('[Hindi Translation] Returning data WITHOUT Hindi translations');
+    return structuredData; // Return original data if translation fails
+  }
+};
+
 // Backward compat alias for routes that call parseOcrToStructuredJson
 const generateKentContent = async (prompt, imagePath) => {
   const model = getVisionModel();
@@ -356,5 +495,6 @@ module.exports = {
   initKentAI,
   generateKentContent,
   parseImageToStructuredJson,
-  parseOcrToStructuredJson: parseImageToStructuredJson
+  parseOcrToStructuredJson: parseImageToStructuredJson,
+  translateRubricsToHindi
 };
