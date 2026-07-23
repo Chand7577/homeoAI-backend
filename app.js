@@ -63,18 +63,6 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Stricter rate limiter for authentication routes to reduce password spraying.
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === 'production' ? 10 : 100, // 100 for dev, 10 for production
-  message: {
-    success: false,
-    message: 'Too many authentication attempts. Please try again after 15 minutes'
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
 // Apply general api limiter to all api routes
 app.use('/api', apiLimiter);
 
@@ -152,7 +140,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Routes
-app.use('/api/auth',          authLimiter, authRoutes);
+app.use('/api/auth',          authRoutes);
 app.use('/api/repertories',   repertoryRoutes);
 app.use('/api/rubrics',       rubricRoutes);
 app.use('/api/analysis',      analysisRoutes);

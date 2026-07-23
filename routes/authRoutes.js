@@ -14,9 +14,23 @@ const {
 } = require('../controllers/authController');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 
+const rateLimit = require('express-rate-limit');
+
+// Stricter rate limiter specifically for login/register to prevent brute force / password spraying
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === 'production' ? 30 : 100, // 30 login/register attempts per 15 min per IP
+  message: {
+    success: false,
+    message: 'Too many authentication attempts from this IP. Please try again after 15 minutes.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Public routes
-router.post('/register', register);
-router.post('/login', login);
+router.post('/register', authLimiter, register);
+router.post('/login', authLimiter, login);
 router.post('/logout', logout);
 
 // Protected routes (require authentication)
