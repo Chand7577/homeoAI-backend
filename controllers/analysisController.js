@@ -97,13 +97,13 @@ const runAnalysisHandler = async (req, res) => {
 
 // GET /api/analysis - Optimized with lean and selective population
 const getAnalyses = async (req, res) => {
-  const { patientId, patientName, limit = 50, page = 1 } = req.query;
+  const { patientId, patientName, limit = 50, page = 1, all } = req.query;
   const user = req.user;
-  const isClinicalStaff = ['Admin', 'Core Team'].includes(user.role);
   
   const filter = {};
-  if (!isClinicalStaff) {
-    filter.doctorId = user._id; // External Doctors see their own
+  // Each doctor sees ONLY their own analysis history
+  if (!all || user.role !== 'Admin') {
+    filter.doctorId = user._id;
   }
   if (patientId) filter.patientId = patientId;
   if (patientName) filter.patientName = new RegExp(patientName, 'i'); // Case-insensitive search
@@ -133,9 +133,8 @@ const getAnalyses = async (req, res) => {
 // GET /api/analysis/:id - Optimized
 const getAnalysis = async (req, res) => {
   const user = req.user;
-  const isClinicalStaff = ['Admin', 'Core Team'].includes(user.role);
   const query = { _id: req.params.id };
-  if (!isClinicalStaff) {
+  if (user.role !== 'Admin') {
     query.doctorId = user._id;
   }
   
