@@ -10,13 +10,21 @@ const {
   getPatientStats 
 } = require('../controllers/patientController');
 
-router.use(authenticate, requireClinicalUser);
+// All routes require authentication
+router.use(authenticate);
 
-router.get('/stats',  getPatientStats);  // Must be before /:id route
-router.get('/',       getPatients);
-router.get('/:id',    getPatient);
-router.post('/',      createPatient);
-router.put('/:id',    updatePatient);
-router.delete('/:id', deletePatient);
+// Stats - available to all authenticated users (shows their own stats)
+router.get('/stats', getPatientStats);
+
+// List all patients - ONLY for clinical users (doctors/admin)
+router.get('/', requireClinicalUser, getPatients);
+
+// Create patient - ONLY for clinical users
+router.post('/', requireClinicalUser, createPatient);
+
+// Individual patient operations - controller will check if user owns this patient
+router.get('/:id', getPatient);        // Patients can see their own data
+router.put('/:id', updatePatient);     // Patients can update their own data
+router.delete('/:id', requireClinicalUser, deletePatient); // Only clinical users can delete
 
 module.exports = router;
