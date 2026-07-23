@@ -1,4 +1,5 @@
 const Message = require('../models/Message');
+const User = require('../models/User');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -129,6 +130,20 @@ const sharePrescription = async (req, res) => {
       res.status(400);
       throw new Error('Patient ID and Doctor ID are required');
     }
+
+    // ── GUARD: Only allow sharing to registered, approved Patient accounts ──
+    const registeredPatient = await User.findOne({
+      _id: patientId,
+      role: 'Patient',
+      status: 'Approved'
+    }).select('_id name');
+
+    if (!registeredPatient) {
+      res.status(400);
+      throw new Error(
+        'Cannot share prescription: Patient is not registered or not yet approved on the platform.'
+      );
+    }
     
     // Generate roomId (consistent format: smaller_larger)
     const roomId = [doctorId, patientId].sort().join('_');
@@ -155,11 +170,15 @@ const sharePrescription = async (req, res) => {
       attachmentName: `Prescription - ${prescriptionData.patientName}`,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     });
-    
-    // TODO: Emit socket event to notify patient in real-time
-    // if (req.app.get('io')) {
-    //   req.app.get('io').to(roomId).emit('new-message', message);
-    // }
+
+    // ── Real-time delivery: emit to patient's chat room via Socket.IO ──
+    const io = req.app.get('socketio');
+    if (io) {
+      io.to(roomId).emit('receive_message', {
+        ...message.toObject(),
+        senderId: doctorId,
+      });
+    }
     
     res.status(201).json({ 
       success: true, 
