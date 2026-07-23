@@ -72,7 +72,8 @@ const register = async (req, res) => {
       });
     }
 
-    // Create new user
+    // Create new user: Patients are auto-approved upon registration; External Doctors remain Pending.
+    const initialStatus = role === 'Patient' ? 'Approved' : 'Pending';
     const user = new User({
       name,
       email,
@@ -82,7 +83,8 @@ const register = async (req, res) => {
       specialization: specialization || '',
       experience: experience || '',
       qualifications: qualifications || '',
-      status: 'Pending'
+      status: initialStatus,
+      approvedAt: role === 'Patient' ? new Date() : null
     });
 
     await user.save();
@@ -92,7 +94,9 @@ const register = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'Registration successful! Your account is pending admin approval.',
+      message: role === 'Patient'
+        ? 'Registration successful! You can now log in to your patient dashboard.'
+        : 'Registration successful! Your account is pending admin approval.',
       user: userResponse
     });
   } catch (error) {
@@ -164,6 +168,13 @@ const login = async (req, res) => {
         success: false,
         message: 'Invalid email or password'
       });
+    }
+
+    // Auto-approve Patient role users if their account status is still Pending
+    if (user.role === 'Patient' && user.status === 'Pending') {
+      user.status = 'Approved';
+      user.approvedAt = new Date();
+      await user.save();
     }
 
     // Check if account is approved

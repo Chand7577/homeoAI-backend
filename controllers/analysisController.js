@@ -98,9 +98,13 @@ const runAnalysisHandler = async (req, res) => {
 // GET /api/analysis - Optimized with lean and selective population
 const getAnalyses = async (req, res) => {
   const { patientId, patientName, limit = 50, page = 1 } = req.query;
-  const doctorId = req.user._id; // Filter by logged-in doctor
+  const user = req.user;
+  const isClinicalStaff = ['Admin', 'Core Team'].includes(user.role);
   
-  const filter = { doctorId };
+  const filter = {};
+  if (!isClinicalStaff) {
+    filter.doctorId = user._id; // External Doctors see their own
+  }
   if (patientId) filter.patientId = patientId;
   if (patientName) filter.patientName = new RegExp(patientName, 'i'); // Case-insensitive search
   
@@ -128,9 +132,14 @@ const getAnalyses = async (req, res) => {
 
 // GET /api/analysis/:id - Optimized
 const getAnalysis = async (req, res) => {
-  const doctorId = req.user._id;
+  const user = req.user;
+  const isClinicalStaff = ['Admin', 'Core Team'].includes(user.role);
+  const query = { _id: req.params.id };
+  if (!isClinicalStaff) {
+    query.doctorId = user._id;
+  }
   
-  const analysis = await Analysis.findOne({ _id: req.params.id, doctorId })
+  const analysis = await Analysis.findOne(query)
     .populate('patientId', 'name age gender contact')
     .populate('repertoryId', 'name')
     .lean(); // Faster query

@@ -148,10 +148,18 @@ const getPrescriptions = async (req, res) => {
   
   // Role-based filtering:
   // - Admin, Core Team, External Doctor: See ONLY prescriptions they created (doctorId = their ID)
-  // - Patient: See ONLY prescriptions written FOR them (patientId = their ID)
+  // - Patient: See ONLY prescriptions written FOR them (by patientId OR matching phone/name)
   if (currentUserRole === 'Patient') {
-    // Patients see prescriptions written for them
-    filter.patientId = currentUserId;
+    const patientUser = await User.findById(currentUserId).select('phone name email');
+    const patientConditions = [{ patientId: currentUserId }];
+    if (patientUser?.phone) {
+      const cleanPhone = patientUser.phone.replace(/[\s\-()]/g, '');
+      if (cleanPhone) patientConditions.push({ patientContact: new RegExp(cleanPhone, 'i') });
+    }
+    if (patientUser?.name) {
+      patientConditions.push({ patientName: new RegExp('^' + patientUser.name.trim() + '$', 'i') });
+    }
+    filter.$or = patientConditions;
   } else {
     // Admin and Doctors see ONLY prescriptions they created
     filter.doctorId = currentUserId;
