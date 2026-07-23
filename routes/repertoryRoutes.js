@@ -4,7 +4,7 @@ const {
   getRepertories, getRepertory, createRepertory,
   uploadExcel, deleteRepertory, upload,
   uploadPDF, uploadPDFFile, updateChapterPages,
-  getRepertoryChapters
+  getRepertoryChapters, streamPDF
 } = require('../controllers/repertoryController');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 
@@ -12,6 +12,7 @@ router.use(authenticate);
 
 router.get('/',                  getRepertories);
 router.get('/:id/chapters',      getRepertoryChapters);
+router.get('/:id/view-pdf',      streamPDF);
 router.get('/:id',               getRepertory);
 router.post('/',                 requireAdmin, createRepertory);
 

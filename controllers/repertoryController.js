@@ -350,6 +350,33 @@ const getRepertoryChapters = async (req, res) => {
   res.json({ success: true, data: chapters });
 };
 
+// GET /api/repertories/:id/view-pdf
+const streamPDF = async (req, res) => {
+  const repertory = await Repertory.findById(req.params.id);
+  if (!repertory || !repertory.pdfUrl) {
+    return res.status(404).send('PDF not found');
+  }
+
+  // If Cloudinary URL, redirect to it directly
+  if (repertory.pdfUrl.startsWith('http')) {
+    return res.redirect(repertory.pdfUrl);
+  }
+
+  // Local disk file
+  const filename = path.basename(repertory.pdfUrl);
+  const filePath = path.join(__dirname, '../uploads', filename);
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).send(
+      'File no longer exists on server storage. Render free tier resets disk storage when sleeping. Please re-upload the PDF file.'
+    );
+  }
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="${repertory.pdfName || 'manual.pdf'}"`);
+  fs.createReadStream(filePath).pipe(res);
+};
+
 module.exports = { 
   getRepertories, 
   getRepertory, 
@@ -360,5 +387,6 @@ module.exports = {
   uploadPDF, 
   uploadPDFFile, 
   updateChapterPages,
-  getRepertoryChapters
+  getRepertoryChapters,
+  streamPDF
 };

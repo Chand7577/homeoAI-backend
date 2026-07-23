@@ -19,8 +19,8 @@ const getJwtSecret = () => {
 // Middleware to verify JWT token
 const authenticate = async (req, res, next) => {
   try {
-    // Try to get token from cookie first, then from Authorization header (fallback for existing sessions)
-    let token = req.cookies?.homeo_token || req.header('Authorization')?.replace('Bearer ', '');
+    // Try to get token from cookie first, then Authorization header, then query parameter (for iframe streaming)
+    let token = req.cookies?.homeo_token || req.header('Authorization')?.replace('Bearer ', '') || req.query.token;
     
     if (!token) {
       return res.status(401).json({
