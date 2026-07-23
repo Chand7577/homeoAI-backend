@@ -240,6 +240,13 @@ const getProfile = async (req, res) => {
       });
     }
 
+    // Auto-approve Patient role users if account status is still Pending
+    if (user.role === 'Patient' && user.status === 'Pending') {
+      user.status = 'Approved';
+      user.approvedAt = new Date();
+      await user.save();
+    }
+
     res.json({
       success: true,
       user
