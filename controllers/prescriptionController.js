@@ -295,21 +295,23 @@ const deletePrescription = async (req, res) => {
     throw new Error('Prescription not found');
   }
 
-  // Check ownership - ONLY the doctor who created it can delete
+  // Check ownership/permission
   const currentUserId = req.user?.userId;
   const currentUser = await User.findById(currentUserId).select('role');
   const currentUserRole = currentUser?.role;
   
-  // Patients cannot delete prescriptions
   if (currentUserRole === 'Patient') {
-    res.status(403);
-    throw new Error('Access denied: Patients cannot delete prescriptions');
-  }
-  
-  // Doctors and Admin can only delete prescriptions they created
-  if (prescription.doctorId?.toString() !== currentUserId) {
-    res.status(403);
-    throw new Error('Access denied: You can only delete prescriptions you created');
+    const isTheirPrescription = prescription.patientId?.toString() === currentUserId;
+    if (!isTheirPrescription) {
+      res.status(403);
+      throw new Error('Access denied: You can only delete your own prescriptions');
+    }
+  } else {
+    // Doctors and Admin can only delete prescriptions they created
+    if (prescription.doctorId?.toString() !== currentUserId) {
+      res.status(403);
+      throw new Error('Access denied: You can only delete prescriptions you created');
+    }
   }
 
   // Remove from patient's list
