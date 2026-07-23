@@ -70,8 +70,13 @@ io.on('connection', (socket) => {
   // Join doctor notification room for symptom submissions
   socket.on('join_doctor_notifications', (doctorId) => {
     const isClinical = ['Admin', 'Core Team', 'External Doctor'].includes(socket.user.role);
-    if (!isClinical || String(socket.user._id) !== String(doctorId)) return;
-    socket.join(`doctor_${doctorId}`);
+    if (!isClinical) return;
+    if (doctorId && String(socket.user._id) === String(doctorId)) {
+      socket.join(`doctor_${doctorId}`);
+    }
+    if (socket.user.role === 'Admin') {
+      socket.join('room_admin');
+    }
   });
 
   // When a message is sent - OPTIMIZED: Non-blocking DB write
@@ -196,28 +201,32 @@ io.on('connection', (socket) => {
   // When a patient submits new symptoms
   socket.on('submit_patient_symptoms', async (data) => {
     try {
-      if (!['Admin', 'Core Team', 'External Doctor'].includes(socket.user.role)) return;
-      // Removed console.log for production
-      
-      // Broadcast to all doctors (in real applications, you'd target specific doctors)
-      io.emit('new_symptom_submission', {
+      if (!data || !data.assignedDoctorId) return;
+
+      const payload = {
         id: data.id,
+        consultationId: data.consultationId || data.id,
         patientId: data.patientId,
         patientName: data.patientName,
         age: data.age,
-        submittedAt: data.submittedAt,
+        gender: data.gender,
+        weight: data.weight,
+        submittedAt: data.submittedAt || new Date().toISOString(),
         symptoms: data.symptoms,
         fullSymptomText: data.fullSymptomText,
         language: data.language,
         status: 'Pending',
-        assignedDoctorId: data.assignedDoctorId,
+        assignedDoctorId: String(data.assignedDoctorId),
         assignedDoctorName: data.assignedDoctorName
-      });
+      };
 
-      // Also send to specific assigned doctor if available
-      if (data.assignedDoctorId) {
-        io.to(`doctor_${data.assignedDoctorId}`).emit('urgent_patient_symptom', data);
-      }
+      // Target ONLY the specific assigned doctor's room (no io.emit broadcast)
+      io.to(`doctor_${data.assignedDoctorId}`).emit('new_symptom_submission', payload);
+      io.to(`doctor_${data.assignedDoctorId}`).emit('urgent_patient_symptom', payload);
+
+      // Also send to Admin room so Admin can oversee all consultations
+      io.to('room_admin').emit('new_symptom_submission', payload);
+      io.to('room_admin').emit('urgent_patient_symptom', payload);
 
     } catch (err) {
       console.error('Failed to handle symptom submission:', err);
