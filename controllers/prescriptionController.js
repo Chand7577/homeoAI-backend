@@ -127,6 +127,10 @@ const createPrescription = async (req, res) => {
 // GET /api/prescriptions
 // Query params: patientId, page, limit, search
 // Returns only prescriptions created by the logged-in doctor/admin
+const escapeRegExp = (str) => {
+  return str ? String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : '';
+};
+
 // Patients can see prescriptions written FOR them
 // Smart search: filters by patient name, medicine/remedy name, symptoms
 // ─────────────────────────────────────────────────────────────────────────────
@@ -153,11 +157,12 @@ const getPrescriptions = async (req, res) => {
     const patientUser = await User.findById(currentUserId).select('phone name email');
     const patientConditions = [{ patientId: currentUserId }];
     if (patientUser?.phone) {
-      const cleanPhone = patientUser.phone.replace(/[\s\-()]/g, '');
+      const cleanPhone = escapeRegExp(patientUser.phone.replace(/[\s\-()]/g, ''));
       if (cleanPhone) patientConditions.push({ patientContact: new RegExp(cleanPhone, 'i') });
     }
     if (patientUser?.name) {
-      patientConditions.push({ patientName: new RegExp('^' + patientUser.name.trim() + '$', 'i') });
+      const escapedName = escapeRegExp(patientUser.name.trim());
+      patientConditions.push({ patientName: new RegExp('^' + escapedName + '$', 'i') });
     }
     filter.$or = patientConditions;
   } else {
@@ -167,8 +172,9 @@ const getPrescriptions = async (req, res) => {
   
   // Smart search: search in patient name, remedy, medicines, symptoms
   if (search && search.trim()) {
-    const searchRegex = new RegExp(search.trim(), 'i');
-    filter.$or = [
+    const escapedSearch = escapeRegExp(search.trim());
+    const searchRegex = new RegExp(escapedSearch, 'i');
+    const searchFilter = [
       { patientName: searchRegex },
       { remedy: searchRegex },
       { 'medicines.name': searchRegex },
@@ -176,6 +182,13 @@ const getPrescriptions = async (req, res) => {
       { notes: searchRegex },
       { instructions: searchRegex }
     ];
+
+    if (filter.$or) {
+      filter.$and = [{ $or: filter.$or }, { $or: searchFilter }];
+      delete filter.$or;
+    } else {
+      filter.$or = searchFilter;
+    }
   }
   
   const skip = (parseInt(page) - 1) * parseInt(limit);
