@@ -24,7 +24,7 @@ const createPrescription = async (req, res) => {
   } = req.body;
 
   // Get logged-in doctor's ID from authentication middleware
-  const doctorId = req.user?.userId || null;
+  const doctorId = req.user?.userId || req.user?._id;
 
   // Validate: need a patient name and at least one medicine
   const hasName    = patientName && patientName.trim();
@@ -132,7 +132,7 @@ const createPrescription = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 const getPrescriptions = async (req, res) => {
   const { patientId, page = 1, limit = 20, search } = req.query;
-  const currentUserId = req.user?.userId;
+  const currentUserId = (req.user?.userId || req.user?._id)?.toString();
   
   // Get current user's role
   const currentUser = await User.findById(currentUserId).select('role');
