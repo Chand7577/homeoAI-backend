@@ -323,11 +323,7 @@ const updateChapterPages = async (req, res) => {
 const getRepertoryChapters = async (req, res) => {
   const repId = req.params.id;
   
-  // Check if chapters are cached
-  if (chapterCache.has(repId)) {
-    return res.json({ success: true, data: chapterCache.get(repId) });
-  }
-
+  // Skip cache — always fetch fresh from DB so re-uploads are reflected immediately
   const repertory = await Repertory.findById(repId);
   if (!repertory) { res.status(404); throw new Error('Repertory not found'); }
 
@@ -341,10 +337,11 @@ const getRepertoryChapters = async (req, res) => {
         rubricCount: { $sum: 1 }
       }
     },
+    { $match: { chapterEn: { $ne: null, $ne: '' } } },
     { $sort: { chapterEn: 1 } }
   ]);
 
-  // Store in cache
+  // Update cache with fresh data
   chapterCache.set(repId, chapters);
 
   res.json({ success: true, data: chapters });

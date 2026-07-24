@@ -200,6 +200,32 @@ const detectMedicineColumns = (headers, rows) => {
   return { medicineHeaders, metaHeaders };
 };
 
+const KENT_CHAPTER_INDEX = {
+  '1': 'Mind', '2': 'Vertigo', '3': 'Head', '4': 'Eye', '5': 'Vision',
+  '6': 'Ear', '7': 'Hearing', '8': 'Nose', '9': 'Face', '10': 'Mouth',
+  '11': 'Teeth', '12': 'Throat', '13': 'External Throat', '14': 'Stomach', '15': 'Abdomen',
+  '16': 'Rectum', '17': 'Stool', '18': 'Bladder', '19': 'Kidney', '20': 'Prostate Gland',
+  '21': 'Urethra', '22': 'Urine', '23': 'Male Genitalia', '24': 'Female Genitalia', '25': 'Larynx & Trachea',
+  '26': 'Respiration', '27': 'Cough', '28': 'Expectoration', '29': 'Chest', '30': 'Back',
+  '31': 'Extremities', '32': 'Sleep', '33': 'Chill', '34': 'Fever', '35': 'Perspiration',
+  '36': 'Skin', '37': 'Generalities'
+};
+
+const cleanChapterName = (val) => {
+  if (!val) return '';
+  const str = String(val).trim();
+  const pureDigits = str.replace(/[^\d]/g, '');
+  let cleaned = str.replace(/^[\d\s\.\-_:\)\(#]+/g, '').trim();
+
+  if (cleaned) {
+    return cleaned.charAt(0).toUpperCase() + cleaned.slice(1).toLowerCase();
+  }
+  if (pureDigits && KENT_CHAPTER_INDEX[pureDigits]) {
+    return KENT_CHAPTER_INDEX[pureDigits];
+  }
+  return '';
+};
+
 /**
  * Resolve fields case-insensitively with partial match support
  */
@@ -217,11 +243,11 @@ const resolveFields = (row, headers, metaHeaders) => {
   };
 
   // Named / smart matching
-  const chapterEnRaw = get('chapter (english)', 'chapter_en', 'chapter') || get('section');
-  const chapterHiRaw = get('chapter (hindi)', 'chapter_hi');
+  const chapterEnRaw = get('chapter (english)', 'chapter eng', 'chapter_eng', 'chapter_en', 'chapter') || get('section');
+  const chapterHiRaw = get('chapter (hindi)', 'chapter hindi', 'chapter_hindi', 'chapter_hi');
   
-  const rubricEnRaw  = get('rubric (english – verb + action)', 'rubric (english)', 'rubric_en', 'rubric');
-  const rubricHiRaw  = get('rubric (hindi – क्रिया आधारित)', 'rubric (hindi)', 'rubric_hi');
+  const rubricEnRaw  = get('rubric (english – verb + action)', 'rubric (english)', 'rubric eng', 'rubric_eng', 'rubric_en', 'rubric');
+  const rubricHiRaw  = get('rubric (hindi – क्रिया आधारित)', 'rubric (hindi)', 'rubric hindi', 'rubric_hindi', 'rubric_hi');
 
   const subrubricRaw = get('sub-rubric', 'sub rubric', 'subrubric_en', 'subrubric');
 
@@ -231,7 +257,7 @@ const resolveFields = (row, headers, metaHeaders) => {
 
   // Parse bilingual fields
   const chapterSplit = parseBilingualField(chapterEnRaw);
-  const chapterEn = chapterSplit.en || chapterEnRaw;
+  const chapterEn = cleanChapterName(chapterSplit.en || chapterEnRaw);
   const chapterHi = chapterHiRaw || chapterSplit.hi;
 
   const rubricSplit = parseBilingualField(rubricEnRaw);
@@ -381,10 +407,23 @@ const detectColumnType = (columnData, colIdx, firstCellValue) => {
     return 'Rubric (Hindi)';
   }
 
+  // Check if Column 0 consists of pure numeric page numbers / serial numbers (e.g. 34, 54, 77, 81)
+  const isCol0Numeric = colIdx === 0 && columnData.length > 0 && columnData.every(val => {
+    if (!val || String(val).trim() === '') return true;
+    return !isNaN(Number(String(val).trim()));
+  });
+
   // ── Position-based fallback for remaining columns ──
+  if (isCol0Numeric) {
+    if (colIdx === 0) return 'Page';
+    if (colIdx === 1) return 'Chapter';
+    if (colIdx === 2) return hasHindi ? 'Rubric (Hindi)' : 'Rubric (English)';
+    if (colIdx === 3) return hasHindi ? 'Rubric (Hindi)' : 'Sub-Rubric';
+  }
+
   if (colIdx === 0) return 'Chapter';
   if (colIdx === 1) return hasHindi ? 'Rubric (Hindi)' : 'Rubric (English)';
-  if (colIdx === 2) return hasHindi ? 'Rubric (Hindi)' : 'Rubric (English)';
+  if (colIdx === 2) return hasHindi ? 'Rubric (Hindi)' : 'Sub-Rubric';
   if (colIdx === 3) return hasHindi ? 'Rubric (Hindi)' : 'Sub-Rubric';
 
   if (sampleText.includes('aggrav') || sampleText.includes('worse')) return 'Aggravation';
@@ -394,6 +433,36 @@ const detectColumnType = (columnData, colIdx, firstCellValue) => {
   return `Column_${String.fromCharCode(65 + colIdx)}`;
 };
 
+
+/**
+ * Smart chapter resolver that handles multi-sheet tabs and master sheets.
+ */
+const getEffectiveChapter = (sheetName, fieldsChapterEn, lastChapter) => {
+  const cleanedSheetName = String(sheetName || '').trim();
+  const normalizedSheetName = cleanedSheetName.replace(/[\s\-_]/g, '');
+  const isGenericSheet = /^(sheet\d*|mastersheet|data|rubrics|repertory)$/i.test(normalizedSheetName);
+  
+  let sheetFallbackChapter = '';
+  if (!isGenericSheet) {
+    sheetFallbackChapter = cleanChapterName(cleanedSheetName);
+  }
+
+  const rawChapterStr = String(fieldsChapterEn || '').trim();
+  const isNumericChapter = rawChapterStr && /^\d+$/.test(rawChapterStr);
+
+  let result = '';
+  if (fieldsChapterEn && !isNumericChapter) {
+    result = cleanChapterName(fieldsChapterEn);
+  } else if (sheetFallbackChapter) {
+    result = sheetFallbackChapter;
+  } else if (lastChapter) {
+    result = lastChapter;
+  } else if (fieldsChapterEn) {
+    result = cleanChapterName(fieldsChapterEn);
+  }
+
+  return result;
+};
 
 const parseExcel = async (buffer) => {
   console.log(`📊 Starting Excel parsing. Buffer size: ${(buffer.length / 1024 / 1024).toFixed(2)} MB`);
@@ -537,19 +606,11 @@ const parseExcel = async (buffer) => {
         const metaHeaders = headers.filter(h => h !== medicineHeader && h !== gradeHeader);
         const fields = resolveFields(row, headers, metaHeaders);
         
-        const cleanedSheetName = sheetName.trim();
-        const isGenericSheet = /^sheet\d+$/i.test(cleanedSheetName);
-        let sheetFallbackChapter = '';
-        if (!isGenericSheet) {
-          sheetFallbackChapter = cleanedSheetName;
+        const effectiveChapter = getEffectiveChapter(sheetName, fields.chapterEn, lastChapter);
+        if (effectiveChapter) {
+          lastChapter = effectiveChapter;
         }
-
-        const effectiveChapter = fields.chapterEn || lastChapter || sheetFallbackChapter;
         const effectiveChapterHi = fields.chapterHi || lastChapterHi;
-        if (fields.chapterEn) {
-          lastChapter = fields.chapterEn;
-          lastChapterHi = fields.chapterHi || '';
-        }
 
         const effectiveRubric = fields.rubricEn || lastRubric;
         const effectiveRubricHi = fields.rubricHi || lastRubricHi;
@@ -617,7 +678,7 @@ const parseExcel = async (buffer) => {
         } else {
           // Create new rubric entry
           rubrics.push({
-            chapter:   { en: effectiveChapter, hi: effectiveChapterHi },
+            chapter:   { en: effectiveChapter || 'General', hi: effectiveChapterHi },
             rubric:    { en: effectiveRubric || '(unnamed)', hi: effectiveRubricHi },
             subrubric: { en: effectiveSubrubric, hi: effectiveSubrubricHi },
             modalities: {
@@ -682,16 +743,10 @@ const parseExcel = async (buffer) => {
       const rowNum = idx + 2;
       const fields = resolveFields(row, headers, metaHeaders);
 
-      const cleanedSheetName = sheetName.trim();
-      const isGenericSheet = /^sheet\d+$/i.test(cleanedSheetName);
-      
-      let sheetFallbackChapter = '';
-      if (!isGenericSheet) {
-        sheetFallbackChapter = cleanedSheetName;
+      const effectiveChapter = getEffectiveChapter(sheetName, fields.chapterEn, lastChapter);
+      if (effectiveChapter) {
+        lastChapter = effectiveChapter;
       }
-
-      const effectiveChapter = fields.chapterEn || lastChapter || sheetFallbackChapter;
-      if (fields.chapterEn) lastChapter = fields.chapterEn;
 
       // Skip row if no chapter or rubric is present
       if (!effectiveChapter && !fields.rubricEn) {
@@ -747,7 +802,7 @@ const parseExcel = async (buffer) => {
       const searchText = parts.join(' ').toLowerCase();
 
       rubrics.push({
-        chapter:   { en: effectiveChapter, hi: fields.chapterHi },
+        chapter:   { en: effectiveChapter || 'General', hi: fields.chapterHi },
         rubric:    { en: fields.rubricEn || '(unnamed)', hi: fields.rubricHi },
         subrubric: { en: fields.subrubricEn, hi: fields.subrubricHi },
         modalities: {
