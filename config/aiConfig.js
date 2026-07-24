@@ -17,11 +17,11 @@ class UnifiedModelAdapter {
 
   async generateContent({ contents, generationConfig }) {
     if (this.provider === 'gemini') {
-      const modelsToTry = Array.from(new Set([this.modelName, 'gemini-2.0-flash', 'gemini-2.5-flash']));
+      const modelsToTry = Array.from(new Set([this.modelName, 'gemini-2.0-flash', 'gemini-2.0-flash-lite']));
       let lastError = null;
 
       for (const mName of modelsToTry) {
-        for (let attempt = 1; attempt <= 3; attempt++) {
+        for (let attempt = 1; attempt <= 2; attempt++) {
           try {
             const model = this.client.getGenerativeModel({ 
               model: mName,
@@ -38,18 +38,25 @@ class UnifiedModelAdapter {
           } catch (err) {
             lastError = err;
             const isTransient = err.message.includes('503') || err.message.includes('high demand') || err.message.includes('Service Unavailable') || err.message.includes('429');
-            if (isTransient && attempt < 3) {
-              console.warn(`[AI Adapter] ⚠️ Gemini (${mName}) returned transient error: ${err.message}. Retrying in ${2000 * attempt}ms...`);
+            if (isTransient && attempt < 2) {
+              console.warn(`[AI Adapter] ⚠️ Gemini (${mName}) returned: ${err.message}. Retrying in ${2000 * attempt}ms...`);
               await new Promise(r => setTimeout(r, 2000 * attempt));
             } else if (isTransient) {
-              console.warn(`[AI Adapter] ⚠️ Model ${mName} unavailable after 3 attempts. Trying fallback model...`);
-              break; // Try next fallback model
+              console.warn(`[AI Adapter] ⚠️ Model ${mName} rate-limited or unavailable. Trying next fallback...`);
+              break;
             } else {
-              throw err; // Non-retryable error
+              throw err;
             }
           }
         }
       }
+
+      // If Gemini quota/rate limits prevent execution and OpenAI is available, fail over to OpenAI (GPT-4o-mini)
+      if (openaiAdapter && openaiAdapter !== this) {
+        console.warn(`[AI Adapter] 🔄 Gemini models rate-limited (${lastError?.message}). Auto-failing over to OpenAI (GPT-4o-mini)...`);
+        return await openaiAdapter.generateContent({ contents, generationConfig });
+      }
+
       throw lastError;
     }
     
