@@ -17,18 +17,40 @@ class UnifiedModelAdapter {
 
   async generateContent({ contents, generationConfig }) {
     if (this.provider === 'gemini') {
-      const model = this.client.getGenerativeModel({ 
-        model: this.modelName,
-        generationConfig: {
-          temperature: generationConfig?.temperature ?? 0.3,
-          maxOutputTokens: generationConfig?.maxOutputTokens || 8000,
-          responseMimeType: generationConfig?.responseMimeType || 'text/plain',
-          responseSchema: generationConfig?.responseSchema
+      const modelsToTry = Array.from(new Set([this.modelName, 'gemini-2.0-flash', 'gemini-2.5-flash']));
+      let lastError = null;
+
+      for (const mName of modelsToTry) {
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            const model = this.client.getGenerativeModel({ 
+              model: mName,
+              generationConfig: {
+                temperature: generationConfig?.temperature ?? 0.3,
+                maxOutputTokens: generationConfig?.maxOutputTokens || 8000,
+                responseMimeType: generationConfig?.responseMimeType || 'text/plain',
+                responseSchema: generationConfig?.responseSchema
+              }
+            });
+            return await model.generateContent({
+              contents: contents.map(c => ({ role: c.role, parts: c.parts }))
+            });
+          } catch (err) {
+            lastError = err;
+            const isTransient = err.message.includes('503') || err.message.includes('high demand') || err.message.includes('Service Unavailable') || err.message.includes('429');
+            if (isTransient && attempt < 3) {
+              console.warn(`[AI Adapter] ⚠️ Gemini (${mName}) returned transient error: ${err.message}. Retrying in ${2000 * attempt}ms...`);
+              await new Promise(r => setTimeout(r, 2000 * attempt));
+            } else if (isTransient) {
+              console.warn(`[AI Adapter] ⚠️ Model ${mName} unavailable after 3 attempts. Trying fallback model...`);
+              break; // Try next fallback model
+            } else {
+              throw err; // Non-retryable error
+            }
+          }
         }
-      });
-      return await model.generateContent({
-        contents: contents.map(c => ({ role: c.role, parts: c.parts }))
-      });
+      }
+      throw lastError;
     }
     
     // For OpenAI and Groq - convert from Gemini format
