@@ -86,6 +86,11 @@ router.post('/upload', authenticate, requireAdmin, upload.single('pdf'), async (
       throw new Error('No data could be extracted from the file. Please ensure it contains readable text.');
     }
     
+    // Step 2.5: Translate rubrics & chapters to Hindi
+    console.log(`[MM Extract] Translating ${structuredData.length} entries to Hindi...`);
+    const { translateRubricsToHindi } = require('../services/kentAiParser');
+    structuredData = await translateRubricsToHindi(structuredData);
+    
     // Step 3: Generate Excel file
     console.log('[MM Extract] Generating Excel file...');
     const { generateKentExcel } = require('../services/kentExcelGenerator');

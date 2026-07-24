@@ -84,17 +84,15 @@ const initAI = () => {
     // Gemini initialization is disabled until a valid key is provided.
     // Using Groq as primary AI provider (faster and working).
     const geminiKey = process.env.GEMINI_API_KEY;
-    const enableGemini = process.env.ENABLE_GEMINI === 'true'; // Must explicitly enable
+    const enableGemini = process.env.ENABLE_GEMINI !== 'false'; // Auto enable if key exists unless explicitly false
     
     if (geminiKey && enableGemini) {
       const aiClient = new GoogleGenerativeAI(geminiKey);
-      const geminiModel = process.env.GEMINI_ANALYSIS_MODEL || 'gemini-1.5-flash';
+      const geminiModel = process.env.GEMINI_ANALYSIS_MODEL || 'gemini-flash-latest';
       geminiAdapter = new UnifiedModelAdapter(aiClient, geminiModel, 'gemini');
       defaultAdapter = defaultAdapter || geminiAdapter;
       isReady = true;
       console.log(`✅ Google Gemini ${geminiModel} initialized successfully.`);
-    } else if (geminiKey && !enableGemini) {
-      console.log('ℹ️  Gemini API key found but DISABLED (set ENABLE_GEMINI=true to enable)');
     }
 
     const groqKey = process.env.GROQ_API_KEY;

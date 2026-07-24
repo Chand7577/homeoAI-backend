@@ -457,8 +457,8 @@ OUTPUT:
     // Apply translations to original data
     const translatedData = structuredData.map(row => ({
       ...row,
-      chapter_hi: translationMaps.chapters[row.chapter_en] || '',
-      rubric_hi: translationMaps.rubrics[row.rubric_en] || ''
+      chapter_hi: row.chapter_hi || translationMaps.chapters[row.chapter_en] || '',
+      rubric_hi: row.rubric_hi || translationMaps.rubrics[row.rubric_en] || ''
     }));
 
     const translatedCount = translatedData.filter(r => r.chapter_hi || r.rubric_hi).length;
