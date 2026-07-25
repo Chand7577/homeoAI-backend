@@ -51,7 +51,18 @@ class UnifiedModelAdapter {
         }
       }
 
-      // If Gemini quota/rate limits prevent execution and OpenAI is available, fail over to OpenAI (GPT-4o-mini)
+      // If all Gemini models fail and Groq is available, try Groq as fallback
+      // Note: Groq doesn't support vision, so only use for text-only requests
+      const hasImageInput = contents.some(c => 
+        c.parts.some(p => p.inlineData || p.fileData)
+      );
+      
+      if (!hasImageInput && groqAdapter && groqAdapter !== this) {
+        console.warn(`[AI Adapter] 🔄 Gemini models rate-limited. Falling back to Groq for text generation...`);
+        return await groqAdapter.generateContent({ contents, generationConfig });
+      }
+
+      // If Groq not available or vision is needed, try OpenAI
       if (openaiAdapter && openaiAdapter !== this) {
         console.warn(`[AI Adapter] 🔄 Gemini models rate-limited (${lastError?.message}). Auto-failing over to OpenAI (GPT-4o-mini)...`);
         return await openaiAdapter.generateContent({ contents, generationConfig });
@@ -60,7 +71,40 @@ class UnifiedModelAdapter {
       throw lastError;
     }
     
-    // For OpenAI and Groq - convert from Gemini format
+    if (this.provider === 'groq') {
+      // Groq implementation
+      const messages = contents.map(c => ({
+        role: c.role === 'model' ? 'assistant' : 'user',
+        content: c.parts
+          .map(p => {
+             if (p.text) return p.text;
+             // Groq doesn't support images, so skip image parts
+             return '';
+          })
+          .filter(Boolean)
+          .join('\n')
+      })).filter(m => m.content);
+
+      const options = {
+        model: this.modelName,
+        messages,
+        temperature: generationConfig?.temperature ?? 0.3,
+        max_tokens: generationConfig?.maxOutputTokens || 8000,
+      };
+
+      // Groq doesn't have JSON mode like OpenAI, but Llama 3.3 is good at following instructions
+      let completion = await this.client.chat.completions.create(options);
+      const text = completion.choices[0]?.message?.content || '';
+
+      return {
+        response: {
+          candidates: [{ content: { parts: [{ text }] } }],
+          text: () => text
+        }
+      };
+    }
+    
+    // For OpenAI - convert from Gemini format
     const messages = contents.map(c => ({
       role: c.role === 'model' ? 'assistant' : 'user',
       content: c.parts
