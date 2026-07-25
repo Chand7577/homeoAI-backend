@@ -56,8 +56,9 @@ router.post('/upload', authenticate, requireClinicalUser, upload.single('page'),
     console.log(`Processing upload: ${req.file.originalname}`);
     fs.ensureDirSync(sessionDir);
 
-    // Pass the raw image directly to Gemini Vision!
-    let structuredData = await parseOcrToStructuredJson(req.file.path);
+    // Use Tesseract OCR + Groq AI (both unlimited/free) instead of Gemini Vision
+    const { parseImageWithTesseract } = require('../services/kentTesseractParser');
+    let structuredData = await parseImageWithTesseract(req.file.path);
     
     if (!structuredData || structuredData.length === 0) {
       throw new Error('OCR failed or found too little text.');

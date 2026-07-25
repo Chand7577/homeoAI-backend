@@ -61,11 +61,10 @@ router.post('/upload', authenticate, requireAdmin, upload.single('pdf'), async (
     let structuredData, totalPages, totalEntries;
 
     if (isImage) {
-      // For images: Use OCR extraction (same as Kent OCR single page)
-      console.log('[MM Extract] Using OCR for image extraction...');
-      // Use Gemini Vision directly on the uploaded image
-      const { parseOcrToStructuredJson } = require('../services/kentAiParser');
-      structuredData = await parseOcrToStructuredJson(req.file.path);
+      // For images: Use Tesseract OCR + Groq AI (unlimited, free)
+      console.log('[MM Extract] Using Tesseract OCR for image extraction...');
+      const { parseImageWithTesseract } = require('../services/kentTesseractParser');
+      structuredData = await parseImageWithTesseract(req.file.path);
       totalPages = 1;
       totalEntries = structuredData.length;
       
