@@ -1,6 +1,6 @@
 'use strict';
 
-const { getModel, isAIReady } = require('../config/aiConfig');
+const { getAnalysisModel, isAIReady } = require('../config/aiConfig');
 const { extractFullPdfText } = require('./pdfService');
 
 /**
@@ -22,7 +22,7 @@ const parseMaterialMedicaPdfToStructuredJson = async (pdfText) => {
     throw new Error('AI is not configured. Please set the GOOGLE_CLOUD_PROJECT and related credentials in your .env file.');
   }
 
-  const model = getModel();
+  const model = getAnalysisModel();
   
   // Truncate if too large to fit in context (keep first portion which usually has TOC and main content)
   const truncatedText = pdfText.substring(0, 50000); // Larger chunk for Materia Medica

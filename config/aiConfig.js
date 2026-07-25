@@ -92,7 +92,10 @@ class UnifiedModelAdapter {
         max_tokens: generationConfig?.maxOutputTokens || 8000,
       };
 
-      // Groq doesn't have JSON mode like OpenAI, but Llama 3.3 is good at following instructions
+      if (generationConfig?.responseMimeType === 'application/json') {
+        options.response_format = { type: 'json_object' };
+      }
+
       let completion = await this.client.chat.completions.create(options);
       const text = completion.choices[0]?.message?.content || '';
 
