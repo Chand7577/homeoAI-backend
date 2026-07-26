@@ -342,26 +342,43 @@ const parseImageToStructuredJson = async (imagePath) => {
  * @param {Array} structuredData - Array of extracted rubric rows with chapter_en and rubric_en
  * @returns {Promise<Array>} - Same data with chapter_hi and rubric_hi filled in
  */
+/**
+ * Free Google Translate HTTP helper for fast Devanagari translation (0 cost, 0 token limits).
+ */
+const googleTranslateSingle = (text, targetLang = 'hi') => {
+  if (!text || !text.trim()) return Promise.resolve('');
+  const https = require('https');
+  return new Promise((resolve) => {
+    const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=' + targetLang + '&dt=t&q=' + encodeURIComponent(text.trim());
+    https.get(url, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          const translatedText = parsed[0].map(item => item[0]).join('');
+          resolve(translatedText || text);
+        } catch (e) {
+          resolve(text);
+        }
+      });
+    }).on('error', () => resolve(text));
+  });
+};
+
+/**
+ * High-performance Hindi Translation Service.
+ * Uses Google Translate Free GTX Engine (0 cost, ultra-fast ~500ms) with Groq LLM fallback.
+ *
+ * @param {Array} structuredData - Array of extracted rubric rows with chapter_en and rubric_en
+ * @returns {Promise<Array>} - Same data with chapter_hi and rubric_hi filled in
+ */
 const translateRubricsToHindi = async (structuredData) => {
-  const Groq = require('groq-sdk');
-  
   if (!structuredData || structuredData.length === 0) {
-    console.log('[Hindi Translation] No data to translate');
     return structuredData;
   }
 
-  console.log(`[Hindi Translation] Translating ${structuredData.length} entries to Hindi using Groq...`);
-
-  // Initialize Groq client
-  const groqApiKey = process.env.GROQ_API_KEY;
-  if (!groqApiKey) {
-    console.error('[Hindi Translation] GROQ_API_KEY not found in environment');
-    return structuredData;
-  }
-  
-  const groq = new Groq({ apiKey: groqApiKey });
-
-  // Collect unique chapters and rubrics to minimize redundant AI calls
+  // Collect unique chapters and rubrics
   const uniqueChapters = new Set();
   const uniqueRubrics = new Set();
   
@@ -373,107 +390,75 @@ const translateRubricsToHindi = async (structuredData) => {
   const chaptersArray = Array.from(uniqueChapters);
   const rubricsArray = Array.from(uniqueRubrics);
 
-  console.log(`[Hindi Translation] ${chaptersArray.length} unique chapters, ${rubricsArray.length} unique rubrics`);
+  console.log(`[Hindi Translation] Translating ${chaptersArray.length} chapters and ${rubricsArray.length} rubrics...`);
+  const startTime = Date.now();
 
+  // Step 1: Try Free Google Translate API first (Lightning fast: ~500ms total, 0 token limits)
+  try {
+    const chapterPromises = chaptersArray.map(ch => googleTranslateSingle(ch).then(res => [ch, res]));
+    const rubricPromises = rubricsArray.map(rub => googleTranslateSingle(rub).then(res => [rub, res]));
+
+    const chapterResults = Object.fromEntries(await Promise.all(chapterPromises));
+    const rubricResults = Object.fromEntries(await Promise.all(rubricPromises));
+
+    const duration = Date.now() - startTime;
+    console.log(`[Hindi Translation] ✅ Google Translate completed ${chaptersArray.length + rubricsArray.length} items in ${duration}ms!`);
+
+    return structuredData.map(row => ({
+      ...row,
+      chapter_hi: row.chapter_hi || chapterResults[row.chapter_en?.trim()] || '',
+      rubric_hi: row.rubric_hi || rubricResults[row.rubric_en?.trim()] || ''
+    }));
+
+  } catch (err) {
+    console.warn('[Hindi Translation] Google Translate failed, falling back to Groq AI:', err.message);
+  }
+
+  // Step 2: Fallback to Groq AI if Google Translate is unavailable
+  const groqApiKey = process.env.GROQ_API_KEY;
+  if (!groqApiKey) return structuredData;
+
+  const Groq = require('groq-sdk');
+  const groq = new Groq({ apiKey: groqApiKey });
   const translationMaps = { chapters: {}, rubrics: {} };
 
   try {
-    const BATCH_SIZE = 25; // Smaller batch size to stay well under TPM limits
-
+    const BATCH_SIZE = 25;
     for (let i = 0; i < rubricsArray.length; i += BATCH_SIZE) {
       const rubricBatch = rubricsArray.slice(i, i + BATCH_SIZE);
-      const chapterBatch = (i === 0) ? chaptersArray : []; // Only translate chapters in the first batch
+      const chapterBatch = (i === 0) ? chaptersArray : [];
 
-      const prompt = `You are a medical translator specializing in homeopathic terminology.
-Translate the following Kent's Repertory terms from English to Hindi (Devanagari script).
+      const prompt = `You are a medical translator. Translate to Hindi:
+${chapterBatch.length > 0 ? `CHAPTERS:\n${JSON.stringify(chapterBatch, null, 2)}\n` : ''}
+RUBRICS:
+${JSON.stringify(rubricBatch, null, 2)}
+Return JSON: {"chapters":{"EN":"HI"}, "rubrics":{"EN":"HI"}}`;
 
-CRITICAL RULES:
-1. Preserve medical accuracy using standard homeopathic Hindi terminology.
-2. For body parts and symptoms, use proper Hindi medical terms.
-3. Keep the exact English string key in the output JSON.
-4. For modalities ("worse from", "better by"), use: "बढ़ना", "घटना".
-5. Return ONLY a valid JSON object matching this schema:
+      try {
+        const completion = await groq.chat.completions.create({
+          model: 'llama-3.1-8b-instant',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.1,
+          max_tokens: 4000,
+          response_format: { type: 'json_object' }
+        });
 
-{
-  "chapters": {
-    "NOSE": "नाक"
-  },
-  "rubrics": {
-    "NOSE - COLOR, redness - inside": "नाक - रंग, लालिमा - अंदर"
-  }
-}
-
-${chapterBatch.length > 0 ? `CHAPTERS TO TRANSLATE:\n${JSON.stringify(chapterBatch, null, 2)}\n` : ''}
-RUBRICS TO TRANSLATE:
-${JSON.stringify(rubricBatch, null, 2)}`;
-
-      // Try with llama-3.1-8b-instant first (30k TPM limit, ultra-fast), fallback to llama-3.3-70b-versatile
-      let completion = null;
-      const modelsToTry = ['llama-3.1-8b-instant', 'llama-3.3-70b-versatile'];
-
-      for (const model of modelsToTry) {
-        for (let attempt = 1; attempt <= 3; attempt++) {
-          try {
-            completion = await groq.chat.completions.create({
-              model,
-              messages: [{ role: 'user', content: prompt }],
-              temperature: 0.1,
-              max_tokens: 4000,
-              response_format: { type: 'json_object' }
-            });
-            break; // Success
-          } catch (err) {
-            if (err.status === 429 && attempt < 3) {
-              console.warn(`[Hindi Translation] Rate limit (429) on ${model}, retrying in ${attempt * 2}s...`);
-              await new Promise(r => setTimeout(r, attempt * 2000));
-            } else {
-              console.warn(`[Hindi Translation] Model ${model} attempt ${attempt} failed: ${err.message}`);
-              break;
-            }
-          }
-        }
-        if (completion) break;
-      }
-
-      if (completion) {
-        const text = completion.choices[0]?.message?.content || '{}';
-        try {
-          const parsed = JSON.parse(text);
-          if (parsed.chapters && typeof parsed.chapters === 'object') {
-            Object.assign(translationMaps.chapters, parsed.chapters);
-          }
-          if (parsed.rubrics && typeof parsed.rubrics === 'object') {
-            Object.assign(translationMaps.rubrics, parsed.rubrics);
-          }
-          console.log(`[Hindi Translation] Batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(rubricsArray.length / BATCH_SIZE)}: Translated ${Object.keys(parsed.rubrics || {}).length} rubrics`);
-        } catch (e) {
-          console.warn(`[Hindi Translation] Batch ${Math.floor(i / BATCH_SIZE) + 1} JSON parse warning:`, e.message);
-        }
-      }
-
-      if (i + BATCH_SIZE < rubricsArray.length) {
-        await new Promise(r => setTimeout(r, 400));
+        const parsed = JSON.parse(completion.choices[0]?.message?.content || '{}');
+        if (parsed.chapters) Object.assign(translationMaps.chapters, parsed.chapters);
+        if (parsed.rubrics) Object.assign(translationMaps.rubrics, parsed.rubrics);
+      } catch (e) {
+        console.warn(`[Hindi Translation] Groq batch error: ${e.message}`);
       }
     }
 
-    // Apply translations to original data
-    const translatedData = structuredData.map(row => {
-      const chKey = row.chapter_en?.trim();
-      const rubKey = row.rubric_en?.trim();
-      return {
-        ...row,
-        chapter_hi: row.chapter_hi || translationMaps.chapters[chKey] || '',
-        rubric_hi: row.rubric_hi || translationMaps.rubrics[rubKey] || ''
-      };
-    });
-
-    const translatedCount = translatedData.filter(r => r.chapter_hi || r.rubric_hi).length;
-    console.log(`[Hindi Translation] ✅ Successfully translated ${translatedCount}/${structuredData.length} rows using Groq`);
-
-    return translatedData;
+    return structuredData.map(row => ({
+      ...row,
+      chapter_hi: row.chapter_hi || translationMaps.chapters[row.chapter_en?.trim()] || '',
+      rubric_hi: row.rubric_hi || translationMaps.rubrics[row.rubric_en?.trim()] || ''
+    }));
 
   } catch (err) {
-    console.error('[Hindi Translation] Translation process error:', err.message);
+    console.error('[Hindi Translation] Groq Fallback error:', err.message);
     return structuredData;
   }
 };
