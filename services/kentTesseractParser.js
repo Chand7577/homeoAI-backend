@@ -25,35 +25,41 @@ const parseColumnTextWithGroq = async (rawText, columnSide = 'left', lastRubricC
     const groq = new Groq({ apiKey });
 
     const contextInstruction = lastRubricContext
-      ? `CONTEXT FROM PREVIOUS (LEFT) COLUMN: The left column's last extracted rubric path was "${lastRubricContext}". If this column starts with a comma-separated continuation header (e.g. "COLOR, redness, inside."), reconstruct the parent path from this context and use it for all sub-rubrics beneath it.`
+      ? `CONTEXT FROM PREVIOUS (LEFT) COLUMN: The left column's last extracted rubric path was "${lastRubricContext}". If this column starts with a list of medicines or a comma-separated continuation header (e.g. "COLOR, redness, inside."), reconstruct the parent path from this context and use it for all sub-rubrics beneath it.`
       : '';
 
-    const prompt = `You are a medical data extraction expert structuring raw OCR text from the ${columnSide.toUpperCase()} column of Kent's Repertory.
+    const prompt = `You are a medical data extraction & spell-correction expert structuring raw Kent's Repertory OCR text from the ${columnSide.toUpperCase()} column.
 ${contextInstruction}
 
---- PAGE LAYOUT & HIERARCHY RULES ---
-1. EXHAUSTIVE EXTRACTION: Capture EVERY SINGLE rubric and medicine abbreviation. Do NOT skip any lines.
-2. HIERARCHY & INDENTATION:
-   - ALL CAPS (e.g. "NOSE", "HEARING", "COLOR"): Main Chapter or Top-Level Rubric.
-   - Sub-rubrics (e.g. "redness", "inside", "septum"): Modifiers under the top rubric.
-   - Line with colon (e.g. "septum: Alum., bov."): Rubric key is before colon, medicines after.
-3. CONTINUATION HEADERS:
-   - If column starts with e.g. "COLOR, redness, inside.", all sub-rubrics below inherit that parent path: "NOSE - COLOR, redness - inside".
-4. RUBRIC PATH FORMAT: "CHAPTER - MAIN RUBRIC, qualifier - sub-rubric - sub-sub-rubric"
-   e.g. "NOSE - COLOR, redness - inside - septum"
-5. MEDICINES & GRADING:
-   - Split comma-separated medicine abbreviations.
-   - Grading rules: ALL CAPS medicine = 3, Italic/mostly lowercase = 2, Normal = 1.
-6. OUTPUT SCHEMA: Return ONLY valid JSON matching this format:
+--- CRITICAL REPERTORY TYPOGRAPHY & GRADING RULES ---
+1. CAPITALIZATION = GRADE 3 (BOLD):
+   - In Kent's Repertory text OCR, if a medicine abbreviation STARTS WITH A CAPITAL LETTER (e.g., Mag-s, Mang, Lob, Bell, Lach, Cupr, Bor, Cann-i, Aloe, Acon, Spig, Sars, Am-c, Teucr, Calc, Bar-c, Nux-v, Benz-ac, Chin, Lyc, Ferr, All-c, Mez, Kreos, Act-sp, Puls), it is printed in BOLD font in the book. Assign grading = 3.
+   - For lowercase medicine abbreviations:
+     - Assign grading = 2 (Italic) if it is a major italicized remedy (e.g. acon, agar, alum, bell, calc, caust, chin, con, cupr, dros, dulc, graph, hep, kali-c, lach, laur, mag-c, mag-m, mang, meny, merc, nat-m, nit-ac, petr, phos-ac, plat, puls, rhodo, sabad, sep, sil, sulph).
+     - Assign grading = 1 (Normal) for plain remedies (e.g. ant-t, aur, bar-c, bor, carl, cocc, mosch, rheum, selen, spong, stann, zinc).
 
+2. MEDICINE SPELL CORRECTION & CLEANING:
+   - Correct OCR typos in medicine names using standard homeopathic abbreviations:
+     e.g., "cauth" -> "canth", "Manec" -> "manc", "drnmming" -> "drumming", "sunfling" -> "snuffing", "morniug" -> "morning", "ou" -> "on", "11 a. m." / "IT a. m." -> "10 a. m.", "47s" -> "amel.".
+   - Clean trailing dots or commas from medicine names.
+
+3. CONTINUATION AT TOP OF COLUMN:
+   - If the column text starts with a list of medicines (e.g., "mag-m., med., nat-s...") without any rubric heading, it is the CONTINUATION of the last rubric from the previous column ("${lastRubricContext}"). Group these medicines under "${lastRubricContext}"!
+
+4. HIERARCHY & RUBRIC FORMAT:
+   - "CHAPTER - MAIN RUBRIC, qualifier - sub-rubric"
+   e.g. "EAR - NOISES, hissing - humming"
+
+5. OUTPUT SCHEMA: Return ONLY valid JSON matching format:
 {
-  "chapter_en": "NOSE",
+  "chapter_en": "EAR",
   "data": [
     {
-      "rubric_en": "NOSE - COLOR, redness - inside - septum",
+      "rubric_en": "EAR - NOISES, hissing",
       "medicines": [
-        {"name": "Alum", "grading": 1},
-        {"name": "bov", "grading": 1}
+        {"name": "Acon", "grading": 3},
+        {"name": "agar", "grading": 2},
+        {"name": "ant-t", "grading": 1}
       ]
     }
   ]

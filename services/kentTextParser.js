@@ -64,19 +64,26 @@ const extractMedicinesWithGrading = (medicineText) => {
     let grading = 1;
     const upperRatio = upperCount / total;
     
-    // Kent's typography rules (from actual book format):
-    // ALL CAPS (e.g., "ACON", "BELL", "DIG") = Grade 3 (bold) - most reliable remedy
-    if (upperRatio >= 0.9 || (total >= 3 && upperCount === total)) {
+    // Kent's typography rules:
+    // 1. Initial Capital letter (e.g. Bell., Acon., Spig., Chin., Lyc., Dig., Lob., Mag-s.) = Grade 3 (Bold)
+    // 2. Standard Italic remedy list = Grade 2
+    // 3. Normal lowercase = Grade 1
+    const italicRemedies = new Set([
+      'acon', 'agar', 'alum', 'bell', 'berb', 'calc', 'caust', 'chin', 'con', 'cupr',
+      'dros', 'dulc', 'graph', 'hep', 'kali-c', 'lach', 'laur', 'mag-c', 'mag-m', 'mang',
+      'meny', 'merc', 'nat-m', 'nit-ac', 'olnd', 'petr', 'phos-ac', 'plat', 'puls', 'rhodo',
+      'sabad', 'sep', 'sil', 'sulph', 'tabac', 'valer', 'verat'
+    ]);
+
+    const firstChar = cleaned.charAt(0);
+    const isFirstCap = firstChar >= 'A' && firstChar <= 'Z';
+
+    if (isFirstCap || upperRatio >= 0.8) {
       grading = 3;
-    }
-    // All lowercase (e.g., "calc", "puls", "sulph") = Grade 1 (normal) - common remedy
-    else if (upperCount === 0 || upperRatio <= 0.2) {
-      grading = 1;
-    }
-    // Mixed case or First-cap (e.g., "Calc", "Puls", "Bell") = Grade 2 (italic)
-    // This is OCR interpretation - real Kent uses italics which OCR sees as mixed case
-    else {
+    } else if (italicRemedies.has(cleaned.toLowerCase())) {
       grading = 2;
+    } else {
+      grading = 1;
     }
     
     medicines.push({ name: cleaned, grading });
