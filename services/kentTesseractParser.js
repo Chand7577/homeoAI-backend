@@ -68,13 +68,25 @@ ${contextInstruction}
 RAW OCR TEXT TO PARSE:
 ${rawText}`;
 
-    const completion = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.1,
-      max_tokens: 8000,
-      response_format: { type: 'json_object' }
-    });
+    let completion = null;
+    try {
+      completion = await groq.chat.completions.create({
+        model: 'llama-3.1-8b-instant',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.1,
+        max_tokens: 4000,
+        response_format: { type: 'json_object' }
+      });
+    } catch (e) {
+      console.warn(`[Groq Structurer] llama-3.1-8b-instant failed, trying 70b: ${e.message}`);
+      completion = await groq.chat.completions.create({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.1,
+        max_tokens: 4000,
+        response_format: { type: 'json_object' }
+      });
+    }
 
     const text = completion.choices[0]?.message?.content || '{}';
     return JSON.parse(text);
@@ -154,31 +166,39 @@ const parseImageWithTesseract = async (imagePath) => {
     }
   };
 
-  // Step 2: Pass Left column text to Groq AI
+  // Step 2: Pass Left & Right column text to Groq AI concurrently
   let groqSuccess = false;
-  if (process.env.GROQ_API_KEY && leftText.trim().length > 30) {
-    console.log('[Kent Multi-Column Parser] Step 2a: Structuring LEFT column with Groq AI...');
-    const leftJson = await parseColumnTextWithGroq(leftText, 'left');
-    const leftRows = convertGroqJsonToRows(leftJson);
+  if (process.env.GROQ_API_KEY && (leftText.trim().length > 30 || rightText.trim().length > 30)) {
+    console.log('[Kent Multi-Column Parser] Structuring LEFT & RIGHT columns concurrently with Groq AI...');
 
-    let lastLeftRubric = '';
+    const [leftJson, rightJson] = await Promise.all([
+      leftText.trim().length > 30 ? parseColumnTextWithGroq(leftText, 'left') : Promise.resolve(null),
+      rightText.trim().length > 30 ? parseColumnTextWithGroq(rightText, 'right') : Promise.resolve(null)
+    ]);
+
+    const leftRows = convertGroqJsonToRows(leftJson);
+    const rightRows = convertGroqJsonToRows(rightJson);
+
     if (leftRows.length > 0) {
       addRows(leftRows);
       groqSuccess = true;
-      lastLeftRubric = leftRows[leftRows.length - 1]?.rubric_en || '';
       console.log(`[Kent Multi-Column Parser] Left column: ${leftRows.length} rows extracted via Groq.`);
+
+      // Attach overflow from right column if right column started with continuation under last left rubric
+      const lastLeftRubric = leftRows[leftRows.length - 1]?.rubric_en || '';
+      if (rightRows.length > 0 && lastLeftRubric) {
+        for (const rRow of rightRows) {
+          if (rRow.rubric_en && (rRow.rubric_en.includes('CONTINUATION') || rRow.rubric_en === 'UNKNOWN')) {
+            rRow.rubric_en = lastLeftRubric;
+          }
+        }
+      }
     }
 
-    // Step 3: Pass Right column text to Groq AI using last rubric from Left column as context
-    if (rightText && rightText.trim().length > 30) {
-      console.log(`[Kent Multi-Column Parser] Step 2b: Structuring RIGHT column with Groq AI (Context: "${lastLeftRubric}")...`);
-      const rightJson = await parseColumnTextWithGroq(rightText, 'right', lastLeftRubric);
-      const rightRows = convertGroqJsonToRows(rightJson);
-      if (rightRows.length > 0) {
-        addRows(rightRows);
-        groqSuccess = true;
-        console.log(`[Kent Multi-Column Parser] Right column: ${rightRows.length} rows extracted via Groq.`);
-      }
+    if (rightRows.length > 0) {
+      addRows(rightRows);
+      groqSuccess = true;
+      console.log(`[Kent Multi-Column Parser] Right column: ${rightRows.length} rows extracted via Groq.`);
     }
   }
 
