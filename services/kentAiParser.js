@@ -378,7 +378,7 @@ const translateRubricsToHindi = async (structuredData) => {
   const translationMaps = { chapters: {}, rubrics: {} };
 
   try {
-    const BATCH_SIZE = 50; // Groq can handle larger batches efficiently
+    const BATCH_SIZE = 25; // Smaller batch size to stay well under TPM limits
 
     for (let i = 0; i < rubricsArray.length; i += BATCH_SIZE) {
       const rubricBatch = rubricsArray.slice(i, i + BATCH_SIZE);
@@ -407,29 +407,52 @@ ${chapterBatch.length > 0 ? `CHAPTERS TO TRANSLATE:\n${JSON.stringify(chapterBat
 RUBRICS TO TRANSLATE:
 ${JSON.stringify(rubricBatch, null, 2)}`;
 
-      const completion = await groq.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.1,
-        max_tokens: 8000,
-        response_format: { type: 'json_object' }
-      });
+      // Try with llama-3.1-8b-instant first (30k TPM limit, ultra-fast), fallback to llama-3.3-70b-versatile
+      let completion = null;
+      const modelsToTry = ['llama-3.1-8b-instant', 'llama-3.3-70b-versatile'];
 
-      const text = completion.choices[0]?.message?.content || '{}';
-      const parsed = JSON.parse(text);
-
-      if (parsed.chapters && typeof parsed.chapters === 'object') {
-        Object.assign(translationMaps.chapters, parsed.chapters);
+      for (const model of modelsToTry) {
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            completion = await groq.chat.completions.create({
+              model,
+              messages: [{ role: 'user', content: prompt }],
+              temperature: 0.1,
+              max_tokens: 4000,
+              response_format: { type: 'json_object' }
+            });
+            break; // Success
+          } catch (err) {
+            if (err.status === 429 && attempt < 3) {
+              console.warn(`[Hindi Translation] Rate limit (429) on ${model}, retrying in ${attempt * 2}s...`);
+              await new Promise(r => setTimeout(r, attempt * 2000));
+            } else {
+              console.warn(`[Hindi Translation] Model ${model} attempt ${attempt} failed: ${err.message}`);
+              break;
+            }
+          }
+        }
+        if (completion) break;
       }
-      if (parsed.rubrics && typeof parsed.rubrics === 'object') {
-        Object.assign(translationMaps.rubrics, parsed.rubrics);
+
+      if (completion) {
+        const text = completion.choices[0]?.message?.content || '{}';
+        try {
+          const parsed = JSON.parse(text);
+          if (parsed.chapters && typeof parsed.chapters === 'object') {
+            Object.assign(translationMaps.chapters, parsed.chapters);
+          }
+          if (parsed.rubrics && typeof parsed.rubrics === 'object') {
+            Object.assign(translationMaps.rubrics, parsed.rubrics);
+          }
+          console.log(`[Hindi Translation] Batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(rubricsArray.length / BATCH_SIZE)}: Translated ${Object.keys(parsed.rubrics || {}).length} rubrics`);
+        } catch (e) {
+          console.warn(`[Hindi Translation] Batch ${Math.floor(i / BATCH_SIZE) + 1} JSON parse warning:`, e.message);
+        }
       }
 
-      console.log(`[Hindi Translation] Batch ${Math.floor(i / BATCH_SIZE) + 1}: Translated ${Object.keys(parsed.rubrics || {}).length} rubrics`);
-
-      // Shorter delay because Groq is fast and has higher rate limits
       if (i + BATCH_SIZE < rubricsArray.length) {
-        await new Promise(r => setTimeout(r, 500));
+        await new Promise(r => setTimeout(r, 400));
       }
     }
 
@@ -450,8 +473,7 @@ ${JSON.stringify(rubricBatch, null, 2)}`;
     return translatedData;
 
   } catch (err) {
-    console.error('[Hindi Translation] Translation failed:', err.message);
-    console.error('[Hindi Translation] Error details:', err);
+    console.error('[Hindi Translation] Translation process error:', err.message);
     return structuredData;
   }
 };
