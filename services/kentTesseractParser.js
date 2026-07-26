@@ -1,239 +1,199 @@
 'use strict';
 
-const { extractTextFromImage } = require('./kentOcrService');
-const Groq = require('groq-sdk');
+const { extractColumnTextsFromImage, extractTextFromImage } = require('./kentOcrService');
+const { parseKentOcrTextAdvanced } = require('./kentTextParser');
 const fs = require('fs-extra');
 const path = require('path');
 
 /**
- * Parse OCR text from Tesseract using Groq AI for structured extraction.
- * This combines Tesseract OCR (free, unlimited) with Groq AI (free 14,400/day)
- * to provide unlimited Kent Repertory page processing.
- * 
- * @param {string} imagePath - Absolute path to the uploaded image
- * @returns {Promise<Array>} - Structured medicine-rubric rows
+ * Structure raw OCR text from a single column using Groq AI (Llama 3.3 70B).
+ * Very fast (~800ms), no vision token costs, and handles complex repertory formatting.
+ *
+ * @param {string} rawText          Raw OCR text from 1 column
+ * @param {string} columnSide       "left" or "right"
+ * @param {string} lastRubricContext Last rubric path from left column for header continuation
+ * @returns {Promise<Object|null>}   Parsed JSON object or null if unavailable
  */
-const parseTesseractOcrWithGroq = async (imagePath) => {
-  console.log(`[Tesseract Parser] Starting OCR + AI parsing: ${path.basename(imagePath)}`);
-  
-  // Create temp directory for preprocessing
-  const tempDir = path.dirname(imagePath);
-  
-  // Step 1: Extract text using Tesseract OCR (unlimited, free)
-  console.log('[Tesseract Parser] Step 1: Running Tesseract OCR...');
-  const { ocrText, processedPath } = await extractTextFromImage(imagePath, tempDir);
-  
-  if (!ocrText || ocrText.trim().length < 50) {
-    throw new Error('Tesseract OCR returned insufficient text. Image quality may be poor.');
+const parseColumnTextWithGroq = async (rawText, columnSide = 'left', lastRubricContext = '') => {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey || !rawText || rawText.trim().length < 20) {
+    return null;
   }
-  
-  console.log(`[Tesseract Parser] OCR extracted ${ocrText.length} characters`);
-  
-  // Step 2: Parse OCR text using Groq AI (14,400 requests/day)
-  // Split text into chunks if too large (Groq limit: 12,000 tokens/min)
-  console.log('[Tesseract Parser] Step 2: Parsing OCR text with Groq AI...');
-  
-  const groqApiKey = process.env.GROQ_API_KEY;
-  if (!groqApiKey) {
-    throw new Error('GROQ_API_KEY not found in environment');
-  }
-  
-  const groq = new Groq({ apiKey: groqApiKey });
-  
-  // Split OCR text into left and right columns (simulating the two-column layout)
-  const lines = ocrText.split('\n');
-  const midpoint = Math.floor(lines.length / 2);
-  const leftText = lines.slice(0, midpoint).join('\n');
-  const rightText = lines.slice(midpoint).join('\n');
-  
-  console.log(`[Tesseract Parser] Splitting into 2 chunks: ${leftText.length} + ${rightText.length} chars`);
-  
-  const allResults = [];
-  const seenKeys = new Set();
-  let chapter = '';
-  
-  // Process both chunks
-  const chunks = [leftText, rightText];
-  
-  for (let i = 0; i < chunks.length; i++) {
-    const chunkText = chunks[i];
-    if (chunkText.trim().length < 20) {
-      console.log(`[Tesseract Parser] Skipping empty chunk ${i + 1}`);
-      continue;
-    }
-    
-    const prompt = `You are a medical data extraction expert parsing OCR text from Kent's Repertory.
 
-TASK: Parse the following OCR text into structured JSON format.
+  try {
+    const Groq = require('groq-sdk');
+    const groq = new Groq({ apiKey });
 
-OCR TEXT:
-"""
-${chunkText}
-"""
+    const contextInstruction = lastRubricContext
+      ? `CONTEXT FROM PREVIOUS (LEFT) COLUMN: The left column's last extracted rubric path was "${lastRubricContext}". If this column starts with a comma-separated continuation header (e.g. "COLOR, redness, inside."), reconstruct the parent path from this context and use it for all sub-rubrics beneath it.`
+      : '';
 
-PARSING RULES:
-1. Extract chapter name from the top (usually ALL CAPS like "NOSE", "ABDOMEN", etc.)
-2. Identify rubrics (symptoms) and their hierarchy based on indentation
-3. Extract medicine abbreviations after each rubric (comma-separated, with period at end)
-4. Determine medicine grading:
-   - Grade 3: ALL CAPS medicines (most important)
-   - Grade 2: Italic medicines
-   - Grade 1: Normal text (default)
-5. Build full rubric paths: "CHAPTER - MAIN RUBRIC - sub-rubric - sub-sub-rubric"
+    const prompt = `You are a medical data extraction expert structuring raw OCR text from the ${columnSide.toUpperCase()} column of Kent's Repertory.
+${contextInstruction}
 
-OUTPUT FORMAT (JSON only):
+--- PAGE LAYOUT & HIERARCHY RULES ---
+1. EXHAUSTIVE EXTRACTION: Capture EVERY SINGLE rubric and medicine abbreviation. Do NOT skip any lines.
+2. HIERARCHY & INDENTATION:
+   - ALL CAPS (e.g. "NOSE", "HEARING", "COLOR"): Main Chapter or Top-Level Rubric.
+   - Sub-rubrics (e.g. "redness", "inside", "septum"): Modifiers under the top rubric.
+   - Line with colon (e.g. "septum: Alum., bov."): Rubric key is before colon, medicines after.
+3. CONTINUATION HEADERS:
+   - If column starts with e.g. "COLOR, redness, inside.", all sub-rubrics below inherit that parent path: "NOSE - COLOR, redness - inside".
+4. RUBRIC PATH FORMAT: "CHAPTER - MAIN RUBRIC, qualifier - sub-rubric - sub-sub-rubric"
+   e.g. "NOSE - COLOR, redness - inside - septum"
+5. MEDICINES & GRADING:
+   - Split comma-separated medicine abbreviations.
+   - Grading rules: ALL CAPS medicine = 3, Italic/mostly lowercase = 2, Normal = 1.
+6. OUTPUT SCHEMA: Return ONLY valid JSON matching this format:
+
 {
   "chapter_en": "NOSE",
   "data": [
     {
-      "rubric_en": "NOSE - DISCHARGE - thick",
+      "rubric_en": "NOSE - COLOR, redness - inside - septum",
       "medicines": [
-        {"name": "Calc", "grading": 1},
-        {"name": "Puls", "grading": 3}
+        {"name": "Alum", "grading": 1},
+        {"name": "bov", "grading": 1}
       ]
     }
   ]
 }
 
-IMPORTANT:
-- Remove trailing periods from medicine names
-- Skip cross-references like "(See...)"
-- Return ONLY valid JSON`;
+RAW OCR TEXT TO PARSE:
+${rawText}`;
 
-    try {
-      console.log(`[Tesseract Parser] Processing chunk ${i + 1}/2...`);
-      
-      const completion = await groq.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.1,
-        max_tokens: 8000,
-        response_format: { type: 'json_object' }
-      });
+    const completion = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.1,
+      max_tokens: 8000,
+      response_format: { type: 'json_object' }
+    });
 
-      const responseText = completion.choices[0]?.message?.content || '{}';
-      const parsed = JSON.parse(responseText);
-      
-      // Extract chapter from first chunk
-      if (!chapter && parsed.chapter_en) {
-        chapter = parsed.chapter_en;
-      }
-      
-      const dataArray = parsed.data || [];
-      
-      for (const group of dataArray) {
-        const rubric_en = group.rubric_en || '';
-        
-        for (const medObj of (group.medicines || [])) {
-          const medName = (medObj.name || '').trim().replace(/\.$/, '');
-          const key = `${rubric_en}|||${medName}`.toLowerCase();
-          
-          if (!seenKeys.has(key) && medName) {
-            seenKeys.add(key);
-            allResults.push({
-              chapter_en: chapter || 'UNKNOWN',
-              chapter_hi: '',
-              rubric_en: rubric_en,
-              rubric_hi: '',
-              medicine: medName,
-              grading: medObj.grading || 1
-            });
-          }
-        }
-      }
-      
-      console.log(`[Tesseract Parser] Chunk ${i + 1}: Extracted ${dataArray.length} rubrics`);
-      
-      // Small delay between chunks to avoid rate limiting
-      if (i < chunks.length - 1) {
-        await new Promise(r => setTimeout(r, 1000));
-      }
-      
-    } catch (error) {
-      console.error(`[Tesseract Parser] Chunk ${i + 1} failed:`, error.message);
-      
-      // Check if it's a token limit error
-      if (error.message.includes('rate_limit_exceeded') || error.message.includes('too large')) {
-        console.warn(`[Tesseract Parser] Token limit exceeded on chunk ${i + 1}. Trying smaller model...`);
-        
-        // Try with smaller model that has larger context
-        try {
-          const completion = await groq.chat.completions.create({
-            model: 'llama-3.1-8b-instant', // Smaller, faster model
-            messages: [{ role: 'user', content: prompt }],
-            temperature: 0.1,
-            max_tokens: 4000,
-            response_format: { type: 'json_object' }
-          });
-          
-          const responseText = completion.choices[0]?.message?.content || '{}';
-          const parsed = JSON.parse(responseText);
-          
-          if (!chapter && parsed.chapter_en) {
-            chapter = parsed.chapter_en;
-          }
-          
-          const dataArray = parsed.data || [];
-          
-          for (const group of dataArray) {
-            const rubric_en = group.rubric_en || '';
-            for (const medObj of (group.medicines || [])) {
-              const medName = (medObj.name || '').trim().replace(/\.$/, '');
-              const key = `${rubric_en}|||${medName}`.toLowerCase();
-              if (!seenKeys.has(key) && medName) {
-                seenKeys.add(key);
-                allResults.push({
-                  chapter_en: chapter || 'UNKNOWN',
-                  chapter_hi: '',
-                  rubric_en: rubric_en,
-                  rubric_hi: '',
-                  medicine: medName,
-                  grading: medObj.grading || 1
-                });
-              }
-            }
-          }
-          
-          console.log(`[Tesseract Parser] Chunk ${i + 1} (fallback): Extracted ${dataArray.length} rubrics`);
-        } catch (fallbackError) {
-          console.error(`[Tesseract Parser] Fallback also failed for chunk ${i + 1}:`, fallbackError.message);
-          // Continue to next chunk instead of failing completely
-        }
-      }
-    }
+    const text = completion.choices[0]?.message?.content || '{}';
+    return JSON.parse(text);
+  } catch (err) {
+    console.warn(`[Groq Structurer] Column pass (${columnSide}) error:`, err.message);
+    return null;
   }
-  
-  console.log(`[Tesseract Parser] ✅ Total extracted: ${allResults.length} medicine-rubric rows`);
-  
-  // Cleanup processed image
-  if (fs.existsSync(processedPath)) {
-    fs.unlinkSync(processedPath);
-  }
-  
-  if (allResults.length === 0) {
-    throw new Error('AI parsing returned 0 entries. OCR text may be malformed or too complex.');
-  }
-  
-  return allResults;
 };
 
 /**
- * Main export: Process Kent Repertory image using Tesseract OCR + Groq AI.
- * This is a drop-in replacement for parseOcrToStructuredJson that doesn't use Gemini.
- * 
+ * Convert structured Groq JSON output into flat database rows.
+ */
+const convertGroqJsonToRows = (parsedJson, fallbackChapter = '') => {
+  if (!parsedJson) return [];
+  const rows = [];
+  const chapter = (parsedJson.chapter_en || fallbackChapter || 'UNKNOWN').toUpperCase();
+  const data = Array.isArray(parsedJson.data) ? parsedJson.data : (Array.isArray(parsedJson) ? parsedJson : []);
+
+  for (const item of data) {
+    const rubric_en = item.rubric_en || item.rubric || '';
+    if (!rubric_en) continue;
+
+    const medicines = item.medicines || [];
+    for (const medObj of medicines) {
+      const medName = typeof medObj === 'string' ? medObj : (medObj.name || '');
+      const cleanMed = medName.replace(/\.$/, '').trim();
+      if (!cleanMed) continue;
+
+      rows.push({
+        chapter_en: chapter,
+        chapter_hi: '',
+        rubric_en: rubric_en,
+        rubric_hi: '',
+        medicine: cleanMed,
+        grading: typeof medObj === 'object' ? (medObj.grading || 1) : 1
+      });
+    }
+  }
+  return rows;
+};
+
+/**
+ * Main export: Process Kent Repertory image using Physical Multi-Column Crop + Groq LLM Structuring.
+ * Uses deterministic rule-based fallback if Groq API is unavailable.
+ *
  * @param {string} imagePath - Absolute path to the uploaded image
  * @returns {Promise<Array>} - Structured medicine-rubric rows
  */
 const parseImageWithTesseract = async (imagePath) => {
+  const tempDir = path.dirname(imagePath);
+  console.log(`[Kent Multi-Column Parser] Processing: ${path.basename(imagePath)}`);
+
+  // Step 1: Physical image split + Tesseract OCR on Left & Right columns
+  let leftText = '', rightText = '', leftPath = '', rightPath = '';
   try {
-    return await parseTesseractOcrWithGroq(imagePath);
-  } catch (error) {
-    console.error('[Tesseract Parser] Error:', error.message);
-    throw error;
+    const columnOcr = await extractColumnTextsFromImage(imagePath, tempDir);
+    leftText = columnOcr.leftText;
+    rightText = columnOcr.rightText;
+    leftPath = columnOcr.leftPath;
+    rightPath = columnOcr.rightPath;
+  } catch (err) {
+    console.warn('[Kent Multi-Column Parser] Column split failed, falling back to full-page OCR:', err.message);
+    const fullOcr = await extractTextFromImage(imagePath, tempDir);
+    leftText = fullOcr.ocrText;
   }
+
+  const allResults = [];
+  const seenKeys = new Set();
+
+  const addRows = (rows) => {
+    for (const row of rows) {
+      const key = `${row.rubric_en}|||${row.medicine}`.toLowerCase();
+      if (!seenKeys.has(key)) {
+        seenKeys.add(key);
+        allResults.push(row);
+      }
+    }
+  };
+
+  // Step 2: Pass Left column text to Groq AI
+  let groqSuccess = false;
+  if (process.env.GROQ_API_KEY && leftText.trim().length > 30) {
+    console.log('[Kent Multi-Column Parser] Step 2a: Structuring LEFT column with Groq AI...');
+    const leftJson = await parseColumnTextWithGroq(leftText, 'left');
+    const leftRows = convertGroqJsonToRows(leftJson);
+
+    if (leftRows.length > 0) {
+      addRows(leftRows);
+      groqSuccess = true;
+      console.log(`[Kent Multi-Column Parser] Left column: ${leftRows.length} rows extracted via Groq.`);
+
+      // Step 3: Pass Right column text to Groq AI using last rubric from Left column as context
+      if (rightText && rightText.trim().length > 30) {
+        const lastLeftRubric = leftRows[leftRows.length - 1]?.rubric_en || '';
+        console.log(`[Kent Multi-Column Parser] Step 2b: Structuring RIGHT column with Groq AI (Context: "${lastLeftRubric}")...`);
+        const rightJson = await parseColumnTextWithGroq(rightText, 'right', lastLeftRubric);
+        const rightRows = convertGroqJsonToRows(rightJson);
+        addRows(rightRows);
+        console.log(`[Kent Multi-Column Parser] Right column: ${rightRows.length} rows extracted via Groq.`);
+      }
+    }
+  }
+
+  // Step 4: Fallback to deterministic rule-based parsing if Groq is unavailable or returned 0 rows
+  if (allResults.length === 0) {
+    console.log('[Kent Multi-Column Parser] Groq unavailable/empty. Falling back to deterministic rule parser...');
+    const combinedOcrText = `${leftText}\n${rightText}`;
+    const ruleResults = parseKentOcrTextAdvanced(combinedOcrText);
+    addRows(ruleResults);
+  }
+
+  // Cleanup temporary column crop images
+  if (leftPath && fs.existsSync(leftPath)) fs.unlinkSync(leftPath);
+  if (rightPath && fs.existsSync(rightPath)) fs.unlinkSync(rightPath);
+
+  if (allResults.length === 0) {
+    throw new Error('Could not extract any valid medicine rubrics from the image.');
+  }
+
+  console.log(`[Kent Multi-Column Parser] ✅ Success: ${allResults.length} unique medicine-rubric rows extracted!`);
+  return allResults;
 };
 
 module.exports = {
   parseImageWithTesseract,
-  parseTesseractOcrWithGroq
+  parseTesseractOcrWithRules: parseImageWithTesseract
 };
+
