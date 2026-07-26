@@ -30,6 +30,7 @@ const parseTesseractOcrWithGroq = async (imagePath) => {
   console.log(`[Tesseract Parser] OCR extracted ${ocrText.length} characters`);
   
   // Step 2: Parse OCR text using Groq AI (14,400 requests/day)
+  // Split text into chunks if too large (Groq limit: 12,000 tokens/min)
   console.log('[Tesseract Parser] Step 2: Parsing OCR text with Groq AI...');
   
   const groqApiKey = process.env.GROQ_API_KEY;
@@ -39,33 +40,48 @@ const parseTesseractOcrWithGroq = async (imagePath) => {
   
   const groq = new Groq({ apiKey: groqApiKey });
   
-  const prompt = `You are a medical data extraction expert parsing OCR text from Kent's Repertory.
+  // Split OCR text into left and right columns (simulating the two-column layout)
+  const lines = ocrText.split('\n');
+  const midpoint = Math.floor(lines.length / 2);
+  const leftText = lines.slice(0, midpoint).join('\n');
+  const rightText = lines.slice(midpoint).join('\n');
+  
+  console.log(`[Tesseract Parser] Splitting into 2 chunks: ${leftText.length} + ${rightText.length} chars`);
+  
+  const allResults = [];
+  const seenKeys = new Set();
+  let chapter = '';
+  
+  // Process both chunks
+  const chunks = [leftText, rightText];
+  
+  for (let i = 0; i < chunks.length; i++) {
+    const chunkText = chunks[i];
+    if (chunkText.trim().length < 20) {
+      console.log(`[Tesseract Parser] Skipping empty chunk ${i + 1}`);
+      continue;
+    }
+    
+    const prompt = `You are a medical data extraction expert parsing OCR text from Kent's Repertory.
 
 TASK: Parse the following OCR text into structured JSON format.
 
 OCR TEXT:
 """
-${ocrText}
+${chunkText}
 """
 
 PARSING RULES:
-1. Extract chapter name from the top of the page (usually ALL CAPS like "NOSE", "ABDOMEN", etc.)
+1. Extract chapter name from the top (usually ALL CAPS like "NOSE", "ABDOMEN", etc.)
 2. Identify rubrics (symptoms) and their hierarchy based on indentation
-3. Extract medicine abbreviations after each rubric (comma-separated, usually with a period at end)
+3. Extract medicine abbreviations after each rubric (comma-separated, with period at end)
 4. Determine medicine grading:
-   - Grade 3: ALL CAPS or BOLD medicines (most important)
+   - Grade 3: ALL CAPS medicines (most important)
    - Grade 2: Italic medicines
-   - Grade 1: Normal text medicines (default)
-5. Build full rubric paths: "CHAPTER - MAIN RUBRIC, qualifier - sub-rubric - sub-sub-rubric"
+   - Grade 1: Normal text (default)
+5. Build full rubric paths: "CHAPTER - MAIN RUBRIC - sub-rubric - sub-sub-rubric"
 
-EXAMPLES OF RUBRIC HIERARCHY:
-- Flush left, ALL CAPS = Main rubric: "DISCHARGE"
-- Small indent = Sub-rubric: "thick"
-- Medium indent = Sub-sub-rubric: "morning"
-- Full path example: "NOSE - DISCHARGE - thick - morning"
-
-OUTPUT FORMAT:
-Return ONLY valid JSON matching this exact schema:
+OUTPUT FORMAT (JSON only):
 {
   "chapter_en": "NOSE",
   "data": [
@@ -73,8 +89,7 @@ Return ONLY valid JSON matching this exact schema:
       "rubric_en": "NOSE - DISCHARGE - thick",
       "medicines": [
         {"name": "Calc", "grading": 1},
-        {"name": "Puls", "grading": 3},
-        {"name": "Sil", "grading": 2}
+        {"name": "Puls", "grading": 3}
       ]
     }
   ]
@@ -82,67 +97,124 @@ Return ONLY valid JSON matching this exact schema:
 
 IMPORTANT:
 - Remove trailing periods from medicine names
-- Skip cross-references like "(See 'FACE, Eruptions.')"
-- Preserve the exact hierarchy from indentation
-- Group medicines under their full rubric path`;
+- Skip cross-references like "(See...)"
+- Return ONLY valid JSON`;
 
-  try {
-    const completion = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.1,
-      max_tokens: 16000,
-      response_format: { type: 'json_object' }
-    });
-
-    const responseText = completion.choices[0]?.message?.content || '{}';
-    const parsed = JSON.parse(responseText);
-    
-    // Extract and flatten the data
-    const chapter = parsed.chapter_en || 'UNKNOWN';
-    const dataArray = parsed.data || [];
-    
-    const allResults = [];
-    const seenKeys = new Set();
-    
-    for (const group of dataArray) {
-      const rubric_en = group.rubric_en || '';
+    try {
+      console.log(`[Tesseract Parser] Processing chunk ${i + 1}/2...`);
       
-      for (const medObj of (group.medicines || [])) {
-        const medName = (medObj.name || '').trim().replace(/\.$/, '');
-        const key = `${rubric_en}|||${medName}`.toLowerCase();
+      const completion = await groq.chat.completions.create({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.1,
+        max_tokens: 8000,
+        response_format: { type: 'json_object' }
+      });
+
+      const responseText = completion.choices[0]?.message?.content || '{}';
+      const parsed = JSON.parse(responseText);
+      
+      // Extract chapter from first chunk
+      if (!chapter && parsed.chapter_en) {
+        chapter = parsed.chapter_en;
+      }
+      
+      const dataArray = parsed.data || [];
+      
+      for (const group of dataArray) {
+        const rubric_en = group.rubric_en || '';
         
-        if (!seenKeys.has(key) && medName) {
-          seenKeys.add(key);
-          allResults.push({
-            chapter_en: chapter,
-            chapter_hi: '',
-            rubric_en: rubric_en,
-            rubric_hi: '',
-            medicine: medName,
-            grading: medObj.grading || 1
+        for (const medObj of (group.medicines || [])) {
+          const medName = (medObj.name || '').trim().replace(/\.$/, '');
+          const key = `${rubric_en}|||${medName}`.toLowerCase();
+          
+          if (!seenKeys.has(key) && medName) {
+            seenKeys.add(key);
+            allResults.push({
+              chapter_en: chapter || 'UNKNOWN',
+              chapter_hi: '',
+              rubric_en: rubric_en,
+              rubric_hi: '',
+              medicine: medName,
+              grading: medObj.grading || 1
+            });
+          }
+        }
+      }
+      
+      console.log(`[Tesseract Parser] Chunk ${i + 1}: Extracted ${dataArray.length} rubrics`);
+      
+      // Small delay between chunks to avoid rate limiting
+      if (i < chunks.length - 1) {
+        await new Promise(r => setTimeout(r, 1000));
+      }
+      
+    } catch (error) {
+      console.error(`[Tesseract Parser] Chunk ${i + 1} failed:`, error.message);
+      
+      // Check if it's a token limit error
+      if (error.message.includes('rate_limit_exceeded') || error.message.includes('too large')) {
+        console.warn(`[Tesseract Parser] Token limit exceeded on chunk ${i + 1}. Trying smaller model...`);
+        
+        // Try with smaller model that has larger context
+        try {
+          const completion = await groq.chat.completions.create({
+            model: 'llama-3.1-8b-instant', // Smaller, faster model
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.1,
+            max_tokens: 4000,
+            response_format: { type: 'json_object' }
           });
+          
+          const responseText = completion.choices[0]?.message?.content || '{}';
+          const parsed = JSON.parse(responseText);
+          
+          if (!chapter && parsed.chapter_en) {
+            chapter = parsed.chapter_en;
+          }
+          
+          const dataArray = parsed.data || [];
+          
+          for (const group of dataArray) {
+            const rubric_en = group.rubric_en || '';
+            for (const medObj of (group.medicines || [])) {
+              const medName = (medObj.name || '').trim().replace(/\.$/, '');
+              const key = `${rubric_en}|||${medName}`.toLowerCase();
+              if (!seenKeys.has(key) && medName) {
+                seenKeys.add(key);
+                allResults.push({
+                  chapter_en: chapter || 'UNKNOWN',
+                  chapter_hi: '',
+                  rubric_en: rubric_en,
+                  rubric_hi: '',
+                  medicine: medName,
+                  grading: medObj.grading || 1
+                });
+              }
+            }
+          }
+          
+          console.log(`[Tesseract Parser] Chunk ${i + 1} (fallback): Extracted ${dataArray.length} rubrics`);
+        } catch (fallbackError) {
+          console.error(`[Tesseract Parser] Fallback also failed for chunk ${i + 1}:`, fallbackError.message);
+          // Continue to next chunk instead of failing completely
         }
       }
     }
-    
-    console.log(`[Tesseract Parser] ✅ Extracted ${allResults.length} medicine-rubric rows`);
-    
-    // Cleanup processed image
-    if (fs.existsSync(processedPath)) {
-      fs.unlinkSync(processedPath);
-    }
-    
-    if (allResults.length === 0) {
-      throw new Error('AI parsing returned 0 entries. OCR text may be malformed.');
-    }
-    
-    return allResults;
-    
-  } catch (error) {
-    console.error('[Tesseract Parser] Groq AI parsing failed:', error.message);
-    throw new Error(`Failed to parse OCR text: ${error.message}`);
   }
+  
+  console.log(`[Tesseract Parser] ✅ Total extracted: ${allResults.length} medicine-rubric rows`);
+  
+  // Cleanup processed image
+  if (fs.existsSync(processedPath)) {
+    fs.unlinkSync(processedPath);
+  }
+  
+  if (allResults.length === 0) {
+    throw new Error('AI parsing returned 0 entries. OCR text may be malformed or too complex.');
+  }
+  
+  return allResults;
 };
 
 /**
