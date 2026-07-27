@@ -163,12 +163,58 @@ const extractTextFromImage = async (uploadedFilePath, tempDir) => {
   return { ocrText, processedPath };
 };
 
+/**
+ * Crop only the top strip of the original image (the page running header area)
+ * and run Tesseract on it to detect the chapter name BEFORE column splitting
+ * destroys the centered header.
+ *
+ * @param {string} imagePath  Original (full-page) image path
+ * @param {string} outputDir  Temp directory for the strip file
+ * @returns {Promise<string>} OCR text of the top strip
+ */
+const extractTopStripText = async (imagePath, outputDir) => {
+  const ext  = path.extname(imagePath).toLowerCase();
+  const base = path.basename(imagePath, ext);
+  const stripPath = path.join(outputDir, `${base}_topstrip.jpg`);
+
+  try {
+    const metadata = await sharp(imagePath).metadata();
+    const width  = metadata.width  || 1200;
+    const height = metadata.height || 1600;
+
+    // Crop the top 9% of the page — this is where Kent's chapter running header lives
+    const stripHeight = Math.max(Math.floor(height * 0.09), 80);
+
+    await sharp(imagePath, { pages: 1, limitInputPixels: 268402689 })
+      .extract({ left: 0, top: 0, width, height: stripHeight })
+      .grayscale()
+      .normalize()
+      .sharpen({ sigma: 1.5 })
+      .jpeg({ quality: 90 })
+      .toFile(stripPath);
+
+    const ocrText = await runOCR(stripPath);
+
+    // Cleanup strip immediately
+    if (fs.existsSync(stripPath)) fs.unlinkSync(stripPath);
+
+    return ocrText;
+  } catch (err) {
+    // Non-fatal — caller will fall back to column OCR text
+    if (fs.existsSync(stripPath)) {
+      try { fs.unlinkSync(stripPath); } catch (_) {}
+    }
+    return '';
+  }
+};
+
 module.exports = {
   preprocessImage,
   preprocessAndSplitColumns,
   runOCR,
   extractTextFromImage,
-  extractColumnTextsFromImage
+  extractColumnTextsFromImage,
+  extractTopStripText
 };
 
 

@@ -1,6 +1,6 @@
 'use strict';
 
-const { extractColumnTextsFromImage, extractTextFromImage } = require('./kentOcrService');
+const { extractColumnTextsFromImage, extractTextFromImage, extractTopStripText } = require('./kentOcrService');
 const { parseKentOcrTextAdvanced } = require('./kentTextParser');
 const fs = require('fs-extra');
 const path = require('path');
@@ -388,6 +388,18 @@ const parseImageWithTesseract = async (imagePath) => {
   const tempDir = path.dirname(imagePath);
   console.log(`[Kent Multi-Column Parser] Processing: ${path.basename(imagePath)}`);
 
+  // Step 0: OCR the top strip of the ORIGINAL image first — the chapter running
+  // header (e.g. "RECTUM.") is CENTERED on the full page. Column splitting cuts
+  // it in half, so we must read it before the split.
+  let detectedChapter = 'UNKNOWN';
+  try {
+    const stripText = await extractTopStripText(imagePath, tempDir);
+    console.log(`[Kent Multi-Column Parser] Top-strip OCR: "${stripText.replace(/\n/g, ' ').trim().slice(0, 80)}"`);
+    detectedChapter = extractChapterFromHeader(stripText);
+  } catch (stripErr) {
+    console.warn('[Kent Multi-Column Parser] Top-strip OCR failed:', stripErr.message);
+  }
+
   // Step 1: Physical image split + Tesseract OCR on Left & Right columns
   let leftText = '', rightText = '', leftPath = '', rightPath = '';
   try {
@@ -402,13 +414,14 @@ const parseImageWithTesseract = async (imagePath) => {
     leftText = fullOcr.ocrText;
   }
 
-  // Step 1.5: CRITICAL - Extract chapter from page header (ABSOLUTE SOURCE OF TRUTH)
-  const detectedChapter = extractChapterFromHeader(leftText) !== 'UNKNOWN' 
-    ? extractChapterFromHeader(leftText)
-    : extractChapterFromHeader(rightText);
-  
-  console.log(`[Kent Multi-Column Parser] Page chapter: ${detectedChapter}`);
+  // Step 1.5: If top-strip didn't find the chapter, fall back to column OCR text
+  if (detectedChapter === 'UNKNOWN') {
+    const fromLeft  = extractChapterFromHeader(leftText);
+    const fromRight = extractChapterFromHeader(rightText);
+    detectedChapter = fromLeft !== 'UNKNOWN' ? fromLeft : fromRight;
+  }
 
+  console.log(`[Kent Multi-Column Parser] Page chapter: ${detectedChapter}`);
   const allResults = [];
   const seenKeys = new Set();
 
