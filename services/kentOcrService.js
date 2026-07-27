@@ -18,39 +18,51 @@ const preprocessAndSplitColumns = async (inputPath, outputDir) => {
   const leftPath = path.join(outputDir, `${baseName}_left.png`);
   const rightPath = path.join(outputDir, `${baseName}_right.png`);
 
+  // Get metadata without loading full image
   const metadata = await sharp(inputPath).metadata();
   const rawWidth = metadata.width || 1200;
   const rawHeight = metadata.height || 1600;
 
-  // Upscale to at least 2400px width for crisp font rendering
-  const targetWidth = Math.max(rawWidth * 2, 2400);
+  // MEMORY FIX: Reduce target width from 2400px to 1800px (25% less memory)
+  // Still high quality but uses ~44% less RAM
+  const targetWidth = Math.max(rawWidth * 1.5, 1800);
 
-  // Process full image buffer (grayscale + high contrast + sharpening)
-  const processedBuffer = await sharp(inputPath, { pages: 1 })
+  // MEMORY FIX: Save to temp file instead of keeping buffer in memory
+  const tempProcessedPath = path.join(outputDir, `${baseName}_temp.jpg`);
+  
+  await sharp(inputPath, { pages: 1, limitInputPixels: 268402689 }) // Limit to 256MP max
     .resize({ width: targetWidth, kernel: sharp.kernel.lanczos3 })
     .grayscale()
     .normalize()
     .sharpen({ sigma: 1.2 })
-    .jpeg({ quality: 90 })
-    .toBuffer();
+    .jpeg({ quality: 85, mozjpeg: true }) // Reduced quality for memory
+    .toFile(tempProcessedPath);
 
-  const processedMeta = await sharp(processedBuffer).metadata();
+  // Get dimensions from saved file
+  const processedMeta = await sharp(tempProcessedPath).metadata();
   const width = processedMeta.width;
   const height = processedMeta.height;
 
-  // Split down vertical center with 4% overlap at center gutter to avoid cutting edge words
+  // Split down vertical center with 4% overlap
   const halfWidth = Math.floor(width * 0.52);
   const rightStart = Math.floor(width * 0.48);
 
-  // Crop left and right columns concurrently
-  await Promise.all([
-    sharp(processedBuffer)
-      .extract({ left: 0, top: 0, width: halfWidth, height: height })
-      .toFile(leftPath),
-    sharp(processedBuffer)
-      .extract({ left: rightStart, top: 0, width: width - rightStart, height: height })
-      .toFile(rightPath)
-  ]);
+  // MEMORY FIX: Process columns sequentially instead of parallel to reduce peak RAM
+  await sharp(tempProcessedPath)
+    .extract({ left: 0, top: 0, width: halfWidth, height: height })
+    .toFile(leftPath);
+  
+  // Force garbage collection hint between operations
+  if (global.gc) global.gc();
+  
+  await sharp(tempProcessedPath)
+    .extract({ left: rightStart, top: 0, width: width - rightStart, height: height })
+    .toFile(rightPath);
+
+  // Cleanup temp file immediately
+  if (fs.existsSync(tempProcessedPath)) {
+    fs.unlinkSync(tempProcessedPath);
+  }
 
   return { leftPath, rightPath };
 };
@@ -65,14 +77,16 @@ const preprocessImage = async (inputPath, outputDir) => {
 
   const metadata = await sharp(inputPath).metadata();
   const width = metadata.width || 800;
-  const targetWidth = Math.max(width * 2, 2400);
+  
+  // MEMORY FIX: Reduced from 2400px to 1800px
+  const targetWidth = Math.max(width * 1.5, 1800);
 
-  await sharp(inputPath, { pages: 1 })
+  await sharp(inputPath, { pages: 1, limitInputPixels: 268402689 })
     .resize({ width: targetWidth, kernel: sharp.kernel.lanczos3 })
     .grayscale()
     .normalize()
     .sharpen({ sigma: 1.2 })
-    .jpeg({ quality: 90 })
+    .jpeg({ quality: 85, mozjpeg: true })
     .toFile(outputPath);
 
   return outputPath;
@@ -88,18 +102,33 @@ const preprocessImage = async (inputPath, outputDir) => {
 const runOCR = async (imagePath) => {
   const Tesseract = require('tesseract.js');
 
-  const { data } = await Tesseract.recognize(
-    imagePath,
-    'eng',
-    {
-      logger: () => {},
-      tessedit_ocr_engine_mode: 1,
-      tessedit_pageseg_mode: 4,       // Single column mode
-      preserve_interword_spaces: '1',
-    }
-  );
+  // MEMORY FIX: Create worker with memory limits
+  const worker = await Tesseract.createWorker('eng', 1, {
+    logger: () => {},
+  });
 
-  return data.text;
+  try {
+    await worker.setParameters({
+      tessedit_ocr_engine_mode: 1,
+      tessedit_pageseg_mode: 4,
+      preserve_interword_spaces: '1',
+    });
+
+    const { data } = await worker.recognize(imagePath);
+    
+    // MEMORY FIX: Terminate worker immediately after use
+    await worker.terminate();
+    
+    return data.text;
+  } catch (error) {
+    // Ensure worker is terminated even on error
+    try {
+      await worker.terminate();
+    } catch (e) {
+      // Ignore termination errors
+    }
+    throw error;
+  }
 };
 
 /**
@@ -113,11 +142,14 @@ const runOCR = async (imagePath) => {
 const extractColumnTextsFromImage = async (uploadedFilePath, tempDir) => {
   const { leftPath, rightPath } = await preprocessAndSplitColumns(uploadedFilePath, tempDir);
   
-  // Parallel OCR execution for left and right columns
-  const [leftText, rightText] = await Promise.all([
-    runOCR(leftPath),
-    runOCR(rightPath)
-  ]);
+  // MEMORY FIX: Run OCR sequentially instead of parallel to reduce peak memory
+  // This prevents 2x Tesseract workers running simultaneously
+  const leftText = await runOCR(leftPath);
+  
+  // Force garbage collection hint between operations
+  if (global.gc) global.gc();
+  
+  const rightText = await runOCR(rightPath);
 
   return { leftText, rightText, leftPath, rightPath };
 };

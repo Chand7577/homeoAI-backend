@@ -10,6 +10,7 @@ const { v4: uuidv4 } = require('uuid');
 const { extractMaterialMedicaFromPdf } = require('../services/materiaMedicaPdfExtractor');
 const { generateKentExcel } = require('../services/kentExcelGenerator');
 const { authenticate, requireAdmin } = require('../middleware/auth');
+const { memoryGuard, heavyOperationGuard } = require('../middleware/memoryGuard');
 
 // Temporary upload directory
 const tempUploadDir = path.join(__dirname, '../uploads/temp_mm_extract');
@@ -42,7 +43,7 @@ const upload = multer({
  * @route POST /api/materia-medica-extract/upload
  * @desc Upload a Materia Medica/Repertory PDF or scanned image, extract all content, generate Excel
  */
-router.post('/upload', authenticate, requireAdmin, upload.single('pdf'), async (req, res, next) => {
+router.post('/upload', authenticate, requireAdmin, heavyOperationGuard, upload.single('pdf'), async (req, res, next) => {
   const sessionId = uuidv4();
   const sessionDir = path.join(tempUploadDir, sessionId);
   

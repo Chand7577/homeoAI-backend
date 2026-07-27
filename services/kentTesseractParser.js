@@ -374,9 +374,16 @@ const parseImageWithTesseract = async (imagePath) => {
     addRows(ruleResults);
   }
 
-  // Cleanup temporary column crop images
-  if (leftPath && fs.existsSync(leftPath)) fs.unlinkSync(leftPath);
-  if (rightPath && fs.existsSync(rightPath)) fs.unlinkSync(rightPath);
+  // Cleanup temporary column crop images IMMEDIATELY to free memory
+  try {
+    if (leftPath && fs.existsSync(leftPath)) fs.unlinkSync(leftPath);
+    if (rightPath && fs.existsSync(rightPath)) fs.unlinkSync(rightPath);
+  } catch (err) {
+    console.warn('[Kent Multi-Column Parser] Failed to cleanup temp files:', err.message);
+  }
+  
+  // Force garbage collection hint
+  if (global.gc) global.gc();
 
   if (allResults.length === 0) {
     throw new Error('Could not extract any valid medicine rubrics from the image.');
