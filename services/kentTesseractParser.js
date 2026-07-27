@@ -47,16 +47,21 @@ const extractChapterFromHeader = (ocrText) => {
   const lines = ocrText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
   if (lines.length === 0) return 'UNKNOWN';
 
-  // Known Kent Repertory chapters (complete list from Kent book)
+  // Known Kent Repertory chapters (complete 37 chapters from Kent's original work)
   // IMPORTANT: Sorted by length (longest first) to avoid substring matches
   const knownChapters = [
-    'PROSTRATE GLAND', 'FEMALE GENITAL', 'MALE GENITAL', 'EXPECTORATION',
+    // Multi-word chapters (longest first)
+    'PROSTRATE GLAND', 'FEMALE GENITALIA', 'MALE GENITALIA', 'EXPECTORATION',
     'PERSPIRATION', 'GENERALITIES', 'EXTREMITIES', 'RESPIRATION',
-    'GENITALIA', 'KIDNEYS', 'PROSTATE', 'PROSTRATE', 'URETHRA', 'UTHERA',
-    'BLADDER', 'ABDOMEN', 'STOMACH', 'VERTIGO', 'HEARING', 'VISION',
-    'THROAT', 'RECTUM', 'LARYNX', 'KIDNEY', 'CHEST', 'FEVER', 'CHILL',
-    'SLEEP', 'STOOL', 'URINE', 'MOUTH', 'TEETH', 'NOSE', 'FACE', 'BACK',
-    'SKIN', 'MIND', 'HEAD', 'EYES', 'EARS', 'EYE', 'EAR', 'COUGH'
+    // Alternate spellings
+    'FEMALE GENITAL', 'MALE GENITAL', 'GENITALIA',
+    // Single-word chapters (longer first)
+    'DIARRHOEA', 'DIARRHEA', 'CONSTIPATION', 'HEARING', 'VISION',
+    'KIDNEYS', 'PROSTATE', 'PROSTRATE', 'URETHRA', 'UTHERA',
+    'BLADDER', 'ABDOMEN', 'STOMACH', 'VERTIGO', 'THROAT', 'RECTUM', 
+    'LARYNX', 'KIDNEY', 'CHEST', 'FEVER', 'CHILL', 'SLEEP', 'STOOL', 
+    'URINE', 'MOUTH', 'TEETH', 'NOSE', 'FACE', 'BACK', 'SKIN', 'MIND', 
+    'HEAD', 'EYES', 'EARS', 'EYE', 'EAR', 'COUGH'
   ];
 
   // STRICT: Only check the FIRST line (the actual page header)
