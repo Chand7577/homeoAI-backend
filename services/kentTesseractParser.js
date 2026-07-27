@@ -351,8 +351,14 @@ const parseImageWithTesseract = async (imagePath) => {
     console.log('[Kent Multi-Column Parser] Structuring LEFT & RIGHT columns concurrently with Groq AI...');
 
     const [leftJson, rightJson] = await Promise.all([
-      leftText.trim().length > 30 ? parseColumnTextWithGroq(leftText, 'left', '', detectedChapter) : Promise.resolve(null),
-      rightText.trim().length > 30 ? parseColumnTextWithGroq(rightText, 'right', '', detectedChapter) : Promise.resolve(null)
+      leftText.trim().length > 30 ? parseColumnTextWithGroq(leftText, 'left', '', detectedChapter).catch(e => {
+        console.warn(`[Kent Multi-Column Parser] Left Groq error: ${e.message}`);
+        return null;
+      }) : Promise.resolve(null),
+      rightText.trim().length > 30 ? parseColumnTextWithGroq(rightText, 'right', '', detectedChapter).catch(e => {
+        console.warn(`[Kent Multi-Column Parser] Right Groq error: ${e.message}`);
+        return null;
+      }) : Promise.resolve(null)
     ]);
 
     const leftRows = convertGroqJsonToRows(leftJson);
@@ -378,6 +384,25 @@ const parseImageWithTesseract = async (imagePath) => {
       addRows(rightRows);
       groqSuccess = true;
       console.log(`[Kent Multi-Column Parser] Right column: ${rightRows.length} rows extracted via Groq.`);
+    } else if (leftRows.length > 0 && rightText.trim().length > 30) {
+      // FALLBACK: Left succeeded but right failed (Groq quota exhausted)
+      console.warn('[Kent Multi-Column Parser] ⚠️ Right column Groq failed, using rule-based parser as fallback...');
+      const rightRuleResults = parseKentOcrTextAdvanced(rightText);
+      if (rightRuleResults.length > 0) {
+        // Force detected chapter on rule-based results
+        rightRuleResults.forEach(row => {
+          if (detectedChapter && detectedChapter !== 'UNKNOWN') {
+            row.chapter_en = detectedChapter;
+            if (row.rubric_en && !row.rubric_en.toUpperCase().startsWith(detectedChapter + ' - ')) {
+              const rubricWithoutChapter = row.rubric_en.replace(/^[A-Z]+\s*-\s*/, '');
+              row.rubric_en = `${detectedChapter} - ${rubricWithoutChapter}`;
+            }
+          }
+        });
+        addRows(rightRuleResults);
+        console.log(`[Kent Multi-Column Parser] Right column: ${rightRuleResults.length} rows extracted via fallback parser.`);
+      }
+    }
     }
   }
 
