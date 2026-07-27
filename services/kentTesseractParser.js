@@ -122,36 +122,36 @@ const extractChapterFromHeader = (ocrText) => {
     'SKIN', 'EYE', 'EAR', 'COUGH'
   ];
 
-  // STRICT: Only check the FIRST line (the actual page header)
-  const firstLine = lines[0].toUpperCase().trim();
-  
-  // Try exact match first
-  if (knownChapters.includes(firstLine)) {
-    return cleanChapterName(firstLine);
-  }
-  
-  // Try fuzzy match (for OCR errors like "VERTIGO." or "EAR 123")
-  // Check longest chapters first to avoid substring issues
-  for (const chapter of knownChapters) {
-    // Must be at the START of the line (not in the middle)
-    if (firstLine.startsWith(chapter)) {
-      return cleanChapterName(chapter);
+  // Scan the first 10 lines — chapter header can appear as centered running head
+  // which Tesseract may place anywhere in the first several lines after column crop
+  const scanLines = lines.slice(0, 10).map(l => l.toUpperCase().trim());
+
+  for (const lineText of scanLines) {
+    // Try exact match first
+    if (knownChapters.includes(lineText)) {
+      return cleanChapterName(lineText);
     }
-  }
-  
-  // If still no match, try finding chapter name within first line
-  // (only if it's clearly isolated, not part of a longer word)
-  for (const chapter of knownChapters) {
-    const pattern = new RegExp(`\\b${chapter}\\b`, 'i');
-    if (pattern.test(firstLine)) {
-      return cleanChapterName(chapter);
+
+    // Try starts-with match (e.g. "RECTUM." or "EAR 608")
+    for (const chapter of knownChapters) {
+      if (lineText.startsWith(chapter)) {
+        return cleanChapterName(chapter);
+      }
     }
-  }
-  
-  // Last resort: Try to clean the first line itself and check if it matches
-  const cleanedFirstLine = cleanChapterName(firstLine);
-  if (knownChapters.includes(cleanedFirstLine)) {
-    return cleanedFirstLine;
+
+    // Try whole-word match within the line
+    for (const chapter of knownChapters) {
+      const pattern = new RegExp(`\\b${chapter}\\b`, 'i');
+      if (pattern.test(lineText)) {
+        return cleanChapterName(chapter);
+      }
+    }
+
+    // Try after cleaning OCR artifacts from the line
+    const cleanedLine = cleanChapterName(lineText);
+    if (knownChapters.includes(cleanedLine)) {
+      return cleanedLine;
+    }
   }
 
   return 'UNKNOWN';
@@ -204,14 +204,28 @@ ${contextInstruction}${chapterInstruction}
 
 3. MEDICINE SPELL CORRECTION & CLEANING:
    - Correct OCR typos in medicine names using standard homeopathic abbreviations:
-     Common fixes: "Cale" -> "Calc", "ina" -> "ign", "nil-ac" -> "Nit-ac", "nuzx-v" -> "Nux-v", "NWX" -> "Nux", "WUX" -> "Nux", "igz" -> "Ign", "Aut-c" -> "Ant-c", "unal-m" -> "Nat-m", "cauth" -> "Canth", "Manec" -> "Manc"
-   - Clean trailing dots or commas from medicine names.
-   - Standardize capitalization: "SULPH" -> "Sulph", "CALC" -> "Calc"
+     Capitalization: "SULPH"->"Sulph", "CALC"->"Calc", "NUX-V"->"Nux-v", "BELL"->"Bell"
+     Common single-char errors: "Cale"->"Calc", "Cale-s"->"Calc-s", "Lye"->"Lyc", "Corn"->"Con", "Zine"->"Zinc", "Igz"->"Ign", "Caus"->"Caust"
+     NUX variants: "NWX-PL"->"Nux-pl", "WUX-V"->"Nux-v", "nuzx-v"->"Nux-v", "Nuw-v"->"Nux-v", "nuv-x"->"Nux-v", "nxv"->"Nux-v"
+     SULPH variants: "Sulpli"->"Sulph", "Suiph"->"Sulph", "sulpli"->"Sulph", "suiph"->"Sulph", "Sul-ph"->"Sulph"
+     NAT variants: "Unal-m"->"Nat-m", "unal-m"->"Nat-m", "nat-nt"->"Nat-m", "Nat-nt"->"Nat-m"
+     KALI variants: "Kali-6i"->"Kali-bi", "kali-6i"->"Kali-bi", "Kali-br"->"Kali-bi"
+     LIL variants: "Lil-L"->"Lil-t", "lil-L"->"Lil-t", "lilt"->"Lil-t"
+     ANT variants: "Aut-c"->"Ant-c", "aut-c"->"Ant-c", "antc"->"Ant-c", "Ant-s"->"Ant-t" (if clearly Antimonium tartaricum context)
+     RHUS variants: "rhust"->"Rhus-t", "rkus-L"->"Rhus-t", "Rhus-L"->"Rhus-t"
+     MISC fixes: "nil-ac"->"Nit-ac", "cauth"->"Canth", "Manec"->"Manc", "Amme"->"Am-m", "Asm-m"->"Am-m", "wmbr"->"ambr", "pals"->"Puls", "Ran-sc"->"Ran-s", "Staun"->"Stann", "cerb-an"->"Carb-an", "cautl"->"Caust", "gral"->"Grat", "Brach"->"Brach", "Zsc"->"Asc", "azs"->"Ars", "vil-ac"->"Bil-ac", "pl-ac"->"Ph-ac", "Peon"->"Paeon", "gal-ac"->"Gal-ac", "sol-t-="->"Sol-t", "am.c"->"Am-c", "amam"->"Am-m", "eup-per"->"Eup-per"
+   - IMPORTANT: OCR commonly misreads medicine names as rubric sub-qualifiers. If a token looks like a medicine abbreviation (e.g., "berb", "ina", "calc") at the start of a rubric line, treat it as the FIRST MEDICINE in the list, not part of the rubric name.
+   - Clean trailing dots, commas, equals signs, or dashes from medicine names (e.g. "Sol-t-=" -> "Sol-t").
 
 3B. JSON STRING ESCAPING:
    - CRITICAL: All rubric text MUST escape double quotes with backslash.
    - Replace all double quotes (") inside rubric_en values with single quotes (').
    - Example: CORRECT: "Summer, (See 'hot weather')" | WRONG: "Summer, (See \"hot weather\")"
+
+3C. MEDICINE-AS-RUBRIC GUARD (VERY IMPORTANT):
+   - If you see text like "berb: Esc, aloe, wmbr" — "berb" is NOT a rubric qualifier, it is the FIRST medicine in the list of the PREVIOUS or CURRENT rubric! Look back at the nearest rubric above it.
+   - Single-word lowercase abbreviations on their own line followed by more medicine abbreviations (e.g. "ina", "berb", "calc") are ALWAYS medicines, never rubric names.
+   - If a line segment matches known homeopathic abbreviations (berb, calc, ign, lyc, etc.) before the colon, re-check: it may be a medicine list continuation rather than a rubric sub-qualifier.
 
 4. CONTINUATION AT TOP OF COLUMN:
    - If the column text starts with a list of medicines (e.g., "mag-m., med., nat-s...") without any rubric heading, it is the CONTINUATION of the last rubric from the previous column ("${lastRubricContext}"). Group these medicines under "${lastRubricContext}"!
@@ -268,6 +282,65 @@ ${rawText}`;
   }
 };
 
+// Deterministic OCR spell correction map — applied as final safety net after Groq
+const MEDICINE_CORRECTIONS = {
+  // NUX variants
+  'NWX-PL': 'Nux-pl', 'WUX-V': 'Nux-v', 'nuzx-v': 'Nux-v', 'Nuw-v': 'Nux-v',
+  'nuv-x': 'Nux-v', 'nxv': 'Nux-v', 'nux-pl': 'Nux-pl',
+  // SULPH variants
+  'Sulpli': 'Sulph', 'sulpli': 'Sulph', 'Suiph': 'Sulph', 'suiph': 'Sulph', 'Sul-ph': 'Sulph',
+  // CALC variants
+  'Cale': 'Calc', 'cale': 'Calc', 'Cale-s': 'Calc-s', 'cale-s': 'Calc-s', 'Cale-p': 'Calc-p',
+  // LYC
+  'Lye': 'Lyc', 'lye': 'Lyc',
+  // CON
+  'Corn': 'Con', 'corn': 'Con',
+  // ZINC
+  'Zine': 'Zinc', 'zine': 'Zinc',
+  // IGN
+  'Igz': 'Ign', 'igz': 'Ign',
+  // CAUST
+  'Caus': 'Caust', 'caus': 'Caust', 'cautl': 'Caust', 'Cautl': 'Caust',
+  // NAT-M variants
+  'Unal-m': 'Nat-m', 'unal-m': 'Nat-m', 'nat-nt': 'Nat-m', 'Nat-nt': 'Nat-m',
+  // KALI-BI variants
+  'Kali-6i': 'Kali-bi', 'kali-6i': 'Kali-bi', 'Kali-br': 'Kali-bi',
+  // LIL-T variants
+  'Lil-L': 'Lil-t', 'lil-L': 'Lil-t', 'lilt': 'Lil-t', 'Lil-l': 'Lil-t',
+  // ANT-C variants
+  'Aut-c': 'Ant-c', 'aut-c': 'Ant-c', 'antc': 'Ant-c',
+  // RHUS-T variants
+  'rhust': 'Rhus-t', 'rkus-L': 'Rhus-t', 'Rhus-L': 'Rhus-t', 'Rhus-l': 'Rhus-t',
+  // NIT-AC
+  'Nil-ac': 'Nit-ac', 'nil-ac': 'Nit-ac',
+  // MISC
+  'Amme': 'Am-m', 'amme': 'Am-m', 'Asm-m': 'Am-m', 'asm-m': 'Am-m',
+  'wmbr': 'Ambr', 'pals': 'Puls', 'Ran-sc': 'Ran-s', 'Staun': 'Stann', 'staun': 'Stann',
+  'cerb-an': 'Carb-an', 'Cerb-an': 'Carb-an', 'gral': 'Grat', 'Gral': 'Grat',
+  'azs': 'Ars', 'Azs': 'Ars', 'vil-ac': 'Bil-ac', 'pl-ac': 'Ph-ac',
+  'Peon': 'Paeon', 'sol-t-=': 'Sol-t', 'Sol-t-=': 'Sol-t',
+  'am.c': 'Am-c', 'amam': 'Am-m', 'eup-per': 'Eup-per',
+  'rkus-l': 'Rhus-t', 'Lye-c': 'Lyc', 'cauth': 'Canth', 'Cauth': 'Canth',
+  // CANTH
+  'cauth': 'Canth', 'unal': 'Nat-m',
+  // Zsc / Asc
+  'Zsc': 'Asc', 'zsc': 'Asc',
+  // ina / Ina (OCR misread of "ign" or start of medicine list)
+  'ina': 'Ign',
+};
+
+/**
+ * Apply deterministic spell correction to a medicine name.
+ * @param {string} name - Raw medicine name
+ * @returns {string} - Corrected medicine name
+ */
+const correctMedicineName = (name) => {
+  if (!name) return name;
+  // Strip trailing garbage characters first
+  const cleaned = name.replace(/[.,;:=\-]+$/, '').trim();
+  return MEDICINE_CORRECTIONS[cleaned] || MEDICINE_CORRECTIONS[cleaned.toLowerCase()] || cleaned;
+};
+
 /**
  * Convert structured Groq JSON output into flat database rows.
  */
@@ -284,7 +357,7 @@ const convertGroqJsonToRows = (parsedJson, fallbackChapter = '') => {
     const medicines = item.medicines || [];
     for (const medObj of medicines) {
       const medName = typeof medObj === 'string' ? medObj : (medObj.name || '');
-      const cleanMed = medName.replace(/\.$/, '').trim();
+      const cleanMed = correctMedicineName(medName.replace(/\.$/, '').trim());
       if (!cleanMed) continue;
 
       rows.push({
