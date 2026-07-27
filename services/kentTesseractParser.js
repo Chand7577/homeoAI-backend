@@ -19,30 +19,40 @@ const extractChapterFromHeader = (ocrText) => {
   if (lines.length === 0) return 'UNKNOWN';
 
   // Known Kent Repertory chapters (complete list from Kent book)
+  // IMPORTANT: Sorted by length (longest first) to avoid substring matches
   const knownChapters = [
-    'MIND', 'VERTIGO', 'HEAD', 'EYE', 'EYES', 'VISION', 'EAR', 'EARS', 'HEARING', 
-    'NOSE', 'FACE', 'MOUTH', 'TEETH', 'THROAT', 'STOMACH', 'ABDOMEN', 'RECTUM', 
-    'STOOL', 'BLADDER', 'KIDNEY', 'KIDNEYS', 'PROSTATE', 'PROSTRATE', 'PROSTRATE GLAND',
-    'URETHRA', 'UTHERA', 'URINE', 'GENITALIA', 'FEMALE GENITAL', 'MALE GENITAL',
-    'LARYNX', 'RESPIRATION', 'COUGH', 'EXPECTORATION', 'CHEST', 'BACK',
-    'EXTREMITIES', 'SLEEP', 'CHILL', 'FEVER', 'PERSPIRATION', 'SKIN',
-    'GENERALITIES'
+    'PROSTRATE GLAND', 'FEMALE GENITAL', 'MALE GENITAL', 'EXPECTORATION',
+    'PERSPIRATION', 'GENERALITIES', 'EXTREMITIES', 'RESPIRATION',
+    'GENITALIA', 'KIDNEYS', 'PROSTATE', 'PROSTRATE', 'URETHRA', 'UTHERA',
+    'BLADDER', 'ABDOMEN', 'STOMACH', 'VERTIGO', 'HEARING', 'VISION',
+    'THROAT', 'RECTUM', 'LARYNX', 'KIDNEY', 'CHEST', 'FEVER', 'CHILL',
+    'SLEEP', 'STOOL', 'URINE', 'MOUTH', 'TEETH', 'NOSE', 'FACE', 'BACK',
+    'SKIN', 'MIND', 'HEAD', 'EYES', 'EARS', 'EYE', 'EAR', 'COUGH'
   ];
 
-  // Check first 5 lines for chapter name (header is always at top)
-  for (let i = 0; i < Math.min(5, lines.length); i++) {
-    const line = lines[i].toUpperCase().trim();
-    
-    // Exact match
-    if (knownChapters.includes(line)) {
-      return line;
+  // STRICT: Only check the FIRST line (the actual page header)
+  const firstLine = lines[0].toUpperCase().trim();
+  
+  // Try exact match first
+  if (knownChapters.includes(firstLine)) {
+    return firstLine;
+  }
+  
+  // Try fuzzy match (for OCR errors like "VERTIGO." or "EAR 123")
+  // Check longest chapters first to avoid substring issues
+  for (const chapter of knownChapters) {
+    // Must be at the START of the line (not in the middle)
+    if (firstLine.startsWith(chapter)) {
+      return chapter;
     }
-    
-    // Fuzzy match (OCR errors like "EAR." or "EAR 123")
-    for (const chapter of knownChapters) {
-      if (line.startsWith(chapter) || line.includes(chapter)) {
-        return chapter;
-      }
+  }
+  
+  // If still no match, try finding chapter name within first line
+  // (only if it's clearly isolated, not part of a longer word)
+  for (const chapter of knownChapters) {
+    const pattern = new RegExp(`\\b${chapter}\\b`, 'i');
+    if (pattern.test(firstLine)) {
+      return chapter;
     }
   }
 
