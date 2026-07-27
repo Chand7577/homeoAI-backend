@@ -189,31 +189,40 @@ const parseColumnTextWithGroq = async (rawText, columnSide = 'left', lastRubricC
 ${contextInstruction}${chapterInstruction}
 
 --- CRITICAL REPERTORY TYPOGRAPHY & GRADING RULES ---
-1. CAPITALIZATION = GRADE 3 (BOLD):
+1. RUBRIC vs MEDICINE SEPARATION (CRITICAL):
+   - Rubrics end at the colon (:)
+   - Everything AFTER the colon is medicines, NOT part of the rubric
+   - Example: "bed, in: Tod." → rubric = "bed, in" | medicine = "Tod."
+   - Example: "sitting, while: Cale, Chin." → rubric = "sitting, while" | medicines = "Cale", "Chin"
+   - NEVER include medicine names in rubric_en field!
+
+2. CAPITALIZATION = GRADE 3 (BOLD):
    - In Kent's Repertory text OCR, if a medicine abbreviation STARTS WITH A CAPITAL LETTER (e.g., Mag-s, Mang, Lob, Bell, Lach, Cupr, Bor, Cann-i, Aloe, Acon, Spig, Sars, Am-c, Teucr, Calc, Bar-c, Nux-v, Benz-ac, Chin, Lyc, Ferr, All-c, Mez, Kreos, Act-sp, Puls), it is printed in BOLD font in the book. Assign grading = 3.
    - For lowercase medicine abbreviations:
      - Assign grading = 2 (Italic) if it is a major italicized remedy (e.g. acon, agar, alum, bell, calc, caust, chin, con, cupr, dros, dulc, graph, hep, kali-c, lach, laur, mag-c, mag-m, mang, meny, merc, nat-m, nit-ac, petr, phos-ac, plat, puls, rhodo, sabad, sep, sil, sulph).
      - Assign grading = 1 (Normal) for plain remedies (e.g. ant-t, aur, bar-c, bor, carl, cocc, mosch, rheum, selen, spong, stann, zinc).
 
-2. MEDICINE SPELL CORRECTION & CLEANING:
+3. MEDICINE SPELL CORRECTION & CLEANING:
    - Correct OCR typos in medicine names using standard homeopathic abbreviations:
      Common fixes: "Cale" -> "Calc", "ina" -> "ign", "nil-ac" -> "Nit-ac", "nuzx-v" -> "Nux-v", "NWX" -> "Nux", "WUX" -> "Nux", "igz" -> "Ign", "Aut-c" -> "Ant-c", "unal-m" -> "Nat-m", "cauth" -> "Canth", "Manec" -> "Manc"
    - Clean trailing dots or commas from medicine names.
    - Standardize capitalization: "SULPH" -> "Sulph", "CALC" -> "Calc"
 
-2B. JSON STRING ESCAPING:
+3B. JSON STRING ESCAPING:
    - CRITICAL: All rubric text MUST escape double quotes with backslash.
    - Replace all double quotes (") inside rubric_en values with single quotes (').
    - Example: CORRECT: "Summer, (See 'hot weather')" | WRONG: "Summer, (See \"hot weather\")"
 
-3. CONTINUATION AT TOP OF COLUMN:
+4. CONTINUATION AT TOP OF COLUMN:
    - If the column text starts with a list of medicines (e.g., "mag-m., med., nat-s...") without any rubric heading, it is the CONTINUATION of the last rubric from the previous column ("${lastRubricContext}"). Group these medicines under "${lastRubricContext}"!
 
-4. HIERARCHY & RUBRIC FORMAT:
+5. HIERARCHY & RUBRIC FORMAT:
    - "CHAPTER - MAIN RUBRIC, qualifier - sub-rubric"
-   e.g. "${detectedChapter || 'EAR'} - NOISES, hissing - humming"
+   - Strip everything after colon (:) from rubric name
+   - Example raw: "bed, in: Tod." → rubric_en = "${detectedChapter || 'EAR'} - PAIN - bed, in"
+   - Example raw: "sitting, while: Cale, Chin." → rubric_en = "${detectedChapter || 'EAR'} - PAIN - sitting, while"
 
-5. OUTPUT SCHEMA: Return ONLY valid JSON matching format:
+6. OUTPUT SCHEMA: Return ONLY valid JSON matching format:
 {
   "chapter_en": "${detectedChapter || 'EAR'}",
   "data": [
