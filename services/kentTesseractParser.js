@@ -18,12 +18,12 @@ const extractChapterFromHeader = (ocrText) => {
   const lines = ocrText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
   if (lines.length === 0) return 'UNKNOWN';
 
-  // Known Kent Repertory chapters (complete list from your Kent book)
+  // Known Kent Repertory chapters (complete list from Kent book)
   const knownChapters = [
-    'MIND', 'VERTIGO', 'HEAD', 'EYE', 'VISION', 'EAR', 'HEARING', 'NOSE', 'FACE',
-    'MOUTH', 'TEETH', 'THROAT', 'STOMACH', 'ABDOMEN', 'RECTUM', 'STOOL',
-    'BLADDER', 'KIDNEYS', 'PROSTATE', 'PROSTRATE', 'URETHRA', 'URINE', 
-    'GENITALIA', 'FEMALE GENITAL', 'MALE GENITAL',
+    'MIND', 'VERTIGO', 'HEAD', 'EYE', 'EYES', 'VISION', 'EAR', 'EARS', 'HEARING', 
+    'NOSE', 'FACE', 'MOUTH', 'TEETH', 'THROAT', 'STOMACH', 'ABDOMEN', 'RECTUM', 
+    'STOOL', 'BLADDER', 'KIDNEY', 'KIDNEYS', 'PROSTATE', 'PROSTRATE', 'PROSTRATE GLAND',
+    'URETHRA', 'UTHERA', 'URINE', 'GENITALIA', 'FEMALE GENITAL', 'MALE GENITAL',
     'LARYNX', 'RESPIRATION', 'COUGH', 'EXPECTORATION', 'CHEST', 'BACK',
     'EXTREMITIES', 'SLEEP', 'CHILL', 'FEVER', 'PERSPIRATION', 'SKIN',
     'GENERALITIES'
