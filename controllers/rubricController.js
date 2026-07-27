@@ -157,6 +157,14 @@ const bulkUpdateChapter = async (req, res) => {
     filter.repertoryId = repertoryId;
   }
 
+  // First, check if any rubrics exist with the old chapter name
+  const count = await Rubric.countDocuments(filter);
+  
+  if (count === 0) {
+    res.status(404);
+    throw new Error(`No rubrics found with chapter "${oldChapter}"${repertoryId ? ' in the selected repertory' : ''}`);
+  }
+
   // Update all rubrics with the old chapter name
   const result = await Rubric.updateMany(
     filter,
