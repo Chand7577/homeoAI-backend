@@ -6,6 +6,35 @@ const fs = require('fs-extra');
 const path = require('path');
 
 /**
+ * Clean up common OCR errors in chapter names.
+ * @param {string} chapterName - Raw chapter name from OCR
+ * @returns {string} - Cleaned chapter name
+ */
+const cleanChapterName = (chapterName) => {
+  const corrections = {
+    'VERTIG': 'VERTIGO',
+    'VERTICC': 'VERTIGO',
+    'VERTIQO': 'VERTIGO',
+    'VERITGO': 'VERTIGO',
+    'IEAT': 'HEAT',
+    'JAWK': 'HAWK',
+    'UTHERA': 'URETHRA',
+    'UTHREA': 'URETHRA',
+    'THRO AT': 'THROAT',
+    'THROA T': 'THROAT',
+    'ABDO MEN': 'ABDOMEN',
+    'RECT UM': 'RECTUM',
+    'EXTRE MITIES': 'EXTREMITIES',
+    'GENERA LITIES': 'GENERALITIES',
+    'GENERA LITES': 'GENERALITIES',
+    'RESPIR ATION': 'RESPIRATION',
+    'EXPECTOR ATION': 'EXPECTORATION'
+  };
+
+  return corrections[chapterName] || chapterName;
+};
+
+/**
  * Extract chapter name from page header (top of OCR text).
  * Kent's Repertory always has the chapter name as the first line in large capitals.
  *
@@ -35,7 +64,7 @@ const extractChapterFromHeader = (ocrText) => {
   
   // Try exact match first
   if (knownChapters.includes(firstLine)) {
-    return firstLine;
+    return cleanChapterName(firstLine);
   }
   
   // Try fuzzy match (for OCR errors like "VERTIGO." or "EAR 123")
@@ -43,7 +72,7 @@ const extractChapterFromHeader = (ocrText) => {
   for (const chapter of knownChapters) {
     // Must be at the START of the line (not in the middle)
     if (firstLine.startsWith(chapter)) {
-      return chapter;
+      return cleanChapterName(chapter);
     }
   }
   
@@ -52,8 +81,14 @@ const extractChapterFromHeader = (ocrText) => {
   for (const chapter of knownChapters) {
     const pattern = new RegExp(`\\b${chapter}\\b`, 'i');
     if (pattern.test(firstLine)) {
-      return chapter;
+      return cleanChapterName(chapter);
     }
+  }
+  
+  // Last resort: Try to clean the first line itself and check if it matches
+  const cleanedFirstLine = cleanChapterName(firstLine);
+  if (knownChapters.includes(cleanedFirstLine)) {
+    return cleanedFirstLine;
   }
 
   return 'UNKNOWN';
