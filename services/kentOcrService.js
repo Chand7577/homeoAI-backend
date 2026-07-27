@@ -132,6 +132,38 @@ const runOCR = async (imagePath) => {
 };
 
 /**
+ * Run Tesseract OCR on a single-line image strip (e.g. a page running header).
+ * Uses PSM 7 (single text line) which is far more accurate for short 1-line strips
+ * than PSM 4 (single column), which expects multi-line columnar text.
+ *
+ * @param {string} imagePath  Image path of the cropped strip
+ * @returns {Promise<string>} Raw OCR text
+ */
+const runOCRSingleLine = async (imagePath) => {
+  const Tesseract = require('tesseract.js');
+
+  const worker = await Tesseract.createWorker('eng', 1, {
+    logger: () => {},
+  });
+
+  try {
+    await worker.setParameters({
+      tessedit_ocr_engine_mode: 1,
+      tessedit_pageseg_mode: 7,   // PSM 7 = single text line (correct for header strips)
+      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz.',
+      preserve_interword_spaces: '1',
+    });
+
+    const { data } = await worker.recognize(imagePath);
+    await worker.terminate();
+    return data.text;
+  } catch (error) {
+    try { await worker.terminate(); } catch (e) {}
+    throw error;
+  }
+};
+
+/**
  * Run multi-column isolated OCR pipeline.
  * Splits page physically into left & right columns and runs Tesseract on each in parallel.
  *
@@ -182,18 +214,25 @@ const extractTopStripText = async (imagePath, outputDir) => {
     const width  = metadata.width  || 1200;
     const height = metadata.height || 1600;
 
-    // Crop the top 9% of the page — this is where Kent's chapter running header lives
-    const stripHeight = Math.max(Math.floor(height * 0.09), 80);
+    // Crop the top 12% of the page — chapter running header lives here.
+    // 12% (up from 9%) ensures low-res scans still capture the full header line.
+    const stripHeight = Math.max(Math.floor(height * 0.12), 100);
 
     await sharp(imagePath, { pages: 1, limitInputPixels: 268402689 })
       .extract({ left: 0, top: 0, width, height: stripHeight })
       .grayscale()
       .normalize()
-      .sharpen({ sigma: 1.5 })
-      .jpeg({ quality: 90 })
+      // High-contrast threshold makes bold chapter capitals pop cleanly for OCR
+      .threshold(160)
+      .sharpen({ sigma: 2.0 })
+      // Scale up 2× for better OCR accuracy on small strips
+      .resize({ width: width * 2, kernel: sharp.kernel.lanczos3 })
+      .jpeg({ quality: 95 })
       .toFile(stripPath);
 
-    const ocrText = await runOCR(stripPath);
+    // PSM 7 = single text line — CORRECT for a one-line running header
+    const ocrText = await runOCRSingleLine(stripPath);
+    console.log(`[Top-Strip OCR] Raw text: "${ocrText.replace(/\n/g, ' ').trim().slice(0, 80)}"`);
 
     // Cleanup strip immediately
     if (fs.existsSync(stripPath)) fs.unlinkSync(stripPath);
@@ -212,6 +251,7 @@ module.exports = {
   preprocessImage,
   preprocessAndSplitColumns,
   runOCR,
+  runOCRSingleLine,
   extractTextFromImage,
   extractColumnTextsFromImage,
   extractTopStripText
