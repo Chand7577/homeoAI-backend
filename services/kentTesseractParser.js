@@ -6,6 +6,49 @@ const fs = require('fs-extra');
 const path = require('path');
 
 /**
+ * Extract chapter name from page header (top of OCR text).
+ * Kent's Repertory always has the chapter name as the first line in large capitals.
+ *
+ * @param {string} ocrText - Raw OCR text from page header area
+ * @returns {string} - Detected chapter name (uppercase) or 'UNKNOWN'
+ */
+const extractChapterFromHeader = (ocrText) => {
+  if (!ocrText || ocrText.trim().length === 0) return 'UNKNOWN';
+
+  const lines = ocrText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  if (lines.length === 0) return 'UNKNOWN';
+
+  // Known Kent Repertory chapters (all 33 chapters)
+  const knownChapters = [
+    'MIND', 'HEAD', 'EYE', 'VISION', 'EAR', 'HEARING', 'NOSE', 'FACE',
+    'MOUTH', 'TEETH', 'THROAT', 'STOMACH', 'ABDOMEN', 'RECTUM', 'STOOL',
+    'BLADDER', 'KIDNEYS', 'PROSTATE', 'URETHRA', 'URINE', 'GENITALIA',
+    'LARYNX', 'RESPIRATION', 'COUGH', 'EXPECTORATION', 'CHEST', 'BACK',
+    'EXTREMITIES', 'SLEEP', 'CHILL', 'FEVER', 'PERSPIRATION', 'SKIN',
+    'GENERALITIES'
+  ];
+
+  // Check first 5 lines for chapter name (header is always at top)
+  for (let i = 0; i < Math.min(5, lines.length); i++) {
+    const line = lines[i].toUpperCase().trim();
+    
+    // Exact match
+    if (knownChapters.includes(line)) {
+      return line;
+    }
+    
+    // Fuzzy match (OCR errors like "EAR." or "EAR 123")
+    for (const chapter of knownChapters) {
+      if (line.startsWith(chapter) || line.includes(chapter)) {
+        return chapter;
+      }
+    }
+  }
+
+  return 'UNKNOWN';
+};
+
+/**
  * Structure raw OCR text from a single column using Groq AI (Llama 3.3 70B).
  * Very fast (~800ms), no vision token costs, and handles complex repertory formatting.
  *
@@ -153,6 +196,13 @@ const parseImageWithTesseract = async (imagePath) => {
     leftText = fullOcr.ocrText;
   }
 
+  // Step 1.5: CRITICAL - Extract chapter from page header (ABSOLUTE SOURCE OF TRUTH)
+  const detectedChapter = extractChapterFromHeader(leftText) !== 'UNKNOWN' 
+    ? extractChapterFromHeader(leftText)
+    : extractChapterFromHeader(rightText);
+  
+  console.log(`[Kent Multi-Column Parser] Page chapter: ${detectedChapter}`);
+
   const allResults = [];
   const seenKeys = new Set();
 
@@ -216,6 +266,31 @@ const parseImageWithTesseract = async (imagePath) => {
 
   if (allResults.length === 0) {
     throw new Error('Could not extract any valid medicine rubrics from the image.');
+  }
+
+  // Step 5: CRITICAL - ABSOLUTE CHAPTER ENFORCEMENT
+  // Force detected chapter on ALL rows, regardless of what AI extracted
+  // This prevents mid-page chapter changes (e.g., THROAT → JAW bug)
+  if (detectedChapter && detectedChapter !== 'UNKNOWN') {
+    console.log(`[Kent Multi-Column Parser] Enforcing chapter consistency: ${detectedChapter}`);
+    
+    for (const row of allResults) {
+      // Force the detected chapter (override AI's guess)
+      row.chapter_en = detectedChapter;
+      
+      // Ensure rubric starts with the chapter
+      if (row.rubric_en && !row.rubric_en.toUpperCase().startsWith(detectedChapter + ' - ')) {
+        // Remove any incorrect chapter prefix the AI might have added
+        let rubricWithoutChapter = row.rubric_en;
+        
+        // Strip common incorrect chapter patterns (e.g., "JAW - HAWK" → "HAWK")
+        const incorrectPrefixPattern = /^[A-Z]+\s*-\s*/;
+        rubricWithoutChapter = rubricWithoutChapter.replace(incorrectPrefixPattern, '');
+        
+        // Add correct chapter prefix
+        row.rubric_en = `${detectedChapter} - ${rubricWithoutChapter}`;
+      }
+    }
   }
 
   console.log(`[Kent Multi-Column Parser] ✅ Success: ${allResults.length} unique medicine-rubric rows extracted!`);
