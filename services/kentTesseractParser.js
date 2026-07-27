@@ -12,23 +12,76 @@ const path = require('path');
  */
 const cleanChapterName = (chapterName) => {
   const corrections = {
+    // VERTIGO variations
     'VERTIG': 'VERTIGO',
     'VERTICC': 'VERTIGO',
     'VERTIQO': 'VERTIGO',
     'VERITGO': 'VERTIGO',
+    'VERTICO': 'VERTIGO',
+    
+    // Common OCR errors
     'IEAT': 'HEAT',
     'JAWK': 'HAWK',
+    
+    // URETHRA variations
     'UTHERA': 'URETHRA',
     'UTHREA': 'URETHRA',
+    'URETH RA': 'URETHRA',
+    
+    // Spacing errors
     'THRO AT': 'THROAT',
     'THROA T': 'THROAT',
     'ABDO MEN': 'ABDOMEN',
     'RECT UM': 'RECTUM',
+    'STO MACH': 'STOMACH',
+    'BLAD DER': 'BLADDER',
+    'KID NEY': 'KIDNEY',
+    'KID NEYS': 'KIDNEYS',
+    
+    // EXTREMITIES variations
     'EXTRE MITIES': 'EXTREMITIES',
+    'EXTREMI TIES': 'EXTREMITIES',
+    'EXTREM ITIES': 'EXTREMITIES',
+    
+    // GENERALITIES variations
     'GENERA LITIES': 'GENERALITIES',
     'GENERA LITES': 'GENERALITIES',
+    'GENERAL ITIES': 'GENERALITIES',
+    
+    // RESPIRATION variations
     'RESPIR ATION': 'RESPIRATION',
-    'EXPECTOR ATION': 'EXPECTORATION'
+    'RESPIRA TION': 'RESPIRATION',
+    
+    // EXPECTORATION variations
+    'EXPECTOR ATION': 'EXPECTORATION',
+    'EXPECTORA TION': 'EXPECTORATION',
+    
+    // PERSPIRATION variations
+    'PERSPIR ATION': 'PERSPIRATION',
+    'PERSPIRA TION': 'PERSPIRATION',
+    
+    // GENITALIA variations
+    'GENIT ALIA': 'GENITALIA',
+    'GENITA LIA': 'GENITALIA',
+    'FEMALE GENIT ALIA': 'FEMALE GENITALIA',
+    'MALE GENIT ALIA': 'MALE GENITALIA',
+    'FEMALE GENITA LIA': 'FEMALE GENITALIA',
+    'MALE GENITA LIA': 'MALE GENITALIA',
+    
+    // PROSTATE variations
+    'PROST ATE': 'PROSTATE',
+    'PROSTA TE': 'PROSTATE',
+    'PROSTRATE': 'PROSTATE',  // Common misspelling
+    
+    // CONSTIPATION variations
+    'CONSTIP ATION': 'CONSTIPATION',
+    'CONSTIPA TION': 'CONSTIPATION',
+    
+    // DIARRHEA/DIARRHOEA variations
+    'DIARR HEA': 'DIARRHEA',
+    'DIARRH EA': 'DIARRHEA',
+    'DIARR HOEA': 'DIARRHOEA',
+    'DIARRH OEA': 'DIARRHOEA'
   };
 
   return corrections[chapterName] || chapterName;
@@ -47,21 +100,26 @@ const extractChapterFromHeader = (ocrText) => {
   const lines = ocrText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
   if (lines.length === 0) return 'UNKNOWN';
 
-  // Known Kent Repertory chapters (complete 37 chapters from Kent's original work)
+  // Known Kent Repertory chapters (complete 39 chapters from Kent's original work)
   // IMPORTANT: Sorted by length (longest first) to avoid substring matches
   const knownChapters = [
-    // Multi-word chapters (longest first)
-    'PROSTRATE GLAND', 'FEMALE GENITALIA', 'MALE GENITALIA', 'EXPECTORATION',
-    'PERSPIRATION', 'GENERALITIES', 'EXTREMITIES', 'RESPIRATION',
-    // Alternate spellings
-    'FEMALE GENITAL', 'MALE GENITAL', 'GENITALIA',
-    // Single-word chapters (longer first)
-    'DIARRHOEA', 'DIARRHEA', 'CONSTIPATION', 'HEARING', 'VISION',
-    'KIDNEYS', 'PROSTATE', 'PROSTRATE', 'URETHRA', 'UTHERA',
-    'BLADDER', 'ABDOMEN', 'STOMACH', 'VERTIGO', 'THROAT', 'RECTUM', 
-    'LARYNX', 'KIDNEY', 'CHEST', 'FEVER', 'CHILL', 'SLEEP', 'STOOL', 
-    'URINE', 'MOUTH', 'TEETH', 'NOSE', 'FACE', 'BACK', 'SKIN', 'MIND', 
-    'HEAD', 'EYES', 'EARS', 'EYE', 'EAR', 'COUGH'
+    // Multi-word chapters (longest first - 14+ chars)
+    'FEMALE GENITALIA', 'MALE GENITALIA', 'PROSTATE GLAND', 'PROSTRATE GLAND',
+    'EXPECTORATION', 'PERSPIRATION', 'GENERALITIES', 'EXTREMITIES',
+    'CONSTIPATION',
+    // Alternate spellings (12-13 chars)
+    'FEMALE GENITAL', 'MALE GENITAL',
+    // 10-11 char chapters
+    'RESPIRATION', 'GENITALIA', 'DIARRHOEA', 'DIARRHEA',
+    // 7-9 char chapters
+    'PROSTATE', 'PROSTRATE', 'HEARING', 'KIDNEYS', 'BLADDER', 
+    'ABDOMEN', 'STOMACH', 'VERTIGO', 'LARYNX', 'URETHRA', 'UTHERA',
+    // 6 char chapters
+    'THROAT', 'RECTUM', 'KIDNEY', 'VISION', 'CHEST', 'FEVER', 
+    'SLEEP', 'STOOL', 'URINE', 'MOUTH', 'TEETH', 'CHILL',
+    // 4-5 char chapters
+    'MIND', 'HEAD', 'EYES', 'EARS', 'NOSE', 'FACE', 'BACK', 
+    'SKIN', 'EYE', 'EAR', 'COUGH'
   ];
 
   // STRICT: Only check the FIRST line (the actual page header)
@@ -136,6 +194,11 @@ ${contextInstruction}
    - Correct OCR typos in medicine names using standard homeopathic abbreviations:
      e.g., "cauth" -> "canth", "Manec" -> "manc", "drnmming" -> "drumming", "sunfling" -> "snuffing", "morniug" -> "morning", "ou" -> "on", "11 a. m." / "IT a. m." -> "10 a. m.", "47s" -> "amel.".
    - Clean trailing dots or commas from medicine names.
+
+2B. JSON STRING ESCAPING:
+   - CRITICAL: All rubric text MUST escape double quotes with backslash.
+   - Replace all double quotes (") inside rubric_en values with single quotes (').
+   - Example: CORRECT: "Summer, (See 'hot weather')" | WRONG: "Summer, (See \"hot weather\")"
 
 3. CONTINUATION AT TOP OF COLUMN:
    - If the column text starts with a list of medicines (e.g., "mag-m., med., nat-s...") without any rubric heading, it is the CONTINUATION of the last rubric from the previous column ("${lastRubricContext}"). Group these medicines under "${lastRubricContext}"!
