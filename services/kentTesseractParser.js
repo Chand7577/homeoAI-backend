@@ -351,14 +351,8 @@ const parseImageWithTesseract = async (imagePath) => {
     console.log('[Kent Multi-Column Parser] Structuring LEFT & RIGHT columns concurrently with Groq AI...');
 
     const [leftJson, rightJson] = await Promise.all([
-      leftText.trim().length > 30 ? parseColumnTextWithGroq(leftText, 'left', '', detectedChapter).catch(e => {
-        console.warn(`[Kent Multi-Column Parser] Left Groq error: ${e.message}`);
-        return null;
-      }) : Promise.resolve(null),
-      rightText.trim().length > 30 ? parseColumnTextWithGroq(rightText, 'right', '', detectedChapter).catch(e => {
-        console.warn(`[Kent Multi-Column Parser] Right Groq error: ${e.message}`);
-        return null;
-      }) : Promise.resolve(null)
+      leftText.trim().length > 30 ? parseColumnTextWithGroq(leftText, 'left', '', detectedChapter) : Promise.resolve(null),
+      rightText.trim().length > 30 ? parseColumnTextWithGroq(rightText, 'right', '', detectedChapter) : Promise.resolve(null)
     ]);
 
     const leftRows = convertGroqJsonToRows(leftJson);
@@ -402,7 +396,6 @@ const parseImageWithTesseract = async (imagePath) => {
         addRows(rightRuleResults);
         console.log(`[Kent Multi-Column Parser] Right column: ${rightRuleResults.length} rows extracted via fallback parser.`);
       }
-    }
     }
   }
 
