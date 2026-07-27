@@ -127,27 +127,36 @@ const extractChapterFromHeader = (ocrText) => {
   const scanLines = lines.slice(0, 10).map(l => l.toUpperCase().trim());
 
   for (const lineText of scanLines) {
-    // Try exact match first
+    // 1. Exact match (e.g. "RECTUM" or "EAR")
     if (knownChapters.includes(lineText)) {
       return cleanChapterName(lineText);
     }
 
-    // Try starts-with match (e.g. "RECTUM." or "EAR 608")
+    // 2. Starts-with match (e.g. "RECTUM." or "EAR 608")
+    //    CRITICAL: next char after chapter name must NOT be a comma — that
+    //    would mean it's a rubric qualifier like "STOOL, during:" not the chapter header
     for (const chapter of knownChapters) {
       if (lineText.startsWith(chapter)) {
-        return cleanChapterName(chapter);
+        const nextChar = lineText[chapter.length]; // char immediately after chapter name
+        const isStandaloneHeader = !nextChar || nextChar === '.' || nextChar === ' ' || nextChar === ':';
+        if (isStandaloneHeader) {
+          return cleanChapterName(chapter);
+        }
       }
     }
 
-    // Try whole-word match within the line
+    // 3. Whole-word regex — ONLY on short lines (≤ chapter + 5 chars)
+    //    Prevents matching "STOOL" inside "STOOL, during: Ant-c, Nit-ac..."
     for (const chapter of knownChapters) {
-      const pattern = new RegExp(`\\b${chapter}\\b`, 'i');
-      if (pattern.test(lineText)) {
-        return cleanChapterName(chapter);
+      if (lineText.length <= chapter.length + 5) {
+        const pattern = new RegExp(`\\b${chapter}\\b`, 'i');
+        if (pattern.test(lineText)) {
+          return cleanChapterName(chapter);
+        }
       }
     }
 
-    // Try after cleaning OCR artifacts from the line
+    // 4. Try after cleaning OCR artifacts from the line
     const cleanedLine = cleanChapterName(lineText);
     if (knownChapters.includes(cleanedLine)) {
       return cleanedLine;
