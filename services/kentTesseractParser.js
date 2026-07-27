@@ -164,9 +164,10 @@ const extractChapterFromHeader = (ocrText) => {
  * @param {string} rawText          Raw OCR text from 1 column
  * @param {string} columnSide       "left" or "right"
  * @param {string} lastRubricContext Last rubric path from left column for header continuation
+ * @param {string} detectedChapter  Chapter detected from page header (e.g., "RECTUM", "ABDOMEN")
  * @returns {Promise<Object|null>}   Parsed JSON object or null if unavailable
  */
-const parseColumnTextWithGroq = async (rawText, columnSide = 'left', lastRubricContext = '') => {
+const parseColumnTextWithGroq = async (rawText, columnSide = 'left', lastRubricContext = '', detectedChapter = 'UNKNOWN') => {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey || !rawText || rawText.trim().length < 20) {
     return null;
@@ -179,9 +180,13 @@ const parseColumnTextWithGroq = async (rawText, columnSide = 'left', lastRubricC
     const contextInstruction = lastRubricContext
       ? `CONTEXT FROM PREVIOUS (LEFT) COLUMN: The left column's last extracted rubric path was "${lastRubricContext}". If this column starts with a list of medicines or a comma-separated continuation header (e.g. "COLOR, redness, inside."), reconstruct the parent path from this context and use it for all sub-rubrics beneath it.`
       : '';
+    
+    const chapterInstruction = detectedChapter && detectedChapter !== 'UNKNOWN'
+      ? `\n\n⚠️ CRITICAL CHAPTER ENFORCEMENT:\nThe page header indicates this is the "${detectedChapter}" chapter.\nYou MUST prefix ALL rubric paths with "${detectedChapter} - " at the beginning.\nExample: If you see "PAIN, pressing - evening", output: "${detectedChapter} - PAIN, pressing - evening"\n`
+      : '';
 
     const prompt = `You are a medical data extraction & spell-correction expert structuring raw Kent's Repertory OCR text from the ${columnSide.toUpperCase()} column.
-${contextInstruction}
+${contextInstruction}${chapterInstruction}
 
 --- CRITICAL REPERTORY TYPOGRAPHY & GRADING RULES ---
 1. CAPITALIZATION = GRADE 3 (BOLD):
@@ -192,8 +197,9 @@ ${contextInstruction}
 
 2. MEDICINE SPELL CORRECTION & CLEANING:
    - Correct OCR typos in medicine names using standard homeopathic abbreviations:
-     e.g., "cauth" -> "canth", "Manec" -> "manc", "drnmming" -> "drumming", "sunfling" -> "snuffing", "morniug" -> "morning", "ou" -> "on", "11 a. m." / "IT a. m." -> "10 a. m.", "47s" -> "amel.".
+     Common fixes: "Cale" -> "Calc", "ina" -> "ign", "nil-ac" -> "Nit-ac", "nuzx-v" -> "Nux-v", "NWX" -> "Nux", "WUX" -> "Nux", "igz" -> "Ign", "Aut-c" -> "Ant-c", "unal-m" -> "Nat-m", "cauth" -> "Canth", "Manec" -> "Manc"
    - Clean trailing dots or commas from medicine names.
+   - Standardize capitalization: "SULPH" -> "Sulph", "CALC" -> "Calc"
 
 2B. JSON STRING ESCAPING:
    - CRITICAL: All rubric text MUST escape double quotes with backslash.
@@ -205,14 +211,14 @@ ${contextInstruction}
 
 4. HIERARCHY & RUBRIC FORMAT:
    - "CHAPTER - MAIN RUBRIC, qualifier - sub-rubric"
-   e.g. "EAR - NOISES, hissing - humming"
+   e.g. "${detectedChapter || 'EAR'} - NOISES, hissing - humming"
 
 5. OUTPUT SCHEMA: Return ONLY valid JSON matching format:
 {
-  "chapter_en": "EAR",
+  "chapter_en": "${detectedChapter || 'EAR'}",
   "data": [
     {
-      "rubric_en": "EAR - NOISES, hissing",
+      "rubric_en": "${detectedChapter || 'EAR'} - NOISES, hissing",
       "medicines": [
         {"name": "Acon", "grading": 3},
         {"name": "agar", "grading": 2},
@@ -336,8 +342,8 @@ const parseImageWithTesseract = async (imagePath) => {
     console.log('[Kent Multi-Column Parser] Structuring LEFT & RIGHT columns concurrently with Groq AI...');
 
     const [leftJson, rightJson] = await Promise.all([
-      leftText.trim().length > 30 ? parseColumnTextWithGroq(leftText, 'left') : Promise.resolve(null),
-      rightText.trim().length > 30 ? parseColumnTextWithGroq(rightText, 'right') : Promise.resolve(null)
+      leftText.trim().length > 30 ? parseColumnTextWithGroq(leftText, 'left', '', detectedChapter) : Promise.resolve(null),
+      rightText.trim().length > 30 ? parseColumnTextWithGroq(rightText, 'right', '', detectedChapter) : Promise.resolve(null)
     ]);
 
     const leftRows = convertGroqJsonToRows(leftJson);
