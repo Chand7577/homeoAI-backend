@@ -97,6 +97,15 @@ const cleanChapterName = (chapterName) => {
 const extractChapterFromHeader = (ocrText) => {
   if (!ocrText || ocrText.trim().length === 0) return 'UNKNOWN';
 
+  // Guard: if OCR text contains PDF viewer / browser toolbar noise, skip it
+  // This happens when user uploads a screenshot with Acrobat/browser UI visible
+  const uiNoisePhrases = ['acrobat', 'copilot', 'draw', 'edit with', 'ask copilot', 'chrome', 'firefox'];
+  const lowerText = ocrText.toLowerCase();
+  if (uiNoisePhrases.some(phrase => lowerText.includes(phrase))) {
+    console.warn('[Chapter Detect] Top-strip contains UI toolbar noise — skipping, will use column text fallback.');
+    return 'UNKNOWN';
+  }
+
   const lines = ocrText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
   if (lines.length === 0) return 'UNKNOWN';
 
@@ -247,10 +256,11 @@ ${contextInstruction}${chapterInstruction}
 RAW OCR TEXT TO PARSE:
 ${rawText}`;
 
-    // Model cascade: 8b-instant (fast, 6k TPM) → gemma2-9b-it (15k TPM, 500k TPD) → 70b-versatile (last resort)
+    // Model cascade: 8b-instant (fast) → llama-4-scout (high TPD) → 70b-versatile (last resort)
+    // NOTE: gemma2-9b-it was DECOMMISSIONED by Groq — replaced with llama-4-scout
     const modelCascade = [
       'llama-3.1-8b-instant',
-      'gemma2-9b-it',
+      'meta-llama/llama-4-scout-17b-16e-instruct',
       'llama-3.3-70b-versatile'
     ];
 
@@ -268,11 +278,13 @@ ${rawText}`;
         break; // success — stop cascade
       } catch (e) {
         lastErr = e;
-        const isQuota = e.message.includes('413') || e.message.includes('429') || e.message.includes('rate_limit') || e.message.includes('too large');
-        if (isQuota) {
+        const isRetryable = e.message.includes('413') || e.message.includes('429')
+          || e.message.includes('rate_limit') || e.message.includes('too large')
+          || e.message.includes('decommissioned') || e.message.includes('not supported');
+        if (isRetryable) {
           console.warn(`[Groq Structurer] ${model} unavailable (${e.message.slice(0, 80)}), trying next model...`);
         } else {
-          throw e; // non-quota error — don't retry
+          throw e; // non-retryable error — don't cascade
         }
       }
     }
