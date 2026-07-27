@@ -211,30 +211,14 @@ ${contextInstruction}${chapterInstruction}
      - Assign grading = 2 (Italic) if it is a major italicized remedy (e.g. acon, agar, alum, bell, calc, caust, chin, con, cupr, dros, dulc, graph, hep, kali-c, lach, laur, mag-c, mag-m, mang, meny, merc, nat-m, nit-ac, petr, phos-ac, plat, puls, rhodo, sabad, sep, sil, sulph).
      - Assign grading = 1 (Normal) for plain remedies (e.g. ant-t, aur, bar-c, bor, carl, cocc, mosch, rheum, selen, spong, stann, zinc).
 
-3. MEDICINE SPELL CORRECTION & CLEANING:
-   - Correct OCR typos in medicine names using standard homeopathic abbreviations:
-     Capitalization: "SULPH"->"Sulph", "CALC"->"Calc", "NUX-V"->"Nux-v", "BELL"->"Bell"
-     Common single-char errors: "Cale"->"Calc", "Cale-s"->"Calc-s", "Lye"->"Lyc", "Corn"->"Con", "Zine"->"Zinc", "Igz"->"Ign", "Caus"->"Caust"
-     NUX variants: "NWX-PL"->"Nux-pl", "WUX-V"->"Nux-v", "nuzx-v"->"Nux-v", "Nuw-v"->"Nux-v", "nuv-x"->"Nux-v", "nxv"->"Nux-v"
-     SULPH variants: "Sulpli"->"Sulph", "Suiph"->"Sulph", "sulpli"->"Sulph", "suiph"->"Sulph", "Sul-ph"->"Sulph"
-     NAT variants: "Unal-m"->"Nat-m", "unal-m"->"Nat-m", "nat-nt"->"Nat-m", "Nat-nt"->"Nat-m"
-     KALI variants: "Kali-6i"->"Kali-bi", "kali-6i"->"Kali-bi", "Kali-br"->"Kali-bi"
-     LIL variants: "Lil-L"->"Lil-t", "lil-L"->"Lil-t", "lilt"->"Lil-t"
-     ANT variants: "Aut-c"->"Ant-c", "aut-c"->"Ant-c", "antc"->"Ant-c", "Ant-s"->"Ant-t" (if clearly Antimonium tartaricum context)
-     RHUS variants: "rhust"->"Rhus-t", "rkus-L"->"Rhus-t", "Rhus-L"->"Rhus-t"
-     MISC fixes: "nil-ac"->"Nit-ac", "cauth"->"Canth", "Manec"->"Manc", "Amme"->"Am-m", "Asm-m"->"Am-m", "wmbr"->"ambr", "pals"->"Puls", "Ran-sc"->"Ran-s", "Staun"->"Stann", "cerb-an"->"Carb-an", "cautl"->"Caust", "gral"->"Grat", "Brach"->"Brach", "Zsc"->"Asc", "azs"->"Ars", "vil-ac"->"Bil-ac", "pl-ac"->"Ph-ac", "Peon"->"Paeon", "gal-ac"->"Gal-ac", "sol-t-="->"Sol-t", "am.c"->"Am-c", "amam"->"Am-m", "eup-per"->"Eup-per"
-   - IMPORTANT: OCR commonly misreads medicine names as rubric sub-qualifiers. If a token looks like a medicine abbreviation (e.g., "berb", "ina", "calc") at the start of a rubric line, treat it as the FIRST MEDICINE in the list, not part of the rubric name.
-   - Clean trailing dots, commas, equals signs, or dashes from medicine names (e.g. "Sol-t-=" -> "Sol-t").
+3. MEDICINE NAMES:
+   - Everything after the colon (:) on a rubric line is medicines. Extract them accurately.
+   - Fix obvious OCR typos (e.g. Cale→Calc, Lye→Lyc, Sulpli→Sulph, WUX-V→Nux-v).
+   - Clean trailing punctuation from medicine names.
+   - Single lowercase abbreviations before a colon (berb, ina, calc) are medicines, NOT rubric qualifiers.
 
 3B. JSON STRING ESCAPING:
-   - CRITICAL: All rubric text MUST escape double quotes with backslash.
-   - Replace all double quotes (") inside rubric_en values with single quotes (').
-   - Example: CORRECT: "Summer, (See 'hot weather')" | WRONG: "Summer, (See \"hot weather\")"
-
-3C. MEDICINE-AS-RUBRIC GUARD (VERY IMPORTANT):
-   - If you see text like "berb: Esc, aloe, wmbr" — "berb" is NOT a rubric qualifier, it is the FIRST medicine in the list of the PREVIOUS or CURRENT rubric! Look back at the nearest rubric above it.
-   - Single-word lowercase abbreviations on their own line followed by more medicine abbreviations (e.g. "ina", "berb", "calc") are ALWAYS medicines, never rubric names.
-   - If a line segment matches known homeopathic abbreviations (berb, calc, ign, lyc, etc.) before the colon, re-check: it may be a medicine list continuation rather than a rubric sub-qualifier.
+   - Replace all double quotes (") inside string values with single quotes (').
 
 4. CONTINUATION AT TOP OF COLUMN:
    - If the column text starts with a list of medicines (e.g., "mag-m., med., nat-s...") without any rubric heading, it is the CONTINUATION of the last rubric from the previous column ("${lastRubricContext}"). Group these medicines under "${lastRubricContext}"!
@@ -263,25 +247,36 @@ ${contextInstruction}${chapterInstruction}
 RAW OCR TEXT TO PARSE:
 ${rawText}`;
 
+    // Model cascade: 8b-instant (fast, 6k TPM) → gemma2-9b-it (15k TPM, 500k TPD) → 70b-versatile (last resort)
+    const modelCascade = [
+      'llama-3.1-8b-instant',
+      'gemma2-9b-it',
+      'llama-3.3-70b-versatile'
+    ];
+
     let completion = null;
-    try {
-      completion = await groq.chat.completions.create({
-        model: 'llama-3.1-8b-instant',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.1,
-        max_tokens: 4000,
-        response_format: { type: 'json_object' }
-      });
-    } catch (e) {
-      console.warn(`[Groq Structurer] llama-3.1-8b-instant failed, trying 70b: ${e.message}`);
-      completion = await groq.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.1,
-        max_tokens: 4000,
-        response_format: { type: 'json_object' }
-      });
+    let lastErr = null;
+    for (const model of modelCascade) {
+      try {
+        completion = await groq.chat.completions.create({
+          model,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.1,
+          max_tokens: 3500,
+          response_format: { type: 'json_object' }
+        });
+        break; // success — stop cascade
+      } catch (e) {
+        lastErr = e;
+        const isQuota = e.message.includes('413') || e.message.includes('429') || e.message.includes('rate_limit') || e.message.includes('too large');
+        if (isQuota) {
+          console.warn(`[Groq Structurer] ${model} unavailable (${e.message.slice(0, 80)}), trying next model...`);
+        } else {
+          throw e; // non-quota error — don't retry
+        }
+      }
     }
+    if (!completion) throw lastErr;
 
     const text = completion.choices[0]?.message?.content || '{}';
     return JSON.parse(text);
