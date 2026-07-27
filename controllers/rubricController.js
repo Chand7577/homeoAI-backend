@@ -143,4 +143,40 @@ const getMedicines = async (req, res) => {
   });
 };
 
-module.exports = { getRubrics, getChapters, getMedicines, createRubric, updateRubric, deleteRubric };
+// PATCH /api/rubrics/bulk-update-chapter - Bulk update chapter names
+const bulkUpdateChapter = async (req, res) => {
+  const { oldChapter, newChapter, repertoryId } = req.body;
+  
+  if (!oldChapter || !newChapter) {
+    res.status(400);
+    throw new Error('oldChapter and newChapter are required');
+  }
+
+  const filter = { 'chapter.en': oldChapter };
+  if (repertoryId) {
+    filter.repertoryId = repertoryId;
+  }
+
+  // Update all rubrics with the old chapter name
+  const result = await Rubric.updateMany(
+    filter,
+    { $set: { 'chapter.en': newChapter } }
+  );
+
+  res.json({ 
+    success: true, 
+    message: `Updated ${result.modifiedCount} rubrics from "${oldChapter}" to "${newChapter}"`,
+    modifiedCount: result.modifiedCount,
+    matchedCount: result.matchedCount
+  });
+};
+
+module.exports = { 
+  getRubrics, 
+  getChapters, 
+  getMedicines, 
+  createRubric, 
+  updateRubric, 
+  deleteRubric,
+  bulkUpdateChapter 
+};
