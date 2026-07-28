@@ -186,14 +186,21 @@ const extractChapterFromHeader = (ocrText) => {
  * @returns {Promise<Object|null>}   Parsed JSON object or null if unavailable
  */
 const parseColumnTextWithGroq = async (rawText, columnSide = 'left', lastRubricContext = '', detectedChapter = 'UNKNOWN') => {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey || !rawText || rawText.trim().length < 20) {
+  // Collect all available Groq API keys (supports up to 5 keys via env vars)
+  const apiKeys = [
+    process.env.GROQ_API_KEY,
+    process.env.GROQ_API_KEY_2,
+    process.env.GROQ_API_KEY_3,
+    process.env.GROQ_API_KEY_4,
+    process.env.GROQ_API_KEY_5,
+  ].filter(Boolean); // drop undefined/empty
+
+  if (!apiKeys.length || !rawText || rawText.trim().length < 20) {
     return null;
   }
 
   try {
     const Groq = require('groq-sdk');
-    const groq = new Groq({ apiKey });
 
     const contextInstruction = lastRubricContext
       ? `CONTEXT FROM PREVIOUS (LEFT) COLUMN: The left column's last extracted rubric path was "${lastRubricContext}". If this column starts with a list of medicines or a comma-separated continuation header (e.g. "COLOR, redness, inside."), reconstruct the parent path from this context and use it for all sub-rubrics beneath it.`
@@ -256,39 +263,47 @@ ${contextInstruction}${chapterInstruction}
 RAW OCR TEXT TO PARSE:
 ${rawText}`;
 
-    // Model cascade: 70b-versatile (primary, stable) → 8b-instant (fast fallback)
-    // NOTE: llama-4-scout-17b-16e-instruct was REMOVED by Groq (404). llama-3.1-8b-instant
-    // may hit rate limits (429) under high load — so 70b-versatile is the reliable primary.
-    const modelCascade = [
+    // Multi-key × multi-model rotation.
+    // Tries every (key, model) combination before giving up.
+    // Add GROQ_API_KEY_2, GROQ_API_KEY_3 … in .env to multiply your effective quota.
+    const models = [
       'llama-3.3-70b-versatile',
       'llama-3.1-8b-instant'
     ];
 
     let completion = null;
     let lastErr = null;
-    for (const model of modelCascade) {
-      try {
-        completion = await groq.chat.completions.create({
-          model,
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.1,
-          max_tokens: 3500,
-          response_format: { type: 'json_object' }
-        });
-        break; // success — stop cascade
-      } catch (e) {
-        lastErr = e;
-        const isRetryable = e.message.includes('413') || e.message.includes('429')
-          || e.message.includes('rate_limit') || e.message.includes('too large')
-          || e.message.includes('decommissioned') || e.message.includes('not supported')
-          || e.message.includes('does not exist') || e.message.includes('model_not_found');
-        if (isRetryable) {
-          console.warn(`[Groq Structurer] ${model} unavailable (${e.message.slice(0, 80)}), trying next model...`);
-        } else {
-          throw e; // non-retryable error — don't cascade
+
+    outer:
+    for (const apiKey of apiKeys) {
+      const groq = new Groq({ apiKey });
+      for (const model of models) {
+        try {
+          completion = await groq.chat.completions.create({
+            model,
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.1,
+            max_tokens: 3500,
+            response_format: { type: 'json_object' }
+          });
+          break outer; // success — stop all iteration
+        } catch (e) {
+          lastErr = e;
+          const isRetryable = e.message.includes('413') || e.message.includes('429')
+            || e.message.includes('rate_limit') || e.message.includes('too large')
+            || e.message.includes('decommissioned') || e.message.includes('not supported')
+            || e.message.includes('does not exist') || e.message.includes('model_not_found');
+          if (isRetryable) {
+            const keyLabel = `key${apiKeys.indexOf(apiKey) + 1}`;
+            console.warn(`[Groq Structurer] ${model} (${keyLabel}) unavailable (${e.message.slice(0, 80)}), trying next...`);
+            await new Promise(r => setTimeout(r, 500)); // brief cooldown before next attempt
+          } else {
+            throw e; // non-retryable error — bail immediately
+          }
         }
       }
     }
+
     if (!completion) throw lastErr;
 
     const text = completion.choices[0]?.message?.content || '{}';
