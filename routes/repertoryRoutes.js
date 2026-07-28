@@ -23,8 +23,8 @@ router.post('/:id/upload', (req, res, next) => {
   next();
 }, requireAdmin, upload.single('file'), uploadExcel);
 
-router.post('/:id/upload-pdf',   requireAdmin, uploadPDF.single('pdf'), uploadPDFFile);
-router.put('/:id/chapter-pages', requireAdmin, updateChapterPages);
+router.post('/:id/upload-pdf',   requireClinicalUser, uploadPDF.single('pdf'), uploadPDFFile); // Allow clinical users
+router.put('/:id/chapter-pages', authenticate, updateChapterPages); // Allow all authenticated users to update chapter pages
 router.delete('/:id',            requireAdmin, deleteRepertory);
 
 module.exports = router;
