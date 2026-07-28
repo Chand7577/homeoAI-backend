@@ -277,7 +277,7 @@ ${contextInstruction}${chapterInstruction}
 RAW OCR TEXT TO PARSE:
 ${rawText}`;
 
-    // Multi-key × multi-model rotation.
+    // Multi-key × multi-model rotation across Groq keys.
     // Tries every (key, model) combination before giving up.
     // Add GROQ_API_KEY_2, GROQ_API_KEY_3 … in .env to multiply your effective quota.
     const models = [
@@ -288,6 +288,7 @@ ${rawText}`;
     let completion = null;
     let lastErr = null;
 
+    // ── Phase 1: Try all Groq keys ─────────────────────────────────────────
     outer:
     for (const apiKey of apiKeys) {
       const groq = new Groq({ apiKey });
@@ -300,7 +301,7 @@ ${rawText}`;
             max_tokens: 3500,
             response_format: { type: 'json_object' }
           });
-          break outer; // success — stop all iteration
+          break outer; // success
         } catch (e) {
           lastErr = e;
           const isRetryable = e.message.includes('413') || e.message.includes('429')
@@ -310,15 +311,65 @@ ${rawText}`;
           if (isRetryable) {
             const keyLabel = `key${apiKeys.indexOf(apiKey) + 1}`;
             console.warn(`[Groq Structurer] ${model} (${keyLabel}) unavailable (${e.message.slice(0, 80)}), trying next...`);
-            await new Promise(r => setTimeout(r, 500)); // brief cooldown before next attempt
+            await new Promise(r => setTimeout(r, 500));
           } else {
-            throw e; // non-retryable error — bail immediately
+            throw e;
           }
         }
       }
     }
 
-    if (!completion) throw lastErr;
+    // ── Phase 2: Cerebras AI fallback (free tier, generous limits) ─────────
+    // Sign up at cloud.cerebras.ai → add CEREBRAS_API_KEY to .env
+    if (!completion && process.env.CEREBRAS_API_KEY) {
+      console.warn('[Groq Structurer] All Groq keys exhausted — trying Cerebras AI fallback...');
+      const cerebrasModels = ['llama3.1-70b', 'llama3.1-8b'];
+      for (const cModel of cerebrasModels) {
+        try {
+          const https = require('https');
+          const body = JSON.stringify({
+            model: cModel,
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.1,
+            max_tokens: 3500,
+            response_format: { type: 'json_object' }
+          });
+          const cerebrasResp = await new Promise((resolve, reject) => {
+            const req = https.request({
+              hostname: 'api.cerebras.ai',
+              path: '/v1/chat/completions',
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${process.env.CEREBRAS_API_KEY}`,
+                'Content-Length': Buffer.byteLength(body)
+              }
+            }, (res) => {
+              let data = '';
+              res.on('data', chunk => data += chunk);
+              res.on('end', () => {
+                try { resolve(JSON.parse(data)); }
+                catch (e) { reject(new Error('Cerebras parse error: ' + data.slice(0, 100))); }
+              });
+            });
+            req.on('error', reject);
+            req.write(body);
+            req.end();
+          });
+          if (cerebrasResp.choices?.[0]?.message?.content) {
+            console.log(`[Groq Structurer] ✅ Cerebras ${cModel} succeeded.`);
+            const text = completion?.choices?.[0]?.message?.content || cerebrasResp.choices[0].message.content;
+            return JSON.parse(cerebrasResp.choices[0].message.content);
+          }
+        } catch (ce) {
+          const isRetryable = ce.message.includes('429') || ce.message.includes('rate_limit');
+          console.warn(`[Cerebras] ${cModel} failed: ${ce.message.slice(0, 80)}${isRetryable ? ', trying next...' : ''}`);
+          if (!isRetryable) break;
+        }
+      }
+    }
+
+    if (!completion) throw lastErr || new Error('All AI providers exhausted (Groq + Cerebras)');
 
     const text = completion.choices[0]?.message?.content || '{}';
     return JSON.parse(text);
@@ -477,15 +528,25 @@ const parseImageWithTesseract = async (imagePath) => {
     }
   };
 
-  // Step 2: Pass Left & Right column text to Groq AI concurrently
+  // Step 2: Process LEFT then RIGHT column sequentially to halve API rate-limit pressure.
+  // Concurrent calls double the simultaneous requests and exhaust quota faster.
   let groqSuccess = false;
-  if (process.env.GROQ_API_KEY && (leftText.trim().length > 30 || rightText.trim().length > 30)) {
-    console.log('[Kent Multi-Column Parser] Structuring LEFT & RIGHT columns concurrently with Groq AI...');
+  if ((process.env.GROQ_API_KEY || process.env.CEREBRAS_API_KEY) &&
+      (leftText.trim().length > 30 || rightText.trim().length > 30)) {
+    console.log('[Kent Multi-Column Parser] Structuring columns sequentially with AI...');
 
-    const [leftJson, rightJson] = await Promise.all([
-      leftText.trim().length > 30 ? parseColumnTextWithGroq(leftText, 'left', '', detectedChapter) : Promise.resolve(null),
-      rightText.trim().length > 30 ? parseColumnTextWithGroq(rightText, 'right', '', detectedChapter) : Promise.resolve(null)
-    ]);
+    const leftJson  = leftText.trim().length  > 30
+      ? await parseColumnTextWithGroq(leftText,  'left',  '',             detectedChapter)
+      : null;
+
+    // Brief pause between API calls to stay within per-minute token limits
+    if (leftJson && rightText.trim().length > 30) {
+      await new Promise(r => setTimeout(r, 1200));
+    }
+
+    const rightJson = rightText.trim().length > 30
+      ? await parseColumnTextWithGroq(rightText, 'right', '', detectedChapter)
+      : null;
 
     const leftRows = convertGroqJsonToRows(leftJson);
     const rightRows = convertGroqJsonToRows(rightJson);
