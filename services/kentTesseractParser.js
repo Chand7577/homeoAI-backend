@@ -418,12 +418,75 @@ const MEDICINE_CORRECTIONS = {
   'Peon': 'Paeon', 'sol-t-=': 'Sol-t', 'Sol-t-=': 'Sol-t',
   'am.c': 'Am-c', 'amam': 'Am-m', 'eup-per': 'Eup-per',
   'rkus-l': 'Rhus-t', 'Lye-c': 'Lyc', 'cauth': 'Canth', 'Cauth': 'Canth',
-  // CANTH
-  'cauth': 'Canth', 'unal': 'Nat-m',
-  // Zsc / Asc
-  'Zsc': 'Asc', 'zsc': 'Asc',
-  // ina / Ina (OCR misread of "ign" or start of medicine list)
-  'ina': 'Ign',
+  // ── Additions from RECTUM chapter OCR review ──────────────────────────
+  // Camph variants
+  'Qamph': 'Camph', 'qamph': 'Camph', 'Qamb': 'Camph',
+  // Ipecac (italic "i" misread as "7" or similar)
+  '7p': 'ip', '7P': 'ip',
+  // Kreos
+  '£7eos': 'Kreos', '£7e0s': 'Kreos', 'kreos': 'Kreos',
+  // Mosch
+  'M0Sch': 'Mosch', 'M0sch': 'Mosch', 'MOSch': 'Mosch',
+  // Meny
+  'wmeny': 'Meny', 'wmcny': 'Meny',
+  // Stann
+  'Sstann': 'Stann', 'sstann': 'Stann',
+  // Tarent
+  'larent': 'Tarent', 'Larent': 'Tarent',
+  // Tuberc
+  'fuberc': 'Tuberc', 'Fuberc': 'Tuberc',
+  // Sul-ac
+  'sw/-ac': 'Sul-ac', 'Sw/-ac': 'Sul-ac', 'sul-ac': 'Sul-ac',
+  // Cimic
+  'c¢imic': 'Cimic', 'C¢imic': 'Cimic',
+  // Iod
+  'Zod': 'Iod', 'zod': 'Iod', 'tod': 'Iod',
+  // Merc-i-f
+  '#nerc-i-f': 'Merc-i-f', '#Nerc-i-f': 'Merc-i-f',
+  // Bry
+  '67y': 'Bry', '67Y': 'Bry',
+  // Dig
+  'dsg': 'Dig', 'dSg': 'Dig',
+  // Nat-m
+  'natn': 'Nat-m', 'Natn': 'Nat-m', '#ua-m': 'Nat-m',
+  // Sulph (more)
+  'Sw/ph': 'Sulph', 'sw/ph': 'Sulph',
+  // Mur-ac
+  'MQ@uc': 'Mur-ac', 'mq@uc': 'Mur-ac',
+  // Nux-m
+  '#ax-m2': 'Nux-m', '#Ax-m2': 'Nux-m',
+  // Abrot
+  'Aérof': 'Abrot', 'aérof': 'Abrot',
+  // Crot-l
+  'crol-L': 'Crot-l', 'Crol-L': 'Crot-l', 'crol-l': 'Crot-l',
+  // Elat
+  'elal': 'Elat', 'Elal': 'Elat',
+  // Ass (arsen)
+  'ass': 'Ars',
+  // Laur
+  'lanr': 'Laur', 'Lanr': 'Laur',
+  // Guaj
+  'g»aj': 'Guaj', 'G»aj': 'Guaj',
+  // Plb
+  'pib': 'Plb', 'Pib': 'Plb',
+  // Ptel
+  'plel': 'Ptel', 'Plel': 'Ptel',
+  // Am-c
+  'aw': 'Am-c',
+  // Hydr
+  'hydre': 'Hydr',
+  // Cupr-ac
+  'cupr-ac': 'Cupr-ac',
+  // Labac (tabac)
+  'labac': 'Tabac', 'Labac': 'Tabac',
+  // Anr (aur)
+  'anr': 'Aur',
+  // Sfaph (staph)
+  'sfaph': 'Staph', 'Sfaph': 'Staph',
+  // Calc-ph (calc-p)
+  'caleph': 'Calc-p', 'Caleph': 'Calc-p',
+  // Murx
+  'Murx': 'Murx',
 };
 
 /**
@@ -539,16 +602,23 @@ const parseImageWithTesseract = async (imagePath) => {
       ? await parseColumnTextWithGroq(leftText,  'left',  '',             detectedChapter)
       : null;
 
+    // Pass the last rubric from the left column as context to the right column.
+    // This prevents Groq from inventing a new rubric name (e.g. "JONSTIPATION")
+    // when the right column is a continuation of the left column's last rubric.
+    const leftRows = convertGroqJsonToRows(leftJson);
+    const lastLeftRubric = leftRows.length > 0
+      ? (leftRows[leftRows.length - 1]?.rubric_en || '')
+      : '';
+
     // Brief pause between API calls to stay within per-minute token limits
     if (leftJson && rightText.trim().length > 30) {
       await new Promise(r => setTimeout(r, 1200));
     }
 
     const rightJson = rightText.trim().length > 30
-      ? await parseColumnTextWithGroq(rightText, 'right', '', detectedChapter)
+      ? await parseColumnTextWithGroq(rightText, 'right', lastLeftRubric, detectedChapter)
       : null;
 
-    const leftRows = convertGroqJsonToRows(leftJson);
     const rightRows = convertGroqJsonToRows(rightJson);
 
     if (leftRows.length > 0) {
@@ -556,8 +626,7 @@ const parseImageWithTesseract = async (imagePath) => {
       groqSuccess = true;
       console.log(`[Kent Multi-Column Parser] Left column: ${leftRows.length} rows extracted via Groq.`);
 
-      // Attach overflow from right column if right column started with continuation under last left rubric
-      const lastLeftRubric = leftRows[leftRows.length - 1]?.rubric_en || '';
+      // Fix CONTINUATION/UNKNOWN rubrics in right column that should inherit last left rubric
       if (rightRows.length > 0 && lastLeftRubric) {
         for (const rRow of rightRows) {
           if (rRow.rubric_en && (rRow.rubric_en.includes('CONTINUATION') || rRow.rubric_en === 'UNKNOWN')) {
