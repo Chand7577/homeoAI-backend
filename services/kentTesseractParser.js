@@ -176,20 +176,16 @@ const extractChapterFromHeader = (ocrText) => {
     return null;
   };
 
-  // Pass 1: scan the first 15 lines
-  for (const lineText of scanLines) {
+  // Scan the first 10 lines — chapter header only appears near the top.
+  // Scanning further risks matching rubric headings (e.g. "CONSTIPATION" rubric
+  // inside a RECTUM page) and misidentifying the chapter.
+  for (const lineText of scanLines.slice(0, 10)) {
     const result = tryMatch(lineText);
     if (result) return result;
   }
 
-  // Pass 2 (last resort): scan ALL lines of the full OCR text
-  // The chapter header sometimes appears mid-text if top-strip crops oddly
-  const allLines = lines.map(l => l.toUpperCase().trim());
-  for (const lineText of allLines) {
-    const result = tryMatch(lineText);
-    if (result) return result;
-  }
-
+  // If not found in top-strip, return UNKNOWN — Groq auto-detect will infer
+  // the chapter from rubric content (see chapterInstruction in parseColumnTextWithGroq).
   return 'UNKNOWN';
 };
 
