@@ -256,12 +256,12 @@ ${contextInstruction}${chapterInstruction}
 RAW OCR TEXT TO PARSE:
 ${rawText}`;
 
-    // Model cascade: 8b-instant (fast) → llama-4-scout (high TPD) → 70b-versatile (last resort)
-    // NOTE: gemma2-9b-it was DECOMMISSIONED by Groq — replaced with llama-4-scout
+    // Model cascade: 70b-versatile (primary, stable) → 8b-instant (fast fallback)
+    // NOTE: llama-4-scout-17b-16e-instruct was REMOVED by Groq (404). llama-3.1-8b-instant
+    // may hit rate limits (429) under high load — so 70b-versatile is the reliable primary.
     const modelCascade = [
-      'llama-3.1-8b-instant',
-      'meta-llama/llama-4-scout-17b-16e-instruct',
-      'llama-3.3-70b-versatile'
+      'llama-3.3-70b-versatile',
+      'llama-3.1-8b-instant'
     ];
 
     let completion = null;
@@ -280,7 +280,8 @@ ${rawText}`;
         lastErr = e;
         const isRetryable = e.message.includes('413') || e.message.includes('429')
           || e.message.includes('rate_limit') || e.message.includes('too large')
-          || e.message.includes('decommissioned') || e.message.includes('not supported');
+          || e.message.includes('decommissioned') || e.message.includes('not supported')
+          || e.message.includes('does not exist') || e.message.includes('model_not_found');
         if (isRetryable) {
           console.warn(`[Groq Structurer] ${model} unavailable (${e.message.slice(0, 80)}), trying next model...`);
         } else {
