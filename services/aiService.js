@@ -150,7 +150,7 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
       )
         .select('_id chapter rubric subrubric modalities synonyms searchText medicines')
         .sort({ score: { $meta: 'textScore' } })
-        .limit(10)
+        .limit(15) // 15 candidates per symptom → up to 9×15=135 before dedup
         .lean();
     } catch (e) {
       console.error('Text query failed:', e.message);
@@ -159,8 +159,8 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
   }));
 
   candidateGroups.flat().forEach(m => {
-    // Reduced from 40 to 25 for faster AI processing with less prompt overhead
-    if (candidateMap.size < 25) candidateMap.set(m._id.toString(), m);
+    // Cap at 75 total: enough for 9 symptoms × 15 candidates each (post dedup)
+    if (candidateMap.size < 75) candidateMap.set(m._id.toString(), m);
   });
 
 
@@ -218,7 +218,7 @@ Return ONLY a valid JSON object with this structure:
     generationConfig: {
       temperature: 0.3,
       responseMimeType: "application/json",
-      maxOutputTokens: 600
+      maxOutputTokens: 1500 // Enough for up to 9 symptom matches without truncation
     }
   });
 
