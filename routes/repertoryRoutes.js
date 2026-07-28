@@ -6,7 +6,7 @@ const {
   uploadPDF, uploadPDFFile, updateChapterPages,
   getRepertoryChapters, streamPDF
 } = require('../controllers/repertoryController');
-const { authenticate, requireAdmin } = require('../middleware/auth');
+const { authenticate, requireAdmin, requireClinicalUser } = require('../middleware/auth');
 
 router.use(authenticate);
 
