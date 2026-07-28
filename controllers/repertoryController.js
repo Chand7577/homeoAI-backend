@@ -369,8 +369,11 @@ const streamPDF = async (req, res) => {
     );
   }
 
+  // Allow iframe embedding from same origin
+  res.removeHeader('X-Frame-Options'); // Remove the DENY header set by app.js
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="${repertory.pdfName || 'manual.pdf'}"`);
+  res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
   fs.createReadStream(filePath).pipe(res);
 };
 
