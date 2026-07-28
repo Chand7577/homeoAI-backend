@@ -131,45 +131,63 @@ const extractChapterFromHeader = (ocrText) => {
     'SKIN', 'EYE', 'EAR', 'COUGH'
   ];
 
-  // Scan the first 10 lines — chapter header can appear as centered running head
-  // which Tesseract may place anywhere in the first several lines after column crop
-  const scanLines = lines.slice(0, 10).map(l => l.toUpperCase().trim());
+  /**
+   * Helper: strip spaces between single letters (e.g. "R E C T U M" → "RECTUM")
+   * and remove decorative characters like dots, dashes, underscores.
+   */
+  const deSpace = (s) => s.replace(/(?<=\b[A-Z])\s+(?=[A-Z]\b)/g, '').replace(/[.\-_·•]+/g, '').trim();
 
-  for (const lineText of scanLines) {
-    // 1. Exact match (e.g. "RECTUM" or "EAR")
-    if (knownChapters.includes(lineText)) {
-      return cleanChapterName(lineText);
-    }
+  // Try up to 15 lines; chapter header can appear anywhere near the top
+  const scanLines = lines.slice(0, 15).map(l => l.toUpperCase().trim());
+
+  const tryMatch = (lineText) => {
+    // 1. Exact match
+    if (knownChapters.includes(lineText)) return cleanChapterName(lineText);
 
     // 2. Starts-with match (e.g. "RECTUM." or "EAR 608")
-    //    CRITICAL: next char after chapter name must NOT be a comma — that
-    //    would mean it's a rubric qualifier like "STOOL, during:" not the chapter header
+    //    Next char must NOT be comma (that would be a rubric qualifier)
     for (const chapter of knownChapters) {
       if (lineText.startsWith(chapter)) {
-        const nextChar = lineText[chapter.length]; // char immediately after chapter name
-        const isStandaloneHeader = !nextChar || nextChar === '.' || nextChar === ' ' || nextChar === ':';
-        if (isStandaloneHeader) {
+        const nextChar = lineText[chapter.length];
+        if (!nextChar || nextChar === '.' || nextChar === ' ' || nextChar === ':') {
           return cleanChapterName(chapter);
         }
       }
     }
 
-    // 3. Whole-word regex — ONLY on short lines (≤ chapter + 5 chars)
-    //    Prevents matching "STOOL" inside "STOOL, during: Ant-c, Nit-ac..."
+    // 3. Whole-word regex — only on short lines to avoid false positives
     for (const chapter of knownChapters) {
       if (lineText.length <= chapter.length + 5) {
         const pattern = new RegExp(`\\b${chapter}\\b`, 'i');
-        if (pattern.test(lineText)) {
-          return cleanChapterName(chapter);
-        }
+        if (pattern.test(lineText)) return cleanChapterName(chapter);
       }
     }
 
-    // 4. Try after cleaning OCR artifacts from the line
+    // 4. After cleaning OCR artifacts
     const cleanedLine = cleanChapterName(lineText);
-    if (knownChapters.includes(cleanedLine)) {
-      return cleanedLine;
-    }
+    if (knownChapters.includes(cleanedLine)) return cleanedLine;
+
+    // 5. De-spaced version (e.g. "R E C T U M" → "RECTUM")
+    const deSpaced = deSpace(lineText);
+    if (knownChapters.includes(deSpaced)) return cleanChapterName(deSpaced);
+    const cleanedDeSpaced = cleanChapterName(deSpaced);
+    if (knownChapters.includes(cleanedDeSpaced)) return cleanedDeSpaced;
+
+    return null;
+  };
+
+  // Pass 1: scan the first 15 lines
+  for (const lineText of scanLines) {
+    const result = tryMatch(lineText);
+    if (result) return result;
+  }
+
+  // Pass 2 (last resort): scan ALL lines of the full OCR text
+  // The chapter header sometimes appears mid-text if top-strip crops oddly
+  const allLines = lines.map(l => l.toUpperCase().trim());
+  for (const lineText of allLines) {
+    const result = tryMatch(lineText);
+    if (result) return result;
   }
 
   return 'UNKNOWN';
@@ -208,7 +226,7 @@ const parseColumnTextWithGroq = async (rawText, columnSide = 'left', lastRubricC
     
     const chapterInstruction = detectedChapter && detectedChapter !== 'UNKNOWN'
       ? `\n\n⚠️ CRITICAL CHAPTER ENFORCEMENT:\nThe page header indicates this is the "${detectedChapter}" chapter.\nYou MUST prefix ALL rubric paths with "${detectedChapter} - " at the beginning.\nExample: If you see "PAIN, pressing - evening", output: "${detectedChapter} - PAIN, pressing - evening"\n`
-      : '';
+      : `\n\n⚠️ CHAPTER AUTO-DETECT REQUIRED:\nThe chapter header could not be read from the page scan. You MUST infer the chapter name from the rubric content (e.g. ABSCESS, CHOLERA, CONSTIPATION → "RECTUM"; PAIN, NOISES, DISCHARGE → context-dependent).\nSet chapter_en to the correct Kent's Repertory chapter name (e.g. "RECTUM", "ABDOMEN", "EAR", etc.).\nPrefix ALL rubric_en paths with that detected chapter name + " - ".\nNEVER output "UNKNOWN" as the chapter.\n`;
 
     const prompt = `You are a medical data extraction & spell-correction expert structuring raw Kent's Repertory OCR text from the ${columnSide.toUpperCase()} column.
 ${contextInstruction}${chapterInstruction}
