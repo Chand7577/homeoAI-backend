@@ -195,31 +195,25 @@ const uploadPDFFile = async (req, res) => {
       console.log('Users can manually map medicine names using the UI');
     }
 
-    // 2. Decide storage strategy based on file size (Cloudinary free tier limit is 10MB)
-    const MAX_CLOUDINARY_SIZE = 10 * 1024 * 1024; // 10MB
-    const useLocal = req.file.size >= MAX_CLOUDINARY_SIZE;
-    
+    // 2. Try uploading to Cloudinary (with chunked upload for large files)
+    // Cloudinary free tier supports files up to 100MB with chunked upload
     let pdfUrl = '';
     let isCloudinary = false;
     let cloudinaryResult = null;
 
-    if (useLocal) {
-      console.log(`💾 File size (${(req.file.size / 1024 / 1024).toFixed(2)} MB) exceeds Cloudinary 10MB limit.`);
-      console.log(`⚠️  WARNING: On Render free tier, local storage is ephemeral (deleted on restart).`);
-      console.log(`💡 SOLUTION: Upload this PDF to Google Drive/Dropbox and use "Set External PDF URL" feature instead.`);
+    try {
+      const { uploadPDFToCloudinary } = require('../services/uploadService');
+      const fileSizeInMB = req.file.size / (1024 * 1024);
+      console.log(`☁️ Attempting Cloudinary upload for ${fileSizeInMB.toFixed(2)} MB PDF...`);
+      
+      cloudinaryResult = await uploadPDFToCloudinary(req.file.path, req.file.originalname);
+      console.log('✅ Cloudinary upload complete:', cloudinaryResult.url);
+      pdfUrl = cloudinaryResult.url;
+      isCloudinary = true;
+    } catch (cloudinaryError) {
+      console.error('⚠️ Cloudinary upload failed, falling back to local server storage:', cloudinaryError.message);
+      console.log(`💾 File will be stored locally (ephemeral on Render free tier)`);
       pdfUrl = `/uploads/${req.file.filename}`;
-    } else {
-      try {
-        const { uploadPDFToCloudinary } = require('../services/uploadService');
-        console.log('☁️ Uploading PDF to Cloudinary...');
-        cloudinaryResult = await uploadPDFToCloudinary(req.file.path, req.file.originalname);
-        console.log('✅ Cloudinary upload complete:', cloudinaryResult.url);
-        pdfUrl = cloudinaryResult.url;
-        isCloudinary = true;
-      } catch (cloudinaryError) {
-        console.error('⚠️ Cloudinary upload failed, falling back to local server storage:', cloudinaryError.message);
-        pdfUrl = `/uploads/${req.file.filename}`;
-      }
     }
 
     // 3. Delete old Cloudinary file if exists and we successfully moved to a new Cloudinary upload

@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * Upload PDF to Cloudinary with optimizations
+ * Upload PDF to Cloudinary with optimizations and chunked upload for large files
  * @param {string} filePath - Local file path
  * @param {string} originalName - Original file name
  * @returns {Promise<object>} Upload result with URL and public_id
@@ -14,11 +14,25 @@ const uploadPDFToCloudinary = async (filePath, originalName) => {
     const timestamp = Date.now();
     const sanitizedName = originalName.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9-_]/g, '_');
     
-    const result = await cloudinary.uploader.upload(filePath, {
+    // Get file size to determine if chunked upload is needed
+    const stats = fs.statSync(filePath);
+    const fileSizeInMB = stats.size / (1024 * 1024);
+    console.log(`📊 File size: ${fileSizeInMB.toFixed(2)} MB`);
+    
+    const uploadOptions = {
       folder: 'homeo-repertory-pdfs',
-      resource_type: 'image',
+      resource_type: 'raw', // Use 'raw' for PDFs, not 'image'
       public_id: `${timestamp}-${sanitizedName}`,
-    });
+      timeout: 600000, // 10 minute timeout for large files
+    };
+    
+    // For files > 10MB, use chunked upload
+    if (fileSizeInMB > 10) {
+      console.log(`⚡ Using chunked upload for large file (${fileSizeInMB.toFixed(2)} MB)`);
+      uploadOptions.chunk_size = 6000000; // 6MB chunks
+    }
+    
+    const result = await cloudinary.uploader.upload(filePath, uploadOptions);
 
     console.log(`☁️ Cloudinary upload success. URL: ${result.secure_url}`);
 
