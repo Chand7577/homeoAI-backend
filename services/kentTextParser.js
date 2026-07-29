@@ -128,13 +128,20 @@ const parseKentOcrText = (ocrText) => {
       }
     }
     
-    // Detect main rubric (ALL CAPS with period, e.g., "NOISES.")
-    if (/^[A-Z\s]+\.$/.test(trimmed) && trimmed.length < 30) {
+    // Detect main rubric (ALL CAPS, with or without period, e.g., "NOISES." or "SLEEP")
+    // Must be: all uppercase, no colon, not too long, and typically low indent
+    if (/^[A-Z\s]+\.?$/.test(trimmed) && !trimmed.includes(':') && trimmed.length >= 3 && trimmed.length < 30 && indent < 4) {
+      // Save previous medicines before starting new main rubric
+      if (collectingMedicines && medicineBuffer) {
+        saveMedicines(medicineBuffer, currentChapter, rubricStack, results, seenKeys);
+      }
+      
       const mainRubric = trimmed.replace(/\.$/, '').trim();
       rubricStack = [mainRubric]; // Reset stack with new main rubric
       console.log(`[Kent Parser] 📌 Main Rubric: ${mainRubric}`);
       medicineBuffer = '';
       collectingMedicines = false;
+      lastIndentLevel = 0;
       continue;
     }
     
@@ -150,13 +157,51 @@ const parseKentOcrText = (ocrText) => {
       const rubricPart = trimmed.substring(0, colonIndex).trim();
       const medicinesPart = trimmed.substring(colonIndex + 1).trim();
       
+      // Check if rubric starts with ALL CAPS main rubric (e.g., "SLEEP, on going to" where "SLEEP" is main rubric)
+      // OR starts with ALL CAPS word followed by space and lowercase (e.g., "STAGGERING with", "STANDING while")
+      const firstComma = rubricPart.indexOf(',');
+      const firstSpace = rubricPart.indexOf(' ');
+      let isMainRubricWithSub = false;
+      let extractedMain = '';
+      let extractedSub = '';
+      
+      if (firstComma > 0) {
+        // Case 1: "SLEEP, on going to" format with comma
+        const beforeComma = rubricPart.substring(0, firstComma).trim();
+        const afterComma = rubricPart.substring(firstComma + 1).trim();
+        
+        // Check if the part before comma is ALL CAPS (main rubric)
+        if (/^[A-Z\s]+$/.test(beforeComma) && beforeComma.length >= 3 && beforeComma.length < 25) {
+          isMainRubricWithSub = true;
+          extractedMain = beforeComma;
+          extractedSub = afterComma;
+        }
+      } else if (firstSpace > 0) {
+        // Case 2: "STAGGERING with" format with space (no comma)
+        const beforeSpace = rubricPart.substring(0, firstSpace).trim();
+        const afterSpace = rubricPart.substring(firstSpace + 1).trim();
+        
+        // Check if the part before space is ALL CAPS (main rubric) and after is lowercase (sub)
+        if (/^[A-Z\s]+$/.test(beforeSpace) && beforeSpace.length >= 3 && beforeSpace.length < 25 && /^[a-z]/.test(afterSpace)) {
+          isMainRubricWithSub = true;
+          extractedMain = beforeSpace;
+          extractedSub = afterSpace;
+        }
+      }
+      
       // Determine hierarchy based on indentation
       const indentLevel = Math.floor(indent / 2); // Each 2 spaces = 1 level
       
-      // Adjust rubric stack based on indentation
-      if (rubricStack.length === 0) {
-        // No main rubric set yet - this rubric becomes the only entry
+      // Check if rubricPart is itself a standalone main rubric (ALL CAPS like "SMOKING")
+      const isStandaloneMainRubric = !rubricPart.includes(',') && !rubricPart.includes(' ') && /^[A-Z\s]+$/.test(rubricPart) && rubricPart.length >= 3 && rubricPart.length < 25;
+      
+      // Adjust rubric stack based on indentation and rubric type
+      if (rubricStack.length === 0 || isStandaloneMainRubric) {
+        // No main rubric set yet OR this IS a standalone main rubric - becomes the only entry
         rubricStack = [rubricPart];
+      } else if (isMainRubricWithSub) {
+        // This line has "MAIN RUBRIC, sub-rubric" format - set stack accordingly
+        rubricStack = [extractedMain, extractedSub];
       } else if (indentLevel === 0) {
         // Same level as main rubric - keep main rubric, replace sub-rubric
         // rubricStack has ["NOISES"], we want ["NOISES", "hissing"]
@@ -165,7 +210,7 @@ const parseKentOcrText = (ocrText) => {
       } else {
         // Indented sub-rubric: maintain hierarchy depth
         // indentLevel tells us how deep we are
-        // We want rubricStack.length = indentLevel + 2 (main + parent + this)
+        // We want rubricStack.length = indentLevel + 1 (main + parent + this)
         rubricStack = rubricStack.slice(0, indentLevel + 1);
         rubricStack.push(rubricPart);
       }
