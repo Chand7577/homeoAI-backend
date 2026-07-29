@@ -1,5 +1,6 @@
 const Rubric = require('../models/Rubric');
 const Repertory = require('../models/Repertory');
+const mongoose = require('mongoose');
 
 // GET /api/rubrics?repertoryId=&chapter=&page=&limit=
 const getRubrics = async (req, res) => {
@@ -23,22 +24,24 @@ const getChapters = async (req, res) => {
   const { repertoryId } = req.query;
   if (!repertoryId) { res.status(400); throw new Error('repertoryId is required'); }
   
-  // Only look at the repertory's chapterPages map keys (never the excel rubrics)
-  let chapters = [];
-  const repertory = await Repertory.findById(repertoryId);
-  if (repertory) {
-    const srcMap = repertory.chapterPages instanceof Map 
-      ? Object.fromEntries(repertory.chapterPages) 
-      : (repertory.chapterPages || {});
-      
-    const keys = Object.keys(srcMap);
-    if (keys.length > 0) {
-      chapters = keys;
-    }
-    // No fallback - only return chapters that actually exist in the uploaded repertory
-  }
+  // Get unique chapters from rubrics with counts
+  const chapterStats = await Rubric.aggregate([
+    { $match: { repertoryId: mongoose.Types.ObjectId(repertoryId) } },
+    { $group: {
+        _id: '$chapter.en',
+        rubricCount: { $sum: 1 }
+      }
+    },
+    { $project: {
+        _id: 0,
+        chapterEn: '$_id',
+        rubricCount: 1
+      }
+    },
+    { $sort: { chapterEn: 1 } }
+  ]);
 
-  res.json({ success: true, data: chapters.sort() });
+  res.json({ success: true, data: chapterStats });
 };
 
 // POST /api/rubrics
