@@ -204,7 +204,9 @@ const uploadPDFFile = async (req, res) => {
     let cloudinaryResult = null;
 
     if (useLocal) {
-      console.log(`💾 File size (${(req.file.size / 1024 / 1024).toFixed(2)} MB) exceeds Cloudinary 10MB limit. Storing locally on the server.`);
+      console.log(`💾 File size (${(req.file.size / 1024 / 1024).toFixed(2)} MB) exceeds Cloudinary 10MB limit.`);
+      console.log(`⚠️  WARNING: On Render free tier, local storage is ephemeral (deleted on restart).`);
+      console.log(`💡 SOLUTION: Upload this PDF to Google Drive/Dropbox and use "Set External PDF URL" feature instead.`);
       pdfUrl = `/uploads/${req.file.filename}`;
     } else {
       try {
@@ -347,6 +349,65 @@ const getRepertoryChapters = async (req, res) => {
   res.json({ success: true, data: chapters });
 };
 
+// PUT /api/repertories/:id/external-pdf-url - Set external PDF URL (Google Drive, Dropbox, etc.)
+const setExternalPdfUrl = async (req, res) => {
+  const { url } = req.body;
+  
+  if (!url || !url.startsWith('http')) {
+    res.status(400);
+    throw new Error('Valid external URL is required (must start with http:// or https://)');
+  }
+
+  const repertory = await Repertory.findById(req.params.id);
+  if (!repertory) {
+    res.status(404);
+    throw new Error('Repertory not found');
+  }
+
+  // Convert Google Drive/Dropbox sharing links to direct download links
+  let directUrl = url;
+  
+  // Google Drive: Convert sharing link to direct download link
+  // From: https://drive.google.com/file/d/FILE_ID/view?usp=sharing
+  // To: https://drive.google.com/uc?export=download&id=FILE_ID
+  if (url.includes('drive.google.com')) {
+    const fileIdMatch = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (fileIdMatch) {
+      directUrl = `https://drive.google.com/uc?export=download&id=${fileIdMatch[1]}`;
+      console.log('🔗 Converted Google Drive link to direct download URL');
+    }
+  }
+  
+  // Dropbox: Add dl=1 parameter for direct download
+  // From: https://www.dropbox.com/s/...?dl=0
+  // To: https://www.dropbox.com/s/...?dl=1
+  if (url.includes('dropbox.com')) {
+    directUrl = url.replace('dl=0', 'dl=1');
+    if (!directUrl.includes('dl=')) {
+      directUrl += (directUrl.includes('?') ? '&' : '?') + 'dl=1';
+    }
+    console.log('🔗 Converted Dropbox link to direct download URL');
+  }
+
+  // Update repertory with external URL
+  repertory.pdfUrl = directUrl;
+  repertory.cloudinaryPdfUrl = ''; // Clear Cloudinary URL if set
+  repertory.pdfName = req.body.fileName || path.basename(url);
+  
+  await repertory.save();
+
+  console.log(`✅ External PDF URL set for ${repertory.name}: ${directUrl}`);
+
+  res.json({
+    success: true,
+    message: 'External PDF URL set successfully',
+    data: {
+      pdfUrl: directUrl,
+      pdfName: repertory.pdfName
+    }
+  });
+};
+
 // GET /api/repertories/:id/view-pdf
 const streamPDF = async (req, res) => {
   const repertory = await Repertory.findById(req.params.id);
@@ -354,7 +415,7 @@ const streamPDF = async (req, res) => {
     return res.status(404).send('PDF not found');
   }
 
-  // If Cloudinary URL, redirect to it directly
+  // If Cloudinary URL or external URL, redirect to it directly
   if (repertory.pdfUrl.startsWith('http')) {
     return res.redirect(repertory.pdfUrl);
   }
@@ -365,7 +426,7 @@ const streamPDF = async (req, res) => {
 
   if (!fs.existsSync(filePath)) {
     return res.status(404).send(
-      'File no longer exists on server storage. Render free tier resets disk storage when sleeping. Please re-upload the PDF file.'
+      'File no longer exists on server storage. Render free tier resets disk storage when sleeping. Please re-upload the PDF file or use "Set External PDF URL" feature.'
     );
   }
 
@@ -388,5 +449,6 @@ module.exports = {
   uploadPDFFile, 
   updateChapterPages,
   getRepertoryChapters,
-  streamPDF
+  streamPDF,
+  setExternalPdfUrl
 };

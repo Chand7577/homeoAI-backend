@@ -4,7 +4,7 @@ const {
   getRepertories, getRepertory, createRepertory,
   uploadExcel, deleteRepertory, upload,
   uploadPDF, uploadPDFFile, updateChapterPages,
-  getRepertoryChapters, streamPDF
+  getRepertoryChapters, streamPDF, setExternalPdfUrl
 } = require('../controllers/repertoryController');
 const { authenticate, requireAdmin, requireClinicalUser } = require('../middleware/auth');
 
@@ -24,6 +24,7 @@ router.post('/:id/upload', (req, res, next) => {
 }, requireAdmin, upload.single('file'), uploadExcel);
 
 router.post('/:id/upload-pdf',   requireClinicalUser, uploadPDF.single('pdf'), uploadPDFFile); // Allow clinical users
+router.put('/:id/external-pdf-url', requireClinicalUser, setExternalPdfUrl); // Set external PDF URL (Google Drive, Dropbox)
 router.put('/:id/chapter-pages', authenticate, updateChapterPages); // Allow all authenticated users to update chapter pages
 router.delete('/:id',            requireAdmin, deleteRepertory);
 
