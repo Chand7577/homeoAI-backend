@@ -26,7 +26,7 @@ const getChapters = async (req, res) => {
   
   // Get unique chapters from rubrics with counts
   const chapterStats = await Rubric.aggregate([
-    { $match: { repertoryId: mongoose.Types.ObjectId(repertoryId) } },
+    { $match: { repertoryId: new mongoose.Types.ObjectId(repertoryId) } },
     { $group: {
         _id: '$chapter.en',
         rubricCount: { $sum: 1 }
