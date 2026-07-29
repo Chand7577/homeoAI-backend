@@ -128,15 +128,19 @@ const parseKentOcrText = (ocrText) => {
       }
     }
     
-    // Detect main rubric (ALL CAPS, with or without period, e.g., "NOISES." or "SLEEP")
-    // Must be: all uppercase, no colon, not too long, and typically low indent
-    if (/^[A-Z\s]+\.?$/.test(trimmed) && !trimmed.includes(':') && trimmed.length >= 3 && trimmed.length < 30 && indent < 4) {
+    // Detect main rubric (ALL CAPS, with or without period/colon, e.g., "NOISES." or "SLEEP" or "ANSWERS:")
+    // Must be: all uppercase, not too long, and typically low indent
+    // Special case: "ANSWERS:" or "ANGER:" (main rubric with colon but no medicines on same line)
+    const isMainRubricWithColon = /^[A-Z\s]+:$/.test(trimmed) && trimmed.length >= 3 && trimmed.length < 30 && indent < 4;
+    const isMainRubricWithoutColon = /^[A-Z\s]+\.?$/.test(trimmed) && !trimmed.includes(':') && trimmed.length >= 3 && trimmed.length < 30 && indent < 4;
+    
+    if (isMainRubricWithColon || isMainRubricWithoutColon) {
       // Save previous medicines before starting new main rubric
       if (collectingMedicines && medicineBuffer) {
         saveMedicines(medicineBuffer, currentChapter, rubricStack, results, seenKeys);
       }
       
-      const mainRubric = trimmed.replace(/\.$/, '').trim();
+      const mainRubric = trimmed.replace(/[.:]$/, '').trim();
       rubricStack = [mainRubric]; // Reset stack with new main rubric
       console.log(`[Kent Parser] 📌 Main Rubric: ${mainRubric}`);
       medicineBuffer = '';
