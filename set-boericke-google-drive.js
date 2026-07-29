@@ -30,7 +30,7 @@ async function setBoerickeGoogleDrive() {
     // Google Drive link from user
     const googleDriveLink = 'https://drive.google.com/file/d/1HPgo_A0xpzze-GiIqH2CktiAHQmJdnaf/view?usp=sharing';
     
-    // Extract file ID and convert to embedded preview link (not download)
+    // Extract file ID and convert to direct download URL (frontend iframe can append #page=X)
     const fileIdMatch = googleDriveLink.match(/\/d\/([a-zA-Z0-9_-]+)/);
     if (!fileIdMatch) {
       console.log('❌ Could not extract file ID from Google Drive link');
@@ -38,10 +38,10 @@ async function setBoerickeGoogleDrive() {
     }
     
     const fileId = fileIdMatch[1];
-    const directUrl = `https://drive.google.com/file/d/${fileId}/preview`;
+    const directUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
     
     console.log(`\n🔗 Original link: ${googleDriveLink}`);
-    console.log(`🔗 Embedded preview URL: ${directUrl}`);
+    console.log(`🔗 Direct URL for iframe: ${directUrl}`);
 
     // Update repertory
     boericke.pdfUrl = directUrl;

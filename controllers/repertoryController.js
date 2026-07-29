@@ -364,17 +364,19 @@ const setExternalPdfUrl = async (req, res) => {
     throw new Error('Repertory not found');
   }
 
-  // Convert Google Drive/Dropbox sharing links to direct embed/preview links
+  // Convert Google Drive/Dropbox sharing links to viewable URLs
   let directUrl = url;
   
-  // Google Drive: Convert sharing link to embedded viewer (not download)
+  // Google Drive: Use Google Docs Viewer for better page navigation support
   // From: https://drive.google.com/file/d/FILE_ID/view?usp=sharing
-  // To: https://drive.google.com/file/d/FILE_ID/preview
+  // To: https://docs.google.com/viewer?url=https://drive.google.com/uc?export=download&id=FILE_ID
+  // OR keep direct link for iframe embedding with custom viewer
   if (url.includes('drive.google.com')) {
     const fileIdMatch = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
     if (fileIdMatch) {
-      directUrl = `https://drive.google.com/file/d/${fileIdMatch[1]}/preview`;
-      console.log('🔗 Converted Google Drive link to embedded preview URL');
+      // Use direct download URL - frontend will handle page navigation via iframe reload
+      directUrl = `https://drive.google.com/uc?export=download&id=${fileIdMatch[1]}`;
+      console.log('🔗 Converted Google Drive link to direct download URL for iframe embedding');
     }
   }
   
