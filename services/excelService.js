@@ -574,6 +574,29 @@ const parseExcel = async (buffer) => {
     totalRowsAcrossSheets += sheetRowCount;
     console.log(`📊 Sheet has ${sheetRowCount} rows`);
     
+    // Filter out rows that look like header rows (duplicates in data section)
+    rawRows = rawRows.filter(row => {
+      // Check if this row looks like a header row
+      const rowValues = Object.values(row).map(v => String(v).toLowerCase().trim());
+      const headerKeywords = ['chapter', 'rubric', 'sub-rubric', 'subrubric', 'medicine', 'grade', 'synonym', 'aggravation', 'amelioration'];
+      
+      // Count how many cells match header keywords
+      const headerMatches = rowValues.filter(val => 
+        headerKeywords.some(keyword => val.includes(keyword))
+      ).length;
+      
+      // If more than 40% of cells contain header keywords, it's likely a header row
+      const totalCells = rowValues.filter(v => v && v.length > 0).length;
+      if (totalCells > 0 && headerMatches / totalCells >= 0.4) {
+        console.log(`⏭️  Skipping header-like row:`, rowValues.slice(0, 3).join(', '));
+        return false; // Skip this row
+      }
+      
+      return true; // Keep this row
+    });
+    
+    console.log(`📊 After filtering: ${rawRows.length} valid data rows`);
+    
     // Check if this sheet uses row-based medicine format (Medicine | Grade columns at any position)
     const rowBasedCols = detectRowBasedColumns(headers, rawRows);
     
