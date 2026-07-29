@@ -158,8 +158,11 @@ const parseKentOcrText = (ocrText) => {
       
       // Parse new rubric entry
       const colonIndex = trimmed.indexOf(':');
-      const rubricPart = trimmed.substring(0, colonIndex).trim();
+      let rubricPart = trimmed.substring(0, colonIndex).trim();
       const medicinesPart = trimmed.substring(colonIndex + 1).trim();
+      
+      // Remove cross-references from rubric part (e.g., "difficult stool (see 'Inactivity')" → "difficult stool")
+      rubricPart = rubricPart.replace(/\s*\([Ss]ee\s+['"].*?['"]\)\s*/g, '').trim();
       
       // Check if rubric starts with ALL CAPS main rubric (e.g., "SLEEP, on going to" where "SLEEP" is main rubric)
       // OR starts with ALL CAPS word followed by space and lowercase (e.g., "STAGGERING with", "STANDING while")

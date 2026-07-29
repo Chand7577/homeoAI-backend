@@ -235,6 +235,34 @@ ${contextInstruction}${chapterInstruction}
    - Example: "sitting, while: Cale, Chin." → rubric = "sitting, while" | medicines = "Cale", "Chin"
    - NEVER include medicine names in rubric_en field!
 
+1B. MULTI-LINE RUBRICS & MEDICINES (CRITICAL):
+   - Kent rubrics often span MULTIPLE LINES with medicines continuing on subsequent lines
+   - Example:
+     "menses, before: Ant-c., bry., graph., Kali-c.,
+      lach., mag-c., nat-s., nux-v., Sil., sulph."
+   - Collect ALL medicines from continuation lines (indented lines following the rubric)
+   - Continue until you see a NEW rubric (line with colon) or blank line
+
+1C. CROSS-REFERENCES (MUST INCLUDE):
+   - Lines like "difficult stool (see 'Inactivity')" are VALID rubrics
+   - Extract the rubric part before the cross-reference
+   - Example: "difficult stool (see 'Inactivity'): Æsc., agar., ..." → rubric = "difficult stool"
+   - DO NOT skip these - they are important rubric entries!
+
+1D. STANDALONE RUBRIC LINES:
+   - Some rubrics appear on their own line with medicines on the NEXT line
+   - Example:
+     "painful:"
+     "  Aloe, alum., ang., apis, ..."
+   - These are VALID rubrics - collect them with their medicines
+
+1E. COMPLETE EXTRACTION REQUIREMENT:
+   - You MUST extract EVERY rubric you see in the text
+   - Do NOT skip rubrics that have cross-references like "(See 'xyz')"
+   - Do NOT skip rubrics with medicines on multiple lines
+   - Do NOT skip rubrics with special characters or formatting
+   - GOAL: Extract 100% of rubrics, not just the easy ones!
+
 2. CAPITALIZATION = GRADE 3 (BOLD):
    - In Kent's Repertory text OCR, if a medicine abbreviation STARTS WITH A CAPITAL LETTER (e.g., Mag-s, Mang, Lob, Bell, Lach, Cupr, Bor, Cann-i, Aloe, Acon, Spig, Sars, Am-c, Teucr, Calc, Bar-c, Nux-v, Benz-ac, Chin, Lyc, Ferr, All-c, Mez, Kreos, Act-sp, Puls), it is printed in BOLD font in the book. Assign grading = 3.
    - For lowercase medicine abbreviations:
@@ -243,6 +271,7 @@ ${contextInstruction}${chapterInstruction}
 
 3. MEDICINE NAMES:
    - Everything after the colon (:) on a rubric line is medicines. Extract them accurately.
+   - Collect ALL medicines from ALL continuation lines below the rubric
    - Fix obvious OCR typos (e.g. Cale→Calc, Lye→Lyc, Sulpli→Sulph, WUX-V→Nux-v).
    - Clean trailing punctuation from medicine names.
    - Single lowercase abbreviations before a colon (berb, ina, calc) are medicines, NOT rubric qualifiers.
@@ -256,8 +285,10 @@ ${contextInstruction}${chapterInstruction}
 5. HIERARCHY & RUBRIC FORMAT:
    - "CHAPTER - MAIN RUBRIC, qualifier - sub-rubric"
    - Strip everything after colon (:) from rubric name
+   - Remove cross-references like "(See 'xyz')" from rubric name, but keep the base rubric
    - Example raw: "bed, in: Tod." → rubric_en = "${detectedChapter || 'EAR'} - PAIN - bed, in"
    - Example raw: "sitting, while: Cale, Chin." → rubric_en = "${detectedChapter || 'EAR'} - PAIN - sitting, while"
+   - Example raw: "difficult stool (see 'Inactivity'): Æsc., ..." → rubric_en = "${detectedChapter || 'RECTUM'} - CONSTIPATION - difficult stool"
 
 6. OUTPUT SCHEMA: Return ONLY valid JSON matching format:
 {
