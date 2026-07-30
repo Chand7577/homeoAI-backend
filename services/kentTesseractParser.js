@@ -611,6 +611,98 @@ const convertGroqJsonToRows = (parsedJson, fallbackChapter = '') => {
 };
 
 /**
+ * Parse an image directly using OpenAI's gpt-4o-mini Vision API.
+ * Bypasses Tesseract entirely to perfectly preserve indentation and formatting.
+ */
+const parseImageWithOpenAIVision = async (imagePath) => {
+  const fs = require('fs-extra');
+  const https = require('https');
+  const base64Image = fs.readFileSync(imagePath).toString('base64');
+  
+  const prompt = `You are a medical data extraction expert structuring a raw page from Kent's Repertory.
+This page contains TWO columns. You must extract ALL rubrics and medicines from BOTH columns, reading the left column from top to bottom, then the right column from top to bottom.
+
+CRITICAL INSTRUCTIONS:
+1. CHAPTER IDENTIFICATION: Look at the very top of the page. The chapter name is usually in large capital letters (e.g., "RECTUM", "ABDOMEN", "EAR"). You must prefix ALL extracted rubrics with this chapter name (e.g., "RECTUM - PAIN..."). If the chapter isn't visible, infer it from the context (e.g. if the page is full of "STOOL" rubrics, the chapter is "RECTUM" or "STOOL").
+2. HIERARCHY & INDENTATION (VITAL): Kent's Repertory uses visual hanging indents for sub-rubrics. Look closely at the indentation!
+   - Main Rubric (Left aligned)
+     - Sub-rubric 1 (Indented)
+       - Sub-sub-rubric (Further indented)
+   Construct the full path by connecting the parents. Example: "RECTUM - PAIN - stitching, stool - extending to abdomen". Do NOT treat deeply indented words as main rubrics!
+3. RUBRICS vs MEDICINES: A rubric ends with a colon (:). Everything AFTER the colon is a list of medicines. 
+4. GRADING: Medicines starting with a Capital Letter (e.g., Aloe) = Grade 3. Italicized lowercase medicines (e.g., mag-m) = Grade 2. Plain lowercase medicines = Grade 1.
+5. EXHAUSTIVE EXTRACTION: You MUST extract every single rubric and every single medicine on this page. Do not summarize or skip anything.
+6. CONTINUATIONS: Some rubrics span multiple lines. Extract ALL medicines from all wrapped lines.
+7. JSON OUTPUT: Output ONLY a valid JSON object matching this schema:
+{
+  "chapter_en": "DETECTED_CHAPTER",
+  "data": [
+    {
+      "rubric_en": "DETECTED_CHAPTER - MAIN - sub1 - sub2",
+      "medicines": [
+        {"name": "MedName", "grading": 3}
+      ]
+    }
+  ]
+}`;
+
+  const body = JSON.stringify({
+    model: 'gpt-4o-mini',
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: prompt },
+          {
+            type: 'image_url',
+            image_url: {
+              url: `data:image/jpeg;base64,${base64Image}`
+            }
+          }
+        ]
+      }
+    ],
+    temperature: 0.1,
+    max_tokens: 15000,
+    response_format: { type: 'json_object' }
+  });
+
+  const openAIResp = await new Promise((resolve, reject) => {
+    const req = https.request({
+      hostname: 'api.openai.com',
+      path: '/v1/chat/completions',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Length': Buffer.byteLength(body)
+      }
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); }
+        catch (e) { reject(new Error('OpenAI parse error: ' + data.slice(0, 100))); }
+      });
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+
+  if (openAIResp.error) {
+    throw new Error(openAIResp.error.message);
+  }
+
+  if (openAIResp.choices?.[0]?.message?.content) {
+    const parsedJson = JSON.parse(openAIResp.choices[0].message.content);
+    return convertGroqJsonToRows(parsedJson, parsedJson.chapter_en);
+  }
+  
+  return [];
+};
+
+/**
  * Main export: Process Kent Repertory image using Physical Multi-Column Crop + Groq LLM Structuring.
  * Uses deterministic rule-based fallback if Groq API is unavailable.
  *
@@ -621,7 +713,21 @@ const parseImageWithTesseract = async (imagePath) => {
   const tempDir = path.dirname(imagePath);
   console.log(`[Kent Multi-Column Parser] Processing: ${path.basename(imagePath)}`);
 
-  // Step 0: OCR the top strip of the ORIGINAL image first — the chapter running
+  // Step 0: Direct OpenAI Vision Extraction (Primary Pipeline)
+  if (process.env.OPENAI_API_KEY) {
+    try {
+      console.log('[Kent Parser] Attempting direct OpenAI Vision extraction...');
+      const visionRows = await parseImageWithOpenAIVision(imagePath);
+      if (visionRows && visionRows.length > 0) {
+        console.log(`[Kent Parser] ✅ Vision extraction successful! Extracted ${visionRows.length} rubrics.`);
+        return visionRows;
+      }
+    } catch (e) {
+      console.warn(`[Kent Parser] Vision extraction failed (${e.message}). Falling back to Tesseract OCR pipeline...`);
+    }
+  }
+
+  // Step 0.5: OCR the top strip of the ORIGINAL image first — the chapter running
   // header (e.g. "RECTUM.") is CENTERED on the full page. Column splitting cuts
   // it in half, so we must read it before the split.
   let detectedChapter = 'UNKNOWN';
