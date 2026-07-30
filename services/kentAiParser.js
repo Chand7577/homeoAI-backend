@@ -152,13 +152,13 @@ const splitImageForAi = async (imagePath) => {
       leftCropPath,
       rightCropPath,
       cleanup: () => {
-        try { if (fs.existsSync(leftCropPath)) fs.unlinkSync(leftCropPath); } catch (_) {}
-        try { if (fs.existsSync(rightCropPath)) fs.unlinkSync(rightCropPath); } catch (_) {}
+        try { if (fs.existsSync(leftCropPath)) fs.unlinkSync(leftCropPath); } catch (_) { }
+        try { if (fs.existsSync(rightCropPath)) fs.unlinkSync(rightCropPath); } catch (_) { }
       }
     };
   } catch (err) {
     console.warn(`[Kent AI Parser] Sharp column crop warning: ${err.message}`);
-    return { leftCropPath: imagePath, rightCropPath: imagePath, cleanup: () => {} };
+    return { leftCropPath: imagePath, rightCropPath: imagePath, cleanup: () => { } };
   }
 };
 
@@ -174,6 +174,8 @@ const initKentAI = () => {
 
 /**
  * Robustly parse and repair truncated or slightly malformed JSON from AI.
+ * NOTE: now returns { data, wasRepaired } so callers can tell when truncation
+ * repair kicked in (which means rows were likely silently dropped).
  */
 const repairAndParseJson = (rawText) => {
   let text = rawText.trim();
@@ -189,7 +191,7 @@ const repairAndParseJson = (rawText) => {
 
   // Attempt 1: clean parse
   try {
-    return JSON.parse(text);
+    return { data: JSON.parse(text), wasRepaired: false };
   } catch (_) {
     // Attempt 2: repair truncated JSON
     try {
@@ -202,6 +204,7 @@ const repairAndParseJson = (rawText) => {
       else if (lastBraceClose > 0) cutPos = lastBraceClose + 1;
 
       if (cutPos > 0) {
+        const droppedChars = repaired.length - cutPos;
         repaired = repaired.substring(0, cutPos);
         let openBraces = 0, openBrackets = 0;
         let inString = false, escape = false;
@@ -217,7 +220,21 @@ const repairAndParseJson = (rawText) => {
         }
         repaired += ']'.repeat(Math.max(0, openBrackets));
         repaired += '}'.repeat(Math.max(0, openBraces));
-        return JSON.parse(repaired);
+
+        const parsed = JSON.parse(repaired);
+        // IMPORTANT: this is the case that was silently swallowing left-column
+        // rows. If we had to cut characters off the end to get valid JSON,
+        // the model's response was truncated (almost always maxOutputTokens
+        // being hit) and everything after the last complete rubric group was
+        // lost. Surface that loudly instead of pretending it's fine.
+        console.warn(
+          `[Kent AI Parser] ⚠️ JSON was TRUNCATED and repaired. ` +
+          `Dropped ~${droppedChars} trailing chars of the raw response — ` +
+          `this almost always means the model hit its output token limit ` +
+          `mid-column. Any rubrics after the last complete one were lost. ` +
+          `Raw response length was ${rawText.length} chars.`
+        );
+        return { data: parsed, wasRepaired: true };
       }
     } catch (_) { /* fall through */ }
 
@@ -230,6 +247,7 @@ const repairAndParseJson = (rawText) => {
  * @param {string} imagePath - Absolute path to the image
  * @param {string} columnHint - "left", "right", or "all"
  * @param {string} chapterHint - Already-detected chapter name to enforce consistency
+ * @returns {Promise<{text: string, finishReason: string}>}
  */
 const extractColumnPass = async (imagePath, columnHint, lastRubricContext = '') => {
   const model = getVisionModel();
@@ -326,39 +344,71 @@ ${contextInstruction}
    - If the column top starts with a line like "PAIN, tearing." or "COLOR, redness, inside.", this is an INHERITED PARENT HEADER from the previous column.
    - Reconstruct the parent path using the previous column context and append all subsequent sub-rubrics under it until a new flush-left ALL-CAPS rubric appears.
 
-7. MEDICINES & CLINICAL TYPOGRAPHY GRADING:
+7. MEDICINES & CLINICAL TYPOGRAPHY GRADING — TOKEN-EFFICIENT GROUPED OUTPUT (CRITICAL):
    - Capture every remedy abbreviation on every line. Clean off trailing periods.
-   - BOLD ALL CAPS or BOLD remedy (e.g. **Æsc.**, **Nit-ac.**, **Caps.**, **Sulph.**, **Merc.**) = grading 3
-   - ITALIC remedy (e.g. *thuj.*, *mag-m.*, *graph.*, *nat-m.*) = grading 2
-   - NORMAL ROMAN remedy (e.g. berb., calad., canth.) = grading 1
+   - Grade each remedy by its typography: BOLD ALL CAPS or BOLD = grading 3, ITALIC = grading 2, NORMAL ROMAN = grading 1.
+   - DO NOT output one JSON object per remedy. That format burns output tokens fast and causes the response to hit the token limit and truncate partway through a long column, silently losing every rubric after the cutoff.
+   - INSTEAD: for each rubric, group all remedies of the same grading into a SINGLE object, with the remedy names joined by commas in one "name" string. Emit at most 3 objects per rubric (one per grading level that is actually present).
+   - Example — a rubric with remedies "Æsc.(bold), agar., all-c., Alum.(bold), am-c., Am-m.(bold)" must be emitted as:
+     "medicines": [
+       {"name": "Æsc,Alum,Am-m", "grading": 3},
+       {"name": "agar,all-c,am-c", "grading": 1}
+     ]
+     NOT as six separate {"name": "...", "grading": ...} objects.
+   - This grouped format is REQUIRED for every single rubric in this column, especially long ones like "difficult stool" that may list 80+ remedies — grouping keeps the whole column well within the output budget.
 
 8. STANDALONE CROSS-REFERENCES:
    - Skip ONLY lines that contain NO remedies and ONLY a cross reference, e.g. "slips back, stool: (See under 'difficult')". If a line contains medicines (e.g. "difficult stool (see 'Inactivity'): Æsc., agar..."), extract the sub-rubric "difficult stool" with all its remedies!
 
 --- OUTPUT FORMAT ---
-Return ONLY valid JSON matching this structure (no markdown, no preamble):
+Return ONLY valid JSON matching this structure (no markdown, no preamble). Remember: group remedies by grading tier per rubric as shown — do not emit one object per remedy.
 {
   "chapter_en": "DETECTED_CHAPTER_NAME",
   "data": [
     {
       "rubric_en": "MAIN RUBRIC - SUBRUBRIC - QUALIFIER",
       "medicines": [
-        {"name": "remedy_abbreviation", "grading": 1}
+        {"name": "remedy_abbrev1,remedy_abbrev2,...", "grading": 3},
+        {"name": "remedy_abbrev3,remedy_abbrev4,...", "grading": 1}
       ]
     }
   ]
 }`;
 
+  // NOTE: raised from 16000 -> 32000. Even with the token-efficient grouped
+  // medicines format above, dense columns (e.g. a "difficult stool" rubric
+  // with 80+ remedies plus a dozen more rubrics below it) can still be long.
+  // Check your model's actual max output token ceiling and raise this to that
+  // ceiling if 32000 is not high enough / not supported.
   const result = await model.generateContent({
     contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { data: base64Data, mimeType } }] }],
     generationConfig: {
       temperature: 0.1,
-      maxOutputTokens: 16000,
+      maxOutputTokens: 32000,
       responseMimeType: 'application/json'
     }
   });
 
-  return await result.response.text();
+  const response = result.response;
+  const text = await response.text();
+
+  // Surface truncation at the source, not just when JSON parsing later fails.
+  // Gemini-style SDKs expose this on response.candidates[0].finishReason.
+  let finishReason = 'UNKNOWN';
+  try {
+    finishReason = response?.candidates?.[0]?.finishReason || 'UNKNOWN';
+  } catch (_) { /* ignore - some SDK versions may not expose this */ }
+
+  if (finishReason === 'MAX_TOKENS') {
+    console.warn(
+      `[Kent AI Parser] ⚠️ Model stopped due to MAX_TOKENS on a "${columnHint}" pass. ` +
+      `Response length was ${text.length} chars. Content after this point was NOT generated ` +
+      `(this is a hard cutoff, not something repairAndParseJson can recover — increase ` +
+      `maxOutputTokens or split the column crop further).`
+    );
+  }
+
+  return { text, finishReason };
 };
 
 
@@ -389,7 +439,7 @@ const parseImageToStructuredJson = async (imagePath) => {
     }
     clean = clean.replace(/^(?:\[CHAPTER\]|CHAPTER|[A-Z]{3,})\s*-\s*/i, (match) => {
       const prefix = match.replace(/\s*-\s*$/, '').trim().toUpperCase();
-      const KNOWN_CHAPTERS = ['RECTUM','MIND','HEAD','EYE','EAR','NOSE','FACE','MOUTH','THROAT','STOMACH','ABDOMEN','STOOL','URINARY','GENITALIA','RESPIRATION','COUGH','CHEST','BACK','EXTREMITIES','SLEEP','FEVER','SKIN','GENERALITIES','CHAPTER','[CHAPTER]'];
+      const KNOWN_CHAPTERS = ['RECTUM', 'MIND', 'HEAD', 'EYE', 'EAR', 'NOSE', 'FACE', 'MOUTH', 'THROAT', 'STOMACH', 'ABDOMEN', 'STOOL', 'URINARY', 'GENITALIA', 'RESPIRATION', 'COUGH', 'CHEST', 'BACK', 'EXTREMITIES', 'SLEEP', 'FEVER', 'SKIN', 'GENERALITIES', 'CHAPTER', '[CHAPTER]'];
       if (KNOWN_CHAPTERS.includes(prefix)) {
         return '';
       }
@@ -419,7 +469,7 @@ const parseImageToStructuredJson = async (imagePath) => {
     for (const group of (rows || [])) {
       const rubric_en = cleanRubricPath(group.rubric_en || '', currentChapter);
       const rubric_hi = cleanHindiRubricPath(group.rubric_hi || '', '');
-      
+
       // Handle the case where the model still outputs legacy flat rows
       if (group.medicine && typeof group.medicine === 'string') {
         const cleanMed = cleanAndCorrectMedicine(group.medicine);
@@ -438,8 +488,9 @@ const parseImageToStructuredJson = async (imagePath) => {
         }
         continue;
       }
-      
-      // Handle token-efficient grouped format
+
+      // Handle token-efficient grouped format (one object per grading tier,
+      // "name" is a comma-separated list of remedies at that grading)
       for (const medObj of (group.medicines || [])) {
         const medField = (medObj.name || '').trim();
         const meds = medField.includes(',')
@@ -492,14 +543,20 @@ const parseImageToStructuredJson = async (imagePath) => {
     // Pass 1: Left column crop
     try {
       console.log('[Kent AI Parser] Pass 1: Extracting LEFT column crop...');
-      const leftResponse = await extractColumnPass(leftCropPath, 'left');
-      console.log(`[Kent AI Parser] Left column response: ${leftResponse.length} chars`);
+      const { text: leftResponse, finishReason: leftFinishReason } = await extractColumnPass(leftCropPath, 'left');
+      console.log(`[Kent AI Parser] Left column response: ${leftResponse.length} chars, finishReason=${leftFinishReason}`);
       console.log(`[Kent AI Parser] Left response preview: ${leftResponse.substring(0, 200)}`);
-      const leftParsed = repairAndParseJson(leftResponse);
+      const { data: leftParsed, wasRepaired: leftWasRepaired } = repairAndParseJson(leftResponse);
       const { data: leftData, chapter: leftChapter } = extractDataArray(leftParsed);
-      console.log(`[Kent AI Parser] Left column parsed: ${leftData.length} groups, chapter="${leftChapter}"`);
+      console.log(`[Kent AI Parser] Left column parsed: ${leftData.length} groups, chapter="${leftChapter}", truncated=${leftWasRepaired || leftFinishReason === 'MAX_TOKENS'}`);
       addResults(leftData, leftChapter);
       console.log(`[Kent AI Parser] Left column: ${allResults.length} rows so far`);
+
+      // If the left pass was truncated, one retry with a "keep it grouped and
+      // compact" nudge is cheap insurance before falling back to the full-page pass.
+      if ((leftWasRepaired || leftFinishReason === 'MAX_TOKENS')) {
+        console.warn('[Kent AI Parser] Left column was truncated — this WILL cause missing rubrics unless the full-page fallback recovers them.');
+      }
     } catch (e) {
       console.error('[Kent AI Parser] Left column pass failed:', e.message);
     }
@@ -523,24 +580,24 @@ const parseImageToStructuredJson = async (imagePath) => {
       try {
         console.log(`[Kent AI Parser] Pass 2 (attempt ${rightAttempts}): Extracting RIGHT column crop...`);
         console.log(`[Kent AI Parser] Passing last rubric context: "${lastRubricFromLeft}"`);
-        const rightResponse = await extractColumnPass(rightCropPath, 'right', lastRubricFromLeft);
-        console.log(`[Kent AI Parser] Right column response: ${rightResponse.length} chars`);
+        const { text: rightResponse, finishReason: rightFinishReason } = await extractColumnPass(rightCropPath, 'right', lastRubricFromLeft);
+        console.log(`[Kent AI Parser] Right column response: ${rightResponse.length} chars, finishReason=${rightFinishReason}`);
         console.log(`[Kent AI Parser] Right response preview: ${rightResponse.substring(0, 300)}`);
-        
-        const rightParsed = repairAndParseJson(rightResponse);
+
+        const { data: rightParsed } = repairAndParseJson(rightResponse);
         const { data: rightData, chapter: rightChapter } = extractDataArray(rightParsed);
         console.log(`[Kent AI Parser] Right column parsed: ${rightData.length} groups, chapter="${rightChapter}"`);
-        
+
         addResults(rightData, rightChapter);
         const rightRowsAdded = allResults.length - leftRowCount;
         console.log(`[Kent AI Parser] Right column: +${rightRowsAdded} rows (${allResults.length} total)`);
-        
+
         if (rightRowsAdded > 0) break; // Success
         console.warn(`[Kent AI Parser] Right column returned 0 new rows. Retrying...`);
       } catch (e) {
         console.error(`[Kent AI Parser] Right column pass attempt ${rightAttempts} failed:`, e.message);
       }
-      
+
       if (rightAttempts < maxRetries) {
         await new Promise(r => setTimeout(r, 2000));
       }
@@ -551,9 +608,9 @@ const parseImageToStructuredJson = async (imagePath) => {
       console.warn('[Kent AI Parser] ⚠️ Right column crop extraction failed after retries. Trying FULL PAGE fallback...');
       await new Promise(r => setTimeout(r, 2000));
       try {
-        const fullResponse = await extractColumnPass(imagePath, 'all', lastRubricFromLeft);
-        console.log(`[Kent AI Parser] Full page response: ${fullResponse.length} chars`);
-        const fullParsed = repairAndParseJson(fullResponse);
+        const { text: fullResponse, finishReason: fullFinishReason } = await extractColumnPass(imagePath, 'all', lastRubricFromLeft);
+        console.log(`[Kent AI Parser] Full page response: ${fullResponse.length} chars, finishReason=${fullFinishReason}`);
+        const { data: fullParsed } = repairAndParseJson(fullResponse);
         const { data: fullData, chapter: fullChapter } = extractDataArray(fullParsed);
         console.log(`[Kent AI Parser] Full page parsed: ${fullData.length} groups`);
         addResults(fullData, fullChapter);
@@ -580,7 +637,7 @@ const parseImageToStructuredJson = async (imagePath) => {
  * Translate English rubrics and chapters to Hindi using AI.
  * Uses Groq (Llama 3.3 70B) for fast, high-quality translation with generous quota.
  * Batches translations to minimize API calls.
- * 
+ *
  * @param {Array} structuredData - Array of extracted rubric rows with chapter_en and rubric_en
  * @returns {Promise<Array>} - Same data with chapter_hi and rubric_hi filled in
  */
@@ -623,7 +680,7 @@ const translateRubricsToHindi = async (structuredData) => {
   // Collect unique chapters and rubrics
   const uniqueChapters = new Set();
   const uniqueRubrics = new Set();
-  
+
   structuredData.forEach(row => {
     if (row.chapter_en) uniqueChapters.add(row.chapter_en.trim());
     if (row.rubric_en) uniqueRubrics.add(row.rubric_en.trim());
