@@ -298,7 +298,7 @@ const uploadPDFFile = async (req, res) => {
 
 // PUT /api/repertories/:id/chapter-pages
 const updateChapterPages = async (req, res) => {
-  const { chapterPages } = req.body;
+  const { chapterPages, pageOffset } = req.body;
   if (!chapterPages) { res.status(400); throw new Error('chapterPages mapping is required'); }
 
   const repertory = await Repertory.findById(req.params.id);
@@ -306,6 +306,12 @@ const updateChapterPages = async (req, res) => {
 
   repertory.chapterPages = chapterPages;
   repertory.markModified('chapterPages');
+  
+  // Update page offset if provided
+  if (pageOffset !== undefined) {
+    repertory.pageOffset = parseInt(pageOffset) || 0;
+  }
+  
   await repertory.save();
 
   res.json({
