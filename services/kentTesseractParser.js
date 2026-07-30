@@ -564,6 +564,15 @@ const MEDICINE_CORRECTIONS = {
   'caleph': 'Calc-p', 'Caleph': 'Calc-p',
   // Murx
   'Murx': 'Murx',
+  // New OCR Typos from RECTUM
+  'ann-m': 'Am-m', 'Ann-m': 'Am-m',
+  'nice': 'Nicc', 'Nice': 'Nicc',
+  'coc-t': 'Coc-c', 'Coc-t': 'Coc-c',
+  'anbr': 'Ambr', 'Anbr': 'Ambr',
+  'ani-c': 'Am-c', 'Ani-c': 'Am-c',
+  'clan': 'Chin-s', 'Clan': 'Chin-s',
+  'mercy-c': 'Merc-cy', 'Mercy-c': 'Merc-cy',
+  'sol-tæ': 'Sol-t-ae', 'Sol-tæ': 'Sol-t-ae',
 };
 
 /**
@@ -619,21 +628,26 @@ const parseImageWithOpenAIVision = async (imagePath) => {
   const https = require('https');
   const base64Image = fs.readFileSync(imagePath).toString('base64');
   
-  const prompt = `You are a medical data extraction expert structuring a raw page from Kent's Repertory.
+const prompt = `You are a medical data extraction expert structuring a raw page from Kent's Repertory.
 This page contains TWO columns. You must extract ALL rubrics and medicines from BOTH columns, reading the left column from top to bottom, then the right column from top to bottom.
 
 CRITICAL INSTRUCTIONS:
-1. CHAPTER IDENTIFICATION: Look at the very top of the page. The chapter name is usually in large capital letters (e.g., "RECTUM", "ABDOMEN", "EAR"). You must prefix ALL extracted rubrics with this chapter name (e.g., "RECTUM - PAIN..."). If the chapter isn't visible, infer it from the context (e.g. if the page is full of "STOOL" rubrics, the chapter is "RECTUM" or "STOOL").
-2. HIERARCHY & INDENTATION (VITAL): Kent's Repertory uses visual hanging indents for sub-rubrics. Look closely at the indentation!
-   - Main Rubric (Left aligned)
-     - Sub-rubric 1 (Indented)
-       - Sub-sub-rubric (Further indented)
-   Construct the full path by connecting the parents. Example: "RECTUM - PAIN - stitching, stool - extending to abdomen". Do NOT treat deeply indented words as main rubrics!
-3. RUBRICS vs MEDICINES: A rubric ends with a colon (:). Everything AFTER the colon is a list of medicines. 
-4. GRADING: Medicines starting with a Capital Letter (e.g., Aloe) = Grade 3. Italicized lowercase medicines (e.g., mag-m) = Grade 2. Plain lowercase medicines = Grade 1.
-5. EXHAUSTIVE EXTRACTION: You MUST extract every single rubric and every single medicine on this page. Do not summarize or skip anything.
-6. CONTINUATIONS: Some rubrics span multiple lines. Extract ALL medicines from all wrapped lines.
-7. JSON OUTPUT: Output ONLY a valid JSON object matching this schema:
+1. CHAPTER IDENTIFICATION: Look at the very top of the page for the chapter name in large capitals (e.g., "RECTUM"). You must prefix ALL extracted rubrics with this chapter name.
+2. RIGID HIERARCHY TRACKING (VITAL): Kent's Repertory relies entirely on visual hanging indents. You MUST track the "current path" logically based on indentation depth.
+   - Level 0 (Absolute left margin): Main Rubric (e.g., "PAIN, tearing.") -> Path: "RECTUM - PAIN, tearing"
+   - Level 1 (Slight indent): Sub-rubric (e.g., "twitching:") -> Path: "RECTUM - PAIN, tearing - twitching"
+   - Level 2 (Deeper indent): Sub-sub-rubric (e.g., "extending into abdomen:") -> Path: "RECTUM - PAIN, tearing - extending into abdomen"
+   - Level 3 (Deepest indent): e.g., "during stool:" -> Path: "RECTUM - PAIN, tearing - extending into abdomen - during stool"
+   WARNING: Never skip a parent! If you see "after: Aloe" indented under "stitching, stool", the path MUST include "stitching, stool" (e.g., "RECTUM - PAIN, stitching, stool - after").
+   WARNING: Pay close attention to words like "extending to" or "extending into". The locations below them (e.g. "abdomen:", "back:", "bladder:") are subrubrics OF "extending to". E.g., "RECTUM - PAIN, stitching, stool - extending to - back".
+3. RUBRICS vs MEDICINES: A rubric ends with a colon (:). Everything AFTER the colon is a list of medicines. Do NOT put medicines in the rubric name.
+4. GRADING (CRITICAL - LOOK AT TYPOGRAPHY): Look very closely at the font style of EACH medicine abbreviation in the image. DO NOT rely on capitalization!
+   - BOLD FONT = Grade 3 (e.g., thick, dark letters)
+   - ITALIC FONT = Grade 2 (e.g., slanted letters)
+   - PLAIN FONT = Grade 1 (e.g., normal, unslanted, unbolded letters)
+   Many plain medicines start with capital letters (e.g., Alum., Ars.). Only assign Grade 3 if the text is physically printed in BOLD.
+5. EXHAUSTIVE ANTI-TRUNCATION RULE: You MUST extract EVERY SINGLE rubric and EVERY SINGLE medicine on this page. DO NOT SUMMARIZE. DO NOT SKIP. Some medicine lists are very long (e.g., "tearing: Berb., calc., carb-v., ..."). You must transcribe the ENTIRE list. If you skip any data, this extraction is considered a failure.
+6. JSON OUTPUT: Output ONLY a valid JSON object matching this schema:
 {
   "chapter_en": "DETECTED_CHAPTER",
   "data": [
