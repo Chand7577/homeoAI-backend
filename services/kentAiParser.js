@@ -233,9 +233,9 @@ ${contextInstruction}
 
 --- REPERTORY LAYOUT & HIERARCHY STACK RULES ---
 1. EXHAUSTIVE LINE-BY-LINE EXTRACTION (CRITICAL):
-   Extract EVERY SINGLE remedy listed under every rubric from top to bottom of this column image.
-   Do NOT skip long remedy lists (e.g. 50+ medicines under "tenesmus:" or "tearing:").
-   Read every line completely, including deeply wrapped hanging-indent lines.
+   Extract EVERY SINGLE rubric and EVERY SINGLE remedy listed from top to bottom of this column image.
+   Do NOT skip small sub-rubrics (e.g. "after:", "during menses:", "walking, while:", "extending to:").
+   Do NOT combine sub-rubrics into their parent. Every indented line ending with a colon or qualifier MUST generate its own distinct rubric entry in the JSON array!
 
 2. INDENTATION STACK & RUBRIC PATH ASSEMBLY:
    - Level 0 (Flush Left / ALL CAPS or BOLD): Main Rubric (e.g., "PAIN", "TEARING", "STITCHING", "TENESMUS"). Resets active sub-rubric stack.
@@ -246,18 +246,18 @@ ${contextInstruction}
 3. FULL RUBRIC PATH SYNTAX:
    Format: "[DETECTED_CHAPTER] - MAIN RUBRIC - SUBRUBRIC - SUBSUBRUBRIC"
    Examples:
+     "[CHAPTER] - PAIN - stitching, stool"
      "[CHAPTER] - PAIN - stitching, stool - after"
      "[CHAPTER] - PAIN - stitching, stool - pudendum, during menses - after stool"
      "[CHAPTER] - PAIN - tearing - evening - after hard stool"
-     "[CHAPTER] - PAIN - tenesmus - dysentery, during"
 
 4. SUB-RUBRICS VS HANGING REMEDY CONTINUATION LINES:
-   - A line with text ending in a colon ":" or comma (e.g. "morning:", "bed, in:", "stool, during:") defines a NEW SUB-RUBRIC heading.
-   - A line with NO rubric heading that contains ONLY comma-separated remedy abbreviations (e.g. "bry., cact., calc., cann-i., Caps., carb-v.") is a HANGING INDENT CONTINUATION of remedies belonging to the rubric directly above it! Do NOT create a new rubric for hanging remedy lines; attach all remedies to the active rubric above!
+   - A line with text ending in a colon ":" or comma (e.g. "morning:", "bed, in:", "stool, during:") defines a NEW SUB-RUBRIC heading. Create a separate JSON item for it.
+   - A line with NO rubric heading that contains ONLY comma-separated remedy abbreviations (e.g. "bry., cact., calc., cann-i., Caps., carb-v.") is a HANGING INDENT CONTINUATION of remedies belonging to the rubric directly above it! Attach those remedies to the active rubric directly above!
 
 5. COLUMN CONTINUATION HEADERS AT TOP OF COLUMN:
    - If the column top starts with a line like "PAIN, tearing." or "COLOR, redness, inside.", this is an INHERITED PARENT HEADER from the previous column.
-   - Reconstruct the parent path from the previous column context and append all subsequent sub-rubrics under it until a new flush-left ALL-CAPS rubric appears.
+   - Reconstruct the parent path using the previous column context and append all subsequent sub-rubrics under it until a new flush-left ALL-CAPS rubric appears.
 
 6. MEDICINES & CLINICAL TYPOGRAPHY GRADING:
    - Capture every remedy abbreviation on every line. Clean off trailing periods.
@@ -410,8 +410,13 @@ const parseImageToStructuredJson = async (imagePath) => {
     // Delay between passes to respect rate limits
     await new Promise(r => setTimeout(r, 2000));
 
-    // Pass 2: Right column crop — pass the last rubric path from left pass as context
-    const lastRubricFromLeft = allResults.length > 0 ? allResults[allResults.length - 1].rubric_en : '';
+    // Pass 2: Right column crop — pass the clean parent rubric context from left pass
+    let lastRubricFromLeft = '';
+    if (allResults.length > 0) {
+      const fullPath = allResults[allResults.length - 1].rubric_en || '';
+      const parts = fullPath.split(' - ');
+      lastRubricFromLeft = parts.slice(0, Math.min(3, parts.length)).join(' - ');
+    }
     const leftRowCount = allResults.length;
     let rightAttempts = 0;
     const maxRetries = 2;
