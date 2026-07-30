@@ -270,7 +270,6 @@ exports.getConsultation = async (req, res) => {
       message: 'Failed to fetch consultation'
     });
   }
-};  }
 };
 
 // Update consultation status
