@@ -73,6 +73,7 @@ exports.createConsultation = async (req, res) => {
       patientAge,
       patientGender,
       patientWeight,
+      symptoms, // Parsed symptoms array
       mainConcern,
       severity,
       duration,
@@ -110,10 +111,12 @@ exports.createConsultation = async (req, res) => {
 
     // Create consultation
     const consultation = await Consultation.create({
+      patientId: req.user?._id || null, // Link to logged-in patient user
       patientName,
       patientAge,
       patientGender: patientGender || 'Male',
       patientWeight: patientWeight ? Number(patientWeight) : null,
+      symptoms: symptoms || [], // Parsed symptoms array
       mainConcern,
       severity,
       duration,
@@ -170,11 +173,22 @@ exports.getConsultations = async (req, res) => {
   try {
     const { doctorId, status, search, page = 1, limit = 20 } = req.query;
 
-    const query = req.user.role === 'Admin' ? {} : { assignedDoctorId: req.user._id };
-
-    // Filter by assigned doctor if provided
-    if (doctorId && req.user.role === 'Admin') {
-      query.assignedDoctorId = doctorId;
+    let query = {};
+    
+    // Role-based filtering:
+    // - Admin: Can see all consultations (or filter by doctorId)
+    // - Doctors: See ONLY consultations assigned to them
+    // - Patients: See ONLY consultations they submitted
+    if (req.user.role === 'Patient') {
+      query.patientId = req.user._id;
+    } else if (req.user.role === 'Admin') {
+      // Admin can see all or filter by specific doctor
+      if (doctorId) {
+        query.assignedDoctorId = doctorId;
+      }
+    } else {
+      // Doctors (Core Team, External Doctor) see only their assigned consultations
+      query.assignedDoctorId = req.user._id;
     }
 
     // Filter by status if provided
@@ -194,6 +208,7 @@ exports.getConsultations = async (req, res) => {
 
     const consultations = await Consultation.find(query)
       .populate('assignedDoctorId', 'name email phone role')
+      .populate('patientId', 'name email phone') // Populate patient info
       .sort({ submittedAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
