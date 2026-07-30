@@ -179,9 +179,15 @@ const parseKentOcrText = (ocrText) => {
         
         // Check if the part before comma is ALL CAPS (main rubric)
         if (/^[A-Z\s]+$/.test(beforeComma) && beforeComma.length >= 3 && beforeComma.length < 25) {
-          isMainRubricWithSub = true;
-          extractedMain = beforeComma;
-          extractedSub = afterComma;
+          // If afterComma starts with synonym words like "contraction", "closure", "etc", treat entire rubricPart as full main rubric
+          if (/^(contraction|closure|etc|spasm|stricture|fullness|distention)/i.test(afterComma) || afterComma.includes('etc')) {
+            isMainRubricWithSub = false;
+            rubricPart = rubricPart; // Keep full heading: "CONSTRICTION, contraction, closure, etc."
+          } else {
+            isMainRubricWithSub = true;
+            extractedMain = beforeComma;
+            extractedSub = afterComma;
+          }
         }
       } else if (firstSpace > 0) {
         // Case 2: "STAGGERING with" format with space (no comma)

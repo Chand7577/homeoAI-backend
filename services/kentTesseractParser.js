@@ -634,10 +634,20 @@ This page contains TWO columns. You must extract ALL rubrics and medicines from 
 CRITICAL INSTRUCTIONS:
 1. CHAPTER IDENTIFICATION: Look at the very top of the page for the chapter name in large capitals (e.g., "RECTUM"). You must prefix ALL extracted rubrics with this chapter name.
 2. RIGID HIERARCHY TRACKING (VITAL): Kent's Repertory relies entirely on visual hanging indents. You MUST track the "current path" logically based on indentation depth.
-   - Level 0 (Absolute left margin): Main Rubric (e.g., "PAIN, tearing.") -> Path: "RECTUM - PAIN, tearing"
-   - Level 1 (Slight indent): Sub-rubric (e.g., "twitching:") -> Path: "RECTUM - PAIN, tearing - twitching"
-   - Level 2 (Deeper indent): Sub-sub-rubric (e.g., "extending into abdomen:") -> Path: "RECTUM - PAIN, tearing - extending into abdomen"
-   - Level 3 (Deepest indent): e.g., "during stool:" -> Path: "RECTUM - PAIN, tearing - extending into abdomen - during stool"
+   - Level 0 (Absolute left margin): Main Rubric (e.g., "PAIN, tearing.", "CONSTIPATION.", "CONSTRICTION, contraction, closure, etc.:") -> Path: "RECTUM - CONSTRICTION, contraction, closure, etc."
+   - Level 1 (Slight indent): Sub-rubric (e.g., "difficult stool (see 'Inactivity'):", "morning:", "afternoon:", "evening:") -> Path: "RECTUM - CONSTRICTION, contraction, closure, etc. - morning"
+   - Level 2 (Deeper indent): Sub-sub-rubric (e.g., "rising, after:", "extending into abdomen:", "menses, before:") -> Path: "RECTUM - CONSTRICTION, contraction, closure, etc. - morning - rising, after"
+   - Level 3 (Deepest indent): e.g., "during:" under menses -> Path: "RECTUM - CONSTIPATION - menses, during"
+
+   WARNING (CRITICAL FOR MAIN RUBRICS WITH SYNONYMS & SUB-RUBRICS):
+   - Keep full main rubric headings intact! For example: "CONSTRICTION, contraction, closure, etc.: Acon., æsc..." MUST yield "RECTUM - CONSTRICTION, contraction, closure, etc.". Never truncate ", contraction, closure, etc."!
+   - All indented sub-rubrics beneath it MUST inherit the full heading! E.g. "morning: Nux-v." -> "RECTUM - CONSTRICTION, contraction, closure, etc. - morning", "rising, after: Nux-v." -> "RECTUM - CONSTRICTION, contraction, closure, etc. - morning - rising, after", "afternoon: Coloc." -> "RECTUM - CONSTRICTION, contraction, closure, etc. - afternoon", "evening: Ign." -> "RECTUM - CONSTRICTION, contraction, closure, etc. - evening".
+
+   WARNING (CRITICAL FOR FIRST SUB-RUBRIC):
+   - Never skip the first indented sub-rubric under a main rubric! For example, directly under "CONSTIPATION.", the text "difficult stool (see 'Inactivity'): Æsc., agar..." is an indented SUB-RUBRIC.
+   - The output rubric MUST be "RECTUM - CONSTIPATION - difficult stool". Strip the "(see 'Inactivity')" parenthetical, but NEVER drop "difficult stool"!
+   - Never attach remedies following "difficult stool" directly to "RECTUM - CONSTIPATION"!
+
    WARNING: Never skip a parent! If you see "after: Aloe" indented under "stitching, stool", the path MUST include "stitching, stool" (e.g., "RECTUM - PAIN, stitching, stool - after").
    WARNING: Pay close attention to words like "extending to" or "extending into". The locations below them (e.g. "abdomen:", "back:", "bladder:") are subrubrics OF "extending to". E.g., "RECTUM - PAIN, stitching, stool - extending to - back".
 3. RUBRICS vs MEDICINES: A rubric ends with a colon (:). Everything AFTER the colon is a list of medicines. Do NOT put medicines in the rubric name.
@@ -646,7 +656,7 @@ CRITICAL INSTRUCTIONS:
    - ITALIC FONT = Grade 2 (e.g., slanted letters)
    - PLAIN FONT = Grade 1 (e.g., normal, unslanted, unbolded letters)
    Many plain medicines start with capital letters (e.g., Alum., Ars.). Only assign Grade 3 if the text is physically printed in BOLD.
-5. EXHAUSTIVE ANTI-TRUNCATION RULE: You MUST extract EVERY SINGLE rubric and EVERY SINGLE medicine on this page. DO NOT SUMMARIZE. DO NOT SKIP. Some medicine lists are very long (e.g., "tearing: Berb., calc., carb-v., ..."). You must transcribe the ENTIRE list. If you skip any data, this extraction is considered a failure.
+5. EXHAUSTIVE ANTI-TRUNCATION RULE: You MUST extract EVERY SINGLE rubric and EVERY SINGLE medicine on this page. DO NOT SUMMARIZE. DO NOT SKIP. Some medicine lists are very long (e.g., "difficult stool: Æsc., agar., all-c., ..."). You must transcribe the ENTIRE list. If you skip any data, this extraction is considered a failure.
 6. JSON OUTPUT: Output ONLY a valid JSON object matching this schema:
 {
   "chapter_en": "DETECTED_CHAPTER",

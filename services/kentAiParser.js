@@ -237,49 +237,65 @@ ${contextInstruction}
 --- REPERTORY LAYOUT & HIERARCHY STACK RULES ---
 1. EXHAUSTIVE LINE-BY-LINE EXTRACTION (CRITICAL):
    Extract EVERY SINGLE rubric and EVERY SINGLE remedy listed from top to bottom of this column image.
-   Do NOT skip small sub-rubrics (e.g. "after:", "during menses:", "walking, while:", "extending to:", "tenesmus:").
+   Do NOT skip small sub-rubrics (e.g. "difficult stool", "after:", "during menses:", "walking, while:", "extending to:", "tenesmus:").
    Do NOT combine sub-rubrics into their parent. Every line with a colon or qualifier MUST generate its own distinct sub-rubric entry!
 
 2. TYPOGRAPHY & INDENTATION STACK:
-   - MAIN RUBRICS (ALL CAPS / BOLD CAPS): Printed in ALL CAPITAL LETTERS flush left (e.g., "PAIN", "TEARING", "STITCHING"). Resets sub-rubric stack.
-   - SUB-RUBRICS (SMALL / LOWERCASE): Printed in small/lowercase letters indented under main rubric (e.g., "stitching, stool:", "tearing:", "walking, while:").
-   - SUB-SUB-RUBRICS (FURTHER INDENTED LOWERCASE): Indented qualifiers with colons (e.g., "after:", "during stool:", "extending into abdomen:", "upward:", "tenesmus:").
+   - MAIN RUBRICS (ALL CAPS / BOLD CAPS & SYNONYMS): Flush left headings starting with ALL-CAPS (e.g., "CONSTIPATION", "CONSTRICTION, contraction, closure, etc.", "PAIN", "TEARING", "STITCHING"). Resets sub-rubric stack. Never drop synonym descriptors like ", contraction, closure, etc." from the main rubric title!
+   - SUB-RUBRICS (SMALL / LOWERCASE): Printed in small/lowercase letters indented under main rubric (e.g., "difficult stool:", "morning:", "afternoon:", "evening:", "stitching, stool:").
+   - SUB-SUB-RUBRICS (FURTHER INDENTED LOWERCASE): Indented qualifiers with colons (e.g., "rising, after:", "after:", "during stool:", "extending into abdomen:").
 
-3. SUB-RUBRIC QUALIFIERS BEFORE COLONS (CRITICAL FIX FOR FLATTENING):
-   - Whenever an indented line starts with a word/phrase followed by a colon (e.g., "tenesmus: Acon., Æsc.", "after: Aloe, am-m.", "twitching: Thuj.", "upward: Lach., sep."), the text BEFORE the colon is a SUB-RUBRIC QUALIFIER.
-   - You MUST append that qualifier to the rubric path for those remedies!
-   - NEVER drop "tenesmus:", "after:", "twitching:", "upward:", "extending into abdomen:", etc., and NEVER attach their remedies directly to the parent rubric without including the qualifier.
+3. SUB-RUBRICS WITH PARENTHETICAL CROSS-REFERENCES (CRITICAL FIX FOR MISSED SUB-RUBRICS):
+   - Whenever an indented sub-rubric line includes a parenthetical note like "(see 'Inactivity')" or "(see under 'difficult')", e.g.:
+     "difficult stool (see 'Inactivity'): Æsc., agar., all-c., Alum., ..."
+   - You MUST extract "difficult stool" as a SUB-RUBRIC under the main rubric!
+   - STRIP the "(see ...)" note, but DO NOT drop the sub-rubric title!
+   - Target output path: "[CHAPTER] - CONSTIPATION - difficult stool"
+   - NEVER attach remedies following "difficult stool" directly to "[CHAPTER] - CONSTIPATION"! They belong to "[CHAPTER] - CONSTIPATION - difficult stool".
 
-4. FULL RUBRIC PATH SYNTAX:
+4. QUALIFIERS BEFORE COLONS & SUB-RUBRICS UNDER MAIN HEADINGS:
+   - Whenever an indented line starts with a word/phrase followed by a colon (e.g., "morning: Nux-v.", "rising, after: Nux-v.", "afternoon: Coloc.", "evening: Ign.", "tenesmus: Acon., Æsc."), the text BEFORE the colon is a SUB-RUBRIC QUALIFIER.
+   - You MUST append that qualifier to the parent rubric path for those remedies!
+   - Examples under "CONSTRICTION, contraction, closure, etc.":
+     - Main line: "CONSTRICTION, contraction, closure, etc.: Acon., æsc..." -> "[CHAPTER] - CONSTRICTION, contraction, closure, etc."
+     - Indented line "morning: Nux-v." -> "[CHAPTER] - CONSTRICTION, contraction, closure, etc. - morning"
+     - Indented line "rising, after: Nux-v." under morning -> "[CHAPTER] - CONSTRICTION, contraction, closure, etc. - morning - rising, after"
+     - Indented line "afternoon: Coloc." -> "[CHAPTER] - CONSTRICTION, contraction, closure, etc. - afternoon"
+     - Indented line "evening: Ign." -> "[CHAPTER] - CONSTRICTION, contraction, closure, etc. - evening"
+   - NEVER drop "contraction, closure, etc.", "morning:", "rising, after:", "afternoon:", "evening:", etc.
+
+5. FULL RUBRIC PATH SYNTAX:
    Format: "[DETECTED_CHAPTER] - MAIN RUBRIC - subrubric - subsubrubric"
    Examples:
+     - Line "CONSTIPATION." followed by "difficult stool (see 'Inactivity'): Æsc., agar..." ->
+       "rubric_en": "[CHAPTER] - CONSTIPATION - difficult stool"
      - Line "PAIN, stitching, stool." followed by "after: Aloe, am-m." ->
        "rubric_en": "[CHAPTER] - PAIN - stitching, stool - after"
      - Line "PAIN, tearing." followed by "tenesmus: Acon., Æsc., agar..." ->
        "rubric_en": "[CHAPTER] - PAIN - tearing - tenesmus"
-     - Line "CONSTIPATION." followed by "difficult stool: Æsc., agar..." ->
-       "rubric_en": "[CHAPTER] - CONSTIPATION - difficult stool"
      - Line "CONSTIPATION." followed by "menses, before: Am-c., bry..." ->
        "rubric_en": "[CHAPTER] - CONSTIPATION - menses, before"
      - Line "CONSTIPATION." followed by "during: Alum., am-c..." under menses ->
        "rubric_en": "[CHAPTER] - CONSTIPATION - menses, during"
      - Line "CONSTRICTION, contraction, closure, etc.: Acon., æsc..." ->
        "rubric_en": "[CHAPTER] - CONSTRICTION, contraction, closure, etc."
-     - Line "rising, after: Nux-v." under CONSTRICTION ->
-       "rubric_en": "[CHAPTER] - CONSTRICTION, contraction, closure, etc. - rising, after"
+     - Line "morning: Nux-v." under CONSTRICTION ->
+       "rubric_en": "[CHAPTER] - CONSTRICTION, contraction, closure, etc. - morning"
+     - Line "rising, after: Nux-v." under morning ->
+       "rubric_en": "[CHAPTER] - CONSTRICTION, contraction, closure, etc. - morning - rising, after"
 
-5. COLUMN CONTINUATION HEADERS AT TOP OF COLUMN:
+6. COLUMN CONTINUATION HEADERS AT TOP OF COLUMN:
    - If the column top starts with a line like "PAIN, tearing." or "COLOR, redness, inside.", this is an INHERITED PARENT HEADER from the previous column.
    - Reconstruct the parent path using the previous column context and append all subsequent sub-rubrics under it until a new flush-left ALL-CAPS rubric appears.
 
-6. MEDICINES & CLINICAL TYPOGRAPHY GRADING:
+7. MEDICINES & CLINICAL TYPOGRAPHY GRADING:
    - Capture every remedy abbreviation on every line. Clean off trailing periods.
    - BOLD ALL CAPS or BOLD remedy (e.g. **Æsc.**, **Nit-ac.**, **Caps.**, **Sulph.**, **Merc.**) = grading 3
    - ITALIC remedy (e.g. *thuj.*, *mag-m.*, *graph.*, *nat-m.*) = grading 2
    - NORMAL ROMAN remedy (e.g. berb., calad., canth.) = grading 1
 
-7. SKIP CROSS-REFERENCES:
-   - Skip entries like "(See 'FACE, Eruptions.')" — do not output cross-reference text.
+8. STANDALONE CROSS-REFERENCES:
+   - Skip ONLY lines that contain NO remedies and ONLY a cross reference, e.g. "slips back, stool: (See under 'difficult')". If a line contains medicines (e.g. "difficult stool (see 'Inactivity'): Æsc., agar..."), extract the sub-rubric "difficult stool" with all its remedies!
 
 --- OUTPUT FORMAT ---
 Return ONLY valid JSON matching this structure (no markdown, no preamble):
