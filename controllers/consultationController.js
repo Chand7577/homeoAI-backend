@@ -111,7 +111,7 @@ exports.createConsultation = async (req, res) => {
 
     // Create consultation
     const consultation = await Consultation.create({
-      patientId: req.user?._id || null, // Link to logged-in patient user
+      patientId: req.user?._id || req.body.patientId || null, // Link to logged-in patient user
       patientName,
       patientAge,
       patientGender: patientGender || 'Male',
