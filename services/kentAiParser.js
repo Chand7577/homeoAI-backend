@@ -12,7 +12,9 @@ const sharp = require('sharp');
 const REMEDY_SPELL_CORRECTIONS = {
   // Common OCR character substitution errors (n/m, l/i/1, c/e)
   'ann-m': 'am-m',
+  'an-m': 'am-m',
   'ani-c': 'am-c',
+  'an-c': 'am-c',
   'anbr': 'ambr',
   'aur-u': 'aur-m',
   'nice': 'nicc',
@@ -20,7 +22,11 @@ const REMEDY_SPELL_CORRECTIONS = {
   'xant-l': 'xantlt',
   'mercy-c': 'merc-c',
   'merc-cy': 'merc-c',
+  'merc-y': 'merc-c',
   'clan': 'cham',
+  'claun': 'cham',
+  'clam': 'cham',
+  'grath': 'graph',
   'coc-t': 'cocc',
   'coee': 'cocc',
   'aesc': 'æsc',
@@ -344,19 +350,26 @@ const parseImageToStructuredJson = async (imagePath) => {
           : medField ? [medField] : [];
 
         for (const med of meds) {
-          const cleanMed = cleanAndCorrectMedicine(med);
-          if (!cleanMed) continue;
-          const key = `${rubric_en}|||${cleanMed}`.toLowerCase();
-          if (!seenKeys.has(key)) {
-            seenKeys.add(key);
-            allResults.push({
-              chapter_en: currentChapter,
-              chapter_hi: '',
-              rubric_en: rubric_en,
-              rubric_hi: '',
-              medicine: cleanMed,
-              grading: medObj.grading || 1
-            });
+          // If OCR merged two remedy names without a comma (e.g. "ruta sang"), split them
+          const subMeds = (med.includes(' ') && !med.includes('-'))
+            ? med.split(/\s+/).map(m => m.trim()).filter(Boolean)
+            : [med];
+
+          for (const sMed of subMeds) {
+            const cleanMed = cleanAndCorrectMedicine(sMed);
+            if (!cleanMed) continue;
+            const key = `${rubric_en}|||${cleanMed}`.toLowerCase();
+            if (!seenKeys.has(key)) {
+              seenKeys.add(key);
+              allResults.push({
+                chapter_en: currentChapter,
+                chapter_hi: '',
+                rubric_en: rubric_en,
+                rubric_hi: '',
+                medicine: cleanMed,
+                grading: medObj.grading || 1
+              });
+            }
           }
         }
       }
