@@ -205,25 +205,23 @@ const parseKentOcrText = (ocrText) => {
       // Determine hierarchy based on indentation
       const indentLevel = Math.floor(indent / 2); // Each 2 spaces = 1 level
       
-      // Check if rubricPart is itself a standalone main rubric (ALL CAPS like "SMOKING")
-      const isStandaloneMainRubric = !rubricPart.includes(',') && !rubricPart.includes(' ') && /^[A-Z\s]+$/.test(rubricPart) && rubricPart.length >= 3 && rubricPart.length < 25;
+      // Check if rubricPart starts with an ALL-CAPS word at flush left (e.g. "CONSTRICTION, contraction, closure, etc." or "CONSTIPATION" or "DIARRHOEA")
+      const startsWithAllCapsWord = /^[A-Z]{3,}\b/.test(rubricPart);
+      const isNewMainRubric = indent < 2 && startsWithAllCapsWord && !isMainRubricWithSub;
       
       // Adjust rubric stack based on indentation and rubric type
-      if (rubricStack.length === 0 || isStandaloneMainRubric) {
-        // No main rubric set yet OR this IS a standalone main rubric - becomes the only entry
+      if (rubricStack.length === 0 || isNewMainRubric) {
+        // Brand new main rubric - resets stack completely!
         rubricStack = [rubricPart];
       } else if (isMainRubricWithSub) {
         // This line has "MAIN RUBRIC, sub-rubric" format - set stack accordingly
         rubricStack = [extractedMain, extractedSub];
       } else if (indentLevel === 0) {
         // Same level as main rubric - keep main rubric, replace sub-rubric
-        // rubricStack has ["NOISES"], we want ["NOISES", "hissing"]
         rubricStack = rubricStack.slice(0, 1); // Keep only main rubric
         rubricStack.push(rubricPart); // Add this rubric
       } else {
         // Indented sub-rubric: maintain hierarchy depth
-        // indentLevel tells us how deep we are
-        // We want rubricStack.length = indentLevel + 1 (main + parent + this)
         rubricStack = rubricStack.slice(0, indentLevel + 1);
         rubricStack.push(rubricPart);
       }

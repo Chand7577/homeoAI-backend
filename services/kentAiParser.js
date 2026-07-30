@@ -221,7 +221,7 @@ const extractColumnPass = async (imagePath, columnHint, lastRubricContext = '') 
   const base64Data = fs.readFileSync(imagePath, { encoding: 'base64' });
 
   // Note: imagePath is already physically cropped to a single column by Sharp!
-  const columnInstruction = 'PROCESS THE FULL IMAGE: This image is a single vertical column from Kent\'s Repertory. Extract all text from top-left to bottom-right across the full image.';
+  const columnInstruction = 'PROCESS THE FULL IMAGE: This image is a single vertical column from Kent\'s Repertory. (Note for Right Column / Column 2: Main Rubrics in ALL-CAPS start at the left edge of this column near the book\'s center divider line. Any flush-left ALL-CAPS heading in this column is a NEW MAIN RUBRIC that resets the rubric stack!)';
 
   const chapterInstruction = 'DYNAMIC CHAPTER DETECTION: Locate the main CHAPTER NAME from the page running header at the top (e.g. MIND, HEAD, EYE, EAR, NOSE, FACE, MOUTH, THROAT, STOMACH, ABDOMEN, RECTUM, STOOL, URINARY, GENITALIA, RESPIRATION, COUGH, CHEST, BACK, EXTREMITIES, SLEEP, FEVER, SKIN, GENERALITIES, etc.). Set "chapter_en" to this detected chapter name.';
 
@@ -244,6 +244,18 @@ ${contextInstruction}
    - MAIN RUBRICS (ALL CAPS / BOLD CAPS & SYNONYMS): Flush left headings starting with ALL-CAPS (e.g., "CONSTIPATION", "CONSTRICTION, contraction, closure, etc.", "PAIN", "TEARING", "STITCHING"). Resets sub-rubric stack. Never drop synonym descriptors like ", contraction, closure, etc." from the main rubric title!
    - SUB-RUBRICS (SMALL / LOWERCASE): Printed in small/lowercase letters indented under main rubric (e.g., "difficult stool:", "morning:", "afternoon:", "evening:", "stitching, stool:").
    - SUB-SUB-RUBRICS (FURTHER INDENTED LOWERCASE): Indented qualifiers with colons (e.g., "rising, after:", "after:", "during stool:", "extending into abdomen:").
+
+   WARNING (SEPARATE MAIN RUBRICS - DO NOT MERGE MAIN RUBRICS):
+   - "CONSTIPATION" and "CONSTRICTION, contraction, closure, etc." are TWO DIFFERENT, INDEPENDENT MAIN RUBRICS.
+   - NEVER output "RECTUM - CONSTIPATION - CONSTRICTION, contraction, closure, etc."! That is a major error.
+   - When "CONSTRICTION, contraction, closure, etc." appears at the left margin, it RESETS the main rubric.
+   - Output path for CONSTRICTION remedies: "[CHAPTER] - CONSTRICTION, contraction, closure, etc."
+   - Output path for indented sub-rubrics under it:
+     - "morning: Nux-v." -> "[CHAPTER] - CONSTRICTION, contraction, closure, etc. - morning"
+     - "rising, after: Nux-v." -> "[CHAPTER] - CONSTRICTION, contraction, closure, etc. - morning - rising, after"
+     - "afternoon: Coloc." -> "[CHAPTER] - CONSTRICTION, contraction, closure, etc. - afternoon"
+     - "evening: Ign." -> "[CHAPTER] - CONSTRICTION, contraction, closure, etc. - evening"
+   - DO NOT attach "morning", "afternoon", "evening" to CONSTIPATION! They belong to CONSTRICTION.
 
 3. SUB-RUBRICS WITH PARENTHETICAL CROSS-REFERENCES (CRITICAL FIX FOR MISSED SUB-RUBRICS):
    - Whenever an indented sub-rubric line includes a parenthetical note like "(see 'Inactivity')" or "(see under 'difficult')", e.g.:

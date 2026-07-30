@@ -639,9 +639,17 @@ CRITICAL INSTRUCTIONS:
    - Level 2 (Deeper indent): Sub-sub-rubric (e.g., "rising, after:", "extending into abdomen:", "menses, before:") -> Path: "RECTUM - CONSTRICTION, contraction, closure, etc. - morning - rising, after"
    - Level 3 (Deepest indent): e.g., "during:" under menses -> Path: "RECTUM - CONSTIPATION - menses, during"
 
-   WARNING (CRITICAL FOR MAIN RUBRICS WITH SYNONYMS & SUB-RUBRICS):
-   - Keep full main rubric headings intact! For example: "CONSTRICTION, contraction, closure, etc.: Acon., æsc..." MUST yield "RECTUM - CONSTRICTION, contraction, closure, etc.". Never truncate ", contraction, closure, etc."!
-   - All indented sub-rubrics beneath it MUST inherit the full heading! E.g. "morning: Nux-v." -> "RECTUM - CONSTRICTION, contraction, closure, etc. - morning", "rising, after: Nux-v." -> "RECTUM - CONSTRICTION, contraction, closure, etc. - morning - rising, after", "afternoon: Coloc." -> "RECTUM - CONSTRICTION, contraction, closure, etc. - afternoon", "evening: Ign." -> "RECTUM - CONSTRICTION, contraction, closure, etc. - evening".
+    WARNING (CRITICAL FOR SEPARATE MAIN RUBRICS - DO NOT MERGE):
+    - "CONSTIPATION" and "CONSTRICTION, contraction, closure, etc." are TWO DIFFERENT INDEPENDENT MAIN RUBRICS.
+    - NEVER output "RECTUM - CONSTIPATION - CONSTRICTION, contraction, closure, etc."!
+    - When "CONSTRICTION, contraction, closure, etc." appears flush left, it RESETS the main rubric.
+    - Output path for CONSTRICTION remedies: "RECTUM - CONSTRICTION, contraction, closure, etc."
+    - All indented sub-rubrics beneath it MUST belong to "RECTUM - CONSTRICTION, contraction, closure, etc.":
+      - "morning: Nux-v." -> "RECTUM - CONSTRICTION, contraction, closure, etc. - morning"
+      - "rising, after: Nux-v." -> "RECTUM - CONSTRICTION, contraction, closure, etc. - morning - rising, after"
+      - "afternoon: Coloc." -> "RECTUM - CONSTRICTION, contraction, closure, etc. - afternoon"
+      - "evening: Ign." -> "RECTUM - CONSTRICTION, contraction, closure, etc. - evening"
+    - DO NOT attach "morning", "afternoon", "evening" to CONSTIPATION! They belong to CONSTRICTION.
 
    WARNING (CRITICAL FOR FIRST SUB-RUBRIC):
    - Never skip the first indented sub-rubric under a main rubric! For example, directly under "CONSTIPATION.", the text "difficult stool (see 'Inactivity'): Æsc., agar..." is an indented SUB-RUBRIC.
