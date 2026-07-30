@@ -68,7 +68,29 @@ const REMEDY_SPELL_CORRECTIONS = {
   'viol-t': 'viol-t',
   'merc-i-f': 'merc-i-f',
   'merc-i-r': 'merc-i-r',
-  'crot-h': 'crot-h'
+  'crot-h': 'crot-h',
+  'aut-l': 'aur-m-n',
+  'colt': 'coll',
+  'eth': 'æth',
+  'caus-s': 'cann-s',
+  'canu-s': 'cann-s',
+  'miez': 'mez',
+  'rars': 'sars',
+  'stroit': 'stront',
+  'phy': 'phyt',
+  'gratt': 'grat',
+  'chiel': 'chel',
+  'muer-ac': 'mur-ac',
+  'mure-ac': 'mur-ac',
+  'lo-bi': 'lob',
+  'auac': 'anac',
+  'direc': 'dirc',
+  'an-m': 'am-m',
+  'stauu': 'stann',
+  'gaub': 'gamb',
+  'uux-m': 'nux-m',
+  'uat-c': 'nat-c',
+  'uat-s': 'nat-s'
 };
 
 /**
@@ -281,6 +303,10 @@ ${contextInstruction}
    Examples:
      - Line "CONSTIPATION." followed by "difficult stool (see 'Inactivity'): Æsc., agar..." ->
        "rubric_en": "[CHAPTER] - CONSTIPATION - difficult stool"
+     - Line "menses, suppressed, during: Graph., ham." ->
+       "rubric_en": "[CHAPTER] - CONSTIPATION - menses, suppressed, during"
+     - Line "with general amel.: Psor." ->
+       "rubric_en": "[CHAPTER] - CONSTIPATION - with general amel."
      - Line "PAIN, stitching, stool." followed by "after: Aloe, am-m." ->
        "rubric_en": "[CHAPTER] - PAIN - stitching, stool - after"
      - Line "PAIN, tearing." followed by "tenesmus: Acon., Æsc., agar..." ->
