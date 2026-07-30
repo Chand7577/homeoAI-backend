@@ -298,29 +298,29 @@ ${contextInstruction}
      - Indented line "evening: Ign." -> "[CHAPTER] - CONSTRICTION, contraction, closure, etc. - evening"
    - NEVER drop "contraction, closure, etc.", "morning:", "rising, after:", "afternoon:", "evening:", etc.
 
-5. FULL RUBRIC PATH SYNTAX:
-   Format: "[DETECTED_CHAPTER] - MAIN RUBRIC - subrubric - subsubrubric"
+5. FULL RUBRIC PATH SYNTAX (DO NOT INCLUDE CHAPTER NAME IN RUBRIC_EN):
+   Format: "MAIN RUBRIC - subrubric - subsubrubric" (DO NOT prefix with Chapter Name! Chapter is stored separately in chapter_en.)
    Examples:
      - Line "CONSTIPATION." followed by "difficult stool (see 'Inactivity'): Æsc., agar..." ->
-       "rubric_en": "[CHAPTER] - CONSTIPATION - difficult stool"
+       "rubric_en": "CONSTIPATION - difficult stool"
      - Line "menses, suppressed, during: Graph., ham." ->
-       "rubric_en": "[CHAPTER] - CONSTIPATION - menses, suppressed, during"
+       "rubric_en": "CONSTIPATION - menses, suppressed, during"
      - Line "with general amel.: Psor." ->
-       "rubric_en": "[CHAPTER] - CONSTIPATION - with general amel."
+       "rubric_en": "CONSTIPATION - with general amel."
      - Line "PAIN, stitching, stool." followed by "after: Aloe, am-m." ->
-       "rubric_en": "[CHAPTER] - PAIN - stitching, stool - after"
+       "rubric_en": "PAIN - stitching, stool - after"
      - Line "PAIN, tearing." followed by "tenesmus: Acon., Æsc., agar..." ->
-       "rubric_en": "[CHAPTER] - PAIN - tearing - tenesmus"
+       "rubric_en": "PAIN - tearing - tenesmus"
      - Line "CONSTIPATION." followed by "menses, before: Am-c., bry..." ->
-       "rubric_en": "[CHAPTER] - CONSTIPATION - menses, before"
+       "rubric_en": "CONSTIPATION - menses, before"
      - Line "CONSTIPATION." followed by "during: Alum., am-c..." under menses ->
-       "rubric_en": "[CHAPTER] - CONSTIPATION - menses, during"
+       "rubric_en": "CONSTIPATION - menses, during"
      - Line "CONSTRICTION, contraction, closure, etc.: Acon., æsc..." ->
-       "rubric_en": "[CHAPTER] - CONSTRICTION, contraction, closure, etc."
+       "rubric_en": "CONSTRICTION, contraction, closure, etc."
      - Line "morning: Nux-v." under CONSTRICTION ->
-       "rubric_en": "[CHAPTER] - CONSTRICTION, contraction, closure, etc. - morning"
+       "rubric_en": "CONSTRICTION, contraction, closure, etc. - morning"
      - Line "rising, after: Nux-v." under morning ->
-       "rubric_en": "[CHAPTER] - CONSTRICTION, contraction, closure, etc. - morning - rising, after"
+       "rubric_en": "CONSTRICTION, contraction, closure, etc. - morning - rising, after"
 
 6. COLUMN CONTINUATION HEADERS AT TOP OF COLUMN:
    - If the column top starts with a line like "PAIN, tearing." or "COLOR, redness, inside.", this is an INHERITED PARENT HEADER from the previous column.
@@ -341,7 +341,7 @@ Return ONLY valid JSON matching this structure (no markdown, no preamble):
   "chapter_en": "DETECTED_CHAPTER_NAME",
   "data": [
     {
-      "rubric_en": "DETECTED_CHAPTER_NAME - MAIN RUBRIC - SUBRUBRIC - QUALIFIER",
+      "rubric_en": "MAIN RUBRIC - SUBRUBRIC - QUALIFIER",
       "medicines": [
         {"name": "remedy_abbreviation", "grading": 1}
       ]
@@ -380,6 +380,35 @@ const parseImageToStructuredJson = async (imagePath) => {
   const allResults = [];
   let mainChapter = '';
 
+  const cleanRubricPath = (rubricStr, chapterName) => {
+    if (!rubricStr) return '';
+    let clean = rubricStr.trim();
+    if (chapterName) {
+      const chapRegex = new RegExp(`^${chapterName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*-\\s*`, 'i');
+      clean = clean.replace(chapRegex, '');
+    }
+    clean = clean.replace(/^(?:\[CHAPTER\]|CHAPTER|[A-Z]{3,})\s*-\s*/i, (match) => {
+      const prefix = match.replace(/\s*-\s*$/, '').trim().toUpperCase();
+      const KNOWN_CHAPTERS = ['RECTUM','MIND','HEAD','EYE','EAR','NOSE','FACE','MOUTH','THROAT','STOMACH','ABDOMEN','STOOL','URINARY','GENITALIA','RESPIRATION','COUGH','CHEST','BACK','EXTREMITIES','SLEEP','FEVER','SKIN','GENERALITIES','CHAPTER','[CHAPTER]'];
+      if (KNOWN_CHAPTERS.includes(prefix)) {
+        return '';
+      }
+      return match;
+    });
+    return clean.trim();
+  };
+
+  const cleanHindiRubricPath = (rubricStr, chapterHindi) => {
+    if (!rubricStr) return '';
+    let clean = rubricStr.trim();
+    if (chapterHindi) {
+      const chapRegex = new RegExp(`^${chapterHindi.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*-\\s*`, 'i');
+      clean = clean.replace(chapRegex, '');
+    }
+    clean = clean.replace(/^(?:मलाशय|मन|सिर|आंख|कान|नाक|चेहरा|मुंह|गला|पेट|उदर|मल|मूत्र|जननांग|श्वसन|खांसी|छाती|पीठ|अंग|नींद|बुखार|त्वचा|सामान्यएं)\s*-\s*/i, '');
+    return clean.trim();
+  };
+
   const addResults = (rows, detectedChapter) => {
     // Save the first valid chapter detected
     if (detectedChapter && !mainChapter) {
@@ -388,7 +417,8 @@ const parseImageToStructuredJson = async (imagePath) => {
     const currentChapter = mainChapter || detectedChapter || 'UNKNOWN';
 
     for (const group of (rows || [])) {
-      const rubric_en = group.rubric_en || '';
+      const rubric_en = cleanRubricPath(group.rubric_en || '', currentChapter);
+      const rubric_hi = cleanHindiRubricPath(group.rubric_hi || '', '');
       
       // Handle the case where the model still outputs legacy flat rows
       if (group.medicine && typeof group.medicine === 'string') {
@@ -401,7 +431,7 @@ const parseImageToStructuredJson = async (imagePath) => {
             chapter_en: currentChapter,
             chapter_hi: '',
             rubric_en: rubric_en,
-            rubric_hi: '',
+            rubric_hi: rubric_hi,
             medicine: cleanMed,
             grading: group.grading || 1
           });
@@ -432,7 +462,7 @@ const parseImageToStructuredJson = async (imagePath) => {
                 chapter_en: currentChapter,
                 chapter_hi: '',
                 rubric_en: rubric_en,
-                rubric_hi: '',
+                rubric_hi: rubric_hi,
                 medicine: cleanMed,
                 grading: medObj.grading || 1
               });

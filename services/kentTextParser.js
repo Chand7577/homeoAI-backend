@@ -254,11 +254,8 @@ const parseKentOcrText = (ocrText) => {
 const saveMedicines = (medicineBuffer, chapter, rubricStack, results, seenKeys) => {
   const medicines = extractMedicinesWithGrading(medicineBuffer);
   
-  // Build full rubric path with commas for sub-rubrics
-  let fullRubric = chapter;
-  if (rubricStack.length > 0) {
-    fullRubric += ' - ' + rubricStack.join(', ');
-  }
+  // Build rubric path WITHOUT chapter name (Rubric = MAIN RUBRIC - subrubric)
+  const fullRubric = rubricStack.join(' - ');
   
   for (const med of medicines) {
     const key = `${fullRubric}|||${med.name}`.toLowerCase();
