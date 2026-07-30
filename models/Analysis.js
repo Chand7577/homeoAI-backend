@@ -24,7 +24,7 @@ const MedicineDistributionSchema = new mongoose.Schema({
 }, { _id: false });
 
 const AnalysisSchema = new mongoose.Schema({
-  doctorId: { type: mongoose.Schema.Types.ObjectId, ref: 'Doctor', required: true, index: true },
+  doctorId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
   patientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Patient', default: null, index: true },
   patientName: { type: String, default: 'Anonymous' },
   patientAge: { type: String, default: '' },
