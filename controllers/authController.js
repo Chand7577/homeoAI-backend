@@ -72,8 +72,7 @@ const register = async (req, res) => {
       });
     }
 
-    // Create new user: Patients are auto-approved upon registration; External Doctors remain Pending.
-    const initialStatus = role === 'Patient' ? 'Approved' : 'Pending';
+    // Create new user: All users start as Pending and require admin approval
     const user = new User({
       name,
       email,
@@ -83,8 +82,8 @@ const register = async (req, res) => {
       specialization: specialization || '',
       experience: experience || '',
       qualifications: qualifications || '',
-      status: initialStatus,
-      approvedAt: role === 'Patient' ? new Date() : null
+      status: 'Pending', // All users require admin approval
+      approvedAt: null
     });
 
     await user.save();
@@ -94,9 +93,7 @@ const register = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: role === 'Patient'
-        ? 'Registration successful! You can now log in to your patient dashboard.'
-        : 'Registration successful! Your account is pending admin approval.',
+      message: 'Registration successful! Your account is pending admin approval.',
       user: userResponse
     });
   } catch (error) {
@@ -170,13 +167,6 @@ const login = async (req, res) => {
       });
     }
 
-    // Auto-approve Patient role users if their account status is still Pending
-    if (user.role === 'Patient' && user.status === 'Pending') {
-      user.status = 'Approved';
-      user.approvedAt = new Date();
-      await user.save();
-    }
-
     // Check if account is approved
     if (user.status !== 'Approved') {
       const statusMessages = {
@@ -238,13 +228,6 @@ const getProfile = async (req, res) => {
         success: false,
         message: 'User not found'
       });
-    }
-
-    // Auto-approve Patient role users if account status is still Pending
-    if (user.role === 'Patient' && user.status === 'Pending') {
-      user.status = 'Approved';
-      user.approvedAt = new Date();
-      await user.save();
     }
 
     res.json({
