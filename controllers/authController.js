@@ -43,10 +43,10 @@ const register = async (req, res) => {
     }
 
     // Validate password length
-    if (password.length < 12) {
+    if (password.length < 8) {
       return res.status(400).json({
         success: false,
-        message: 'Password must be at least 12 characters long'
+        message: 'Password must be at least 8 characters long'
       });
     }
 
