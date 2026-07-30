@@ -32,6 +32,9 @@ const REMEDY_SPELL_CORRECTIONS = {
   'aesc': 'æsc',
   'aesc-h': 'æsc',
   'csc': 'æsc',
+  'alun': 'alum',
+  'aiun': 'alum',
+  'alnm': 'alum',
   'sol-tæ': 'sol-t-æ',
   'sol-tae': 'sol-t-æ',
   'sol-t-ae': 'sol-t-æ',
@@ -234,25 +237,36 @@ ${contextInstruction}
 --- REPERTORY LAYOUT & HIERARCHY STACK RULES ---
 1. EXHAUSTIVE LINE-BY-LINE EXTRACTION (CRITICAL):
    Extract EVERY SINGLE rubric and EVERY SINGLE remedy listed from top to bottom of this column image.
-   Do NOT skip small sub-rubrics (e.g. "after:", "during menses:", "walking, while:", "extending to:").
-   Do NOT combine sub-rubrics into their parent. Every indented line ending with a colon or qualifier MUST generate its own distinct rubric entry in the JSON array!
+   Do NOT skip small sub-rubrics (e.g. "after:", "during menses:", "walking, while:", "extending to:", "tenesmus:").
+   Do NOT combine sub-rubrics into their parent. Every line with a colon or qualifier MUST generate its own distinct sub-rubric entry!
 
 2. TYPOGRAPHY & INDENTATION STACK:
-   - MAIN RUBRICS (ALL CAPS / BOLD CAPS): Printed in ALL CAPITAL LETTERS flush left (e.g., "PAIN", "TEARING", "STITCHING", "TENESMUS"). Resets active sub-rubric stack.
-   - SUB-RUBRICS (SMALL / LOWERCASE LETTERS): Printed in small/lowercase letters indented under main rubric (e.g., "stitching, stool:", "walking, while:", "extending to abdomen:"). Must be nested under active ALL CAPS main rubric.
-   - SUB-SUB-RUBRICS (SMALL / LOWERCASE LETTERS): Further indented lowercase qualifiers (e.g., "after:", "during stool:", "pudendum, during menses:").
+   - MAIN RUBRICS (ALL CAPS / BOLD CAPS): Printed in ALL CAPITAL LETTERS flush left (e.g., "PAIN", "TEARING", "STITCHING"). Resets sub-rubric stack.
+   - SUB-RUBRICS (SMALL / LOWERCASE): Printed in small/lowercase letters indented under main rubric (e.g., "stitching, stool:", "tearing:", "walking, while:").
+   - SUB-SUB-RUBRICS (FURTHER INDENTED LOWERCASE): Indented qualifiers with colons (e.g., "after:", "during stool:", "extending into abdomen:", "upward:", "tenesmus:").
 
-3. FULL RUBRIC PATH SYNTAX:
-   Format: "[DETECTED_CHAPTER] - MAIN RUBRIC (CAPS) - subrubric (small) - subsubrubric (small)"
+3. SUB-RUBRIC QUALIFIERS BEFORE COLONS (CRITICAL FIX FOR FLATTENING):
+   - Whenever an indented line starts with a word/phrase followed by a colon (e.g., "tenesmus: Acon., Æsc.", "after: Aloe, am-m.", "twitching: Thuj.", "upward: Lach., sep."), the text BEFORE the colon is a SUB-RUBRIC QUALIFIER.
+   - You MUST append that qualifier to the rubric path for those remedies!
+   - NEVER drop "tenesmus:", "after:", "twitching:", "upward:", "extending into abdomen:", etc., and NEVER attach their remedies directly to the parent rubric without including the qualifier.
+
+4. FULL RUBRIC PATH SYNTAX:
+   Format: "[DETECTED_CHAPTER] - MAIN RUBRIC - subrubric - subsubrubric"
    Examples:
-     "[CHAPTER] - PAIN - stitching, stool"
-     "[CHAPTER] - PAIN - stitching, stool - after"
-     "[CHAPTER] - PAIN - stitching, stool - pudendum, during menses - after stool"
-     "[CHAPTER] - PAIN - tearing - evening - after hard stool"
-
-4. SUB-RUBRICS VS MEDICINES:
-   - A line in small/lowercase letters ending in a colon ":" or qualifier (e.g. "morning:", "bed, in:", "stool, during:") defines a NEW SUB-RUBRIC heading. Create a separate JSON item for it.
-   - Text after a colon ":" (or on hanging wrapping lines with no colon) consists of MEDICINE ABBREVIATIONS ending in periods (e.g. "Aloe.", "am-m.", "Nit-ac."). Attach remedies to the active rubric directly above!
+     - Line "PAIN, stitching, stool." followed by "after: Aloe, am-m." ->
+       "rubric_en": "[CHAPTER] - PAIN - stitching, stool - after"
+     - Line "PAIN, tearing." followed by "tenesmus: Acon., Æsc., agar..." ->
+       "rubric_en": "[CHAPTER] - PAIN - tearing - tenesmus"
+     - Line "CONSTIPATION." followed by "difficult stool: Æsc., agar..." ->
+       "rubric_en": "[CHAPTER] - CONSTIPATION - difficult stool"
+     - Line "CONSTIPATION." followed by "menses, before: Am-c., bry..." ->
+       "rubric_en": "[CHAPTER] - CONSTIPATION - menses, before"
+     - Line "CONSTIPATION." followed by "during: Alum., am-c..." under menses ->
+       "rubric_en": "[CHAPTER] - CONSTIPATION - menses, during"
+     - Line "CONSTRICTION, contraction, closure, etc.: Acon., æsc..." ->
+       "rubric_en": "[CHAPTER] - CONSTRICTION, contraction, closure, etc."
+     - Line "rising, after: Nux-v." under CONSTRICTION ->
+       "rubric_en": "[CHAPTER] - CONSTRICTION, contraction, closure, etc. - rising, after"
 
 5. COLUMN CONTINUATION HEADERS AT TOP OF COLUMN:
    - If the column top starts with a line like "PAIN, tearing." or "COLOR, redness, inside.", this is an INHERITED PARENT HEADER from the previous column.
@@ -273,7 +287,7 @@ Return ONLY valid JSON matching this structure (no markdown, no preamble):
   "chapter_en": "DETECTED_CHAPTER_NAME",
   "data": [
     {
-      "rubric_en": "DETECTED_CHAPTER_NAME - MAIN RUBRIC - SUBRUBRIC",
+      "rubric_en": "DETECTED_CHAPTER_NAME - MAIN RUBRIC - SUBRUBRIC - QUALIFIER",
       "medicines": [
         {"name": "remedy_abbreviation", "grading": 1}
       ]
