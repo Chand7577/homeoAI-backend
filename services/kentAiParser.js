@@ -237,23 +237,22 @@ ${contextInstruction}
    Do NOT skip small sub-rubrics (e.g. "after:", "during menses:", "walking, while:", "extending to:").
    Do NOT combine sub-rubrics into their parent. Every indented line ending with a colon or qualifier MUST generate its own distinct rubric entry in the JSON array!
 
-2. INDENTATION STACK & RUBRIC PATH ASSEMBLY:
-   - Level 0 (Flush Left / ALL CAPS or BOLD): Main Rubric (e.g., "PAIN", "TEARING", "STITCHING", "TENESMUS"). Resets active sub-rubric stack.
-   - Level 1 (First indent): Sub-rubric (e.g., "stitching, stool:", "walking, while:", "extending to abdomen:").
-   - Level 2 (Second indent): Sub-sub-rubric (e.g., "after:", "during stool:", "pudendum, during menses:").
-   - Level 3 (Third indent): Sub-sub-sub-rubric (e.g., "after stool:", "edges:", "corners:").
+2. TYPOGRAPHY & INDENTATION STACK:
+   - MAIN RUBRICS (ALL CAPS / BOLD CAPS): Printed in ALL CAPITAL LETTERS flush left (e.g., "PAIN", "TEARING", "STITCHING", "TENESMUS"). Resets active sub-rubric stack.
+   - SUB-RUBRICS (SMALL / LOWERCASE LETTERS): Printed in small/lowercase letters indented under main rubric (e.g., "stitching, stool:", "walking, while:", "extending to abdomen:"). Must be nested under active ALL CAPS main rubric.
+   - SUB-SUB-RUBRICS (SMALL / LOWERCASE LETTERS): Further indented lowercase qualifiers (e.g., "after:", "during stool:", "pudendum, during menses:").
 
 3. FULL RUBRIC PATH SYNTAX:
-   Format: "[DETECTED_CHAPTER] - MAIN RUBRIC - SUBRUBRIC - SUBSUBRUBRIC"
+   Format: "[DETECTED_CHAPTER] - MAIN RUBRIC (CAPS) - subrubric (small) - subsubrubric (small)"
    Examples:
      "[CHAPTER] - PAIN - stitching, stool"
      "[CHAPTER] - PAIN - stitching, stool - after"
      "[CHAPTER] - PAIN - stitching, stool - pudendum, during menses - after stool"
      "[CHAPTER] - PAIN - tearing - evening - after hard stool"
 
-4. SUB-RUBRICS VS HANGING REMEDY CONTINUATION LINES:
-   - A line with text ending in a colon ":" or comma (e.g. "morning:", "bed, in:", "stool, during:") defines a NEW SUB-RUBRIC heading. Create a separate JSON item for it.
-   - A line with NO rubric heading that contains ONLY comma-separated remedy abbreviations (e.g. "bry., cact., calc., cann-i., Caps., carb-v.") is a HANGING INDENT CONTINUATION of remedies belonging to the rubric directly above it! Attach those remedies to the active rubric directly above!
+4. SUB-RUBRICS VS MEDICINES:
+   - A line in small/lowercase letters ending in a colon ":" or qualifier (e.g. "morning:", "bed, in:", "stool, during:") defines a NEW SUB-RUBRIC heading. Create a separate JSON item for it.
+   - Text after a colon ":" (or on hanging wrapping lines with no colon) consists of MEDICINE ABBREVIATIONS ending in periods (e.g. "Aloe.", "am-m.", "Nit-ac."). Attach remedies to the active rubric directly above!
 
 5. COLUMN CONTINUATION HEADERS AT TOP OF COLUMN:
    - If the column top starts with a line like "PAIN, tearing." or "COLOR, redness, inside.", this is an INHERITED PARENT HEADER from the previous column.
