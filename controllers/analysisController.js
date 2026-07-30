@@ -101,12 +101,23 @@ const getAnalyses = async (req, res) => {
   const user = req.user;
   
   const filter = {};
-  // Each doctor sees ONLY their own analysis history
-  if (!all || user.role !== 'Admin') {
-    filter.doctorId = user._id;
+  
+  // Role-based filtering:
+  // - Admin: Can see all analyses (if 'all' param is set)
+  // - Doctors: See ONLY analyses they created (their doctorId)
+  // - Patients: See ONLY analyses where they are the patient (their patientId)
+  if (user.role === 'Patient') {
+    // Patients see analyses submitted by them (where they are the patient)
+    filter.patientId = user._id;
+  } else {
+    // Doctors and Admin see analyses they created
+    if (!all || user.role !== 'Admin') {
+      filter.doctorId = user._id;
+    }
   }
-  if (patientId) filter.patientId = patientId;
-  if (patientName) filter.patientName = new RegExp(patientName, 'i'); // Case-insensitive search
+  
+  if (patientId && user.role !== 'Patient') filter.patientId = patientId;
+  if (patientName && user.role !== 'Patient') filter.patientName = new RegExp(patientName, 'i'); // Case-insensitive search
   
   const skip = (parseInt(page) - 1) * parseInt(limit);
   const [analyses, total] = await Promise.all([
@@ -117,6 +128,7 @@ const getAnalyses = async (req, res) => {
       .limit(parseInt(limit))
       .populate('patientId', 'name age gender')
       .populate('repertoryId', 'name')
+      .populate('doctorId', 'name') // Populate doctor name for patients to see
       .lean(), // Faster queries
     Analysis.countDocuments(filter),
   ]);
