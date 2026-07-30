@@ -319,7 +319,54 @@ ${rawText}`;
     let completion = null;
     let lastErr = null;
 
-    // ── Phase 1: Try all Groq keys ─────────────────────────────────────────
+    // ── Phase 1: OpenAI Primary (gpt-4o-mini) ─────────
+    // Extremely cheap ($0.15/1M tokens) - $5 credit will last for ~3000+ pages
+    if (process.env.OPENAI_API_KEY) {
+      try {
+        console.log('[Groq Structurer] Trying OpenAI gpt-4o-mini as primary...');
+        const https = require('https');
+        const body = JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.1,
+          max_tokens: 3500,
+          response_format: { type: 'json_object' }
+        });
+        const openAIResp = await new Promise((resolve, reject) => {
+          const req = https.request({
+            hostname: 'api.openai.com',
+            path: '/v1/chat/completions',
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+              'Content-Length': Buffer.byteLength(body)
+            }
+          }, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+              try { resolve(JSON.parse(data)); }
+              catch (e) { reject(new Error('OpenAI parse error: ' + data.slice(0, 100))); }
+            });
+          });
+          req.on('error', reject);
+          req.write(body);
+          req.end();
+        });
+        
+        if (openAIResp.choices?.[0]?.message?.content) {
+          console.log(`[Groq Structurer] ✅ OpenAI gpt-4o-mini succeeded.`);
+          return JSON.parse(openAIResp.choices[0].message.content);
+        } else if (openAIResp.error) {
+          console.warn(`[OpenAI] Failed: ${openAIResp.error.message}`);
+        }
+      } catch (oe) {
+        console.warn(`[OpenAI] Failed: ${oe.message.slice(0, 80)}`);
+      }
+    }
+
+    // ── Phase 2: Try all Groq keys (Fallback) ─────────────────────────────────────────
     outer:
     for (const apiKey of apiKeys) {
       const groq = new Groq({ apiKey });
@@ -350,7 +397,7 @@ ${rawText}`;
       }
     }
 
-    // ── Phase 2: Cerebras AI fallback (free tier, generous limits) ─────────
+    // ── Phase 3: Cerebras AI fallback (free tier, generous limits) ─────────
     // Sign up at cloud.cerebras.ai → add CEREBRAS_API_KEY to .env
     if (!completion && process.env.CEREBRAS_API_KEY) {
       console.warn('[Groq Structurer] All Groq keys exhausted — trying Cerebras AI fallback...');
@@ -400,8 +447,7 @@ ${rawText}`;
       }
     }
 
-    if (!completion) throw lastErr || new Error('All AI providers exhausted (Groq + Cerebras)');
-
+    if (!completion) throw lastErr || new Error('All AI providers exhausted (OpenAI + Groq + Cerebras)');
     const text = completion.choices[0]?.message?.content || '{}';
     return JSON.parse(text);
   } catch (err) {
