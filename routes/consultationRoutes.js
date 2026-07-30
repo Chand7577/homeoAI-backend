@@ -24,9 +24,9 @@ router.get('/doctors', getApprovedDoctors); // Get list of approved doctors for 
 
 // Protected routes
 router.post('/', consultationLimiter, createConsultation); // Create new consultation (can be called by patient or anonymous)
-router.get('/', authenticate, requireClinicalUser, getConsultations); // Get all consultations (for doctors)
-router.get('/:id', authenticate, requireClinicalUser, getConsultation); // Get single consultation
-router.put('/:id', authenticate, requireClinicalUser, updateConsultation); // Update consultation status/notes
-router.delete('/:id', authenticate, requireClinicalUser, deleteConsultation); // Delete consultation
+router.get('/', authenticate, getConsultations); // Get consultations (patients see their own, doctors see assigned)
+router.get('/:id', authenticate, getConsultation); // Get single consultation
+router.put('/:id', authenticate, requireClinicalUser, updateConsultation); // Update consultation status/notes (doctors only)
+router.delete('/:id', authenticate, requireClinicalUser, deleteConsultation); // Delete consultation (doctors only)
 
 module.exports = router;

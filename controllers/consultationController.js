@@ -234,17 +234,28 @@ exports.getConsultations = async (req, res) => {
 // Get single consultation by ID
 exports.getConsultation = async (req, res) => {
   try {
-    const ownershipFilter = req.user.role === 'Admin'
-      ? { _id: req.params.id }
-      : { _id: req.params.id, assignedDoctorId: req.user._id };
+    let ownershipFilter = { _id: req.params.id };
+    
+    // Role-based access control:
+    // - Admin: Can view any consultation
+    // - Doctors: Can view consultations assigned to them
+    // - Patients: Can view consultations they submitted
+    if (req.user.role === 'Patient') {
+      ownershipFilter.patientId = req.user._id;
+    } else if (req.user.role !== 'Admin') {
+      // Doctors (Core Team, External Doctor)
+      ownershipFilter.assignedDoctorId = req.user._id;
+    }
+    
     const consultation = await Consultation.findOne(ownershipFilter)
       .populate('assignedDoctorId', 'name email phone role specialization')
+      .populate('patientId', 'name email phone')
       .populate('analysisId');
 
     if (!consultation) {
       return res.status(404).json({
         success: false,
-        message: 'Consultation not found'
+        message: 'Consultation not found or access denied'
       });
     }
 
@@ -259,6 +270,7 @@ exports.getConsultation = async (req, res) => {
       message: 'Failed to fetch consultation'
     });
   }
+};  }
 };
 
 // Update consultation status
