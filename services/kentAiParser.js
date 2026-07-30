@@ -135,17 +135,17 @@ const splitImageForAi = async (imagePath) => {
     const leftCropPath = path.join(dir, `${base}_ai_left${ext}`);
     const rightCropPath = path.join(dir, `${base}_ai_right${ext}`);
 
-    const halfWidth = Math.floor(width * 0.52);
-    const rightStart = Math.floor(width * 0.48);
+    const halfWidth = Math.floor(width * 0.55);
+    const rightStart = Math.floor(width * 0.45);
 
     await sharp(imagePath)
       .extract({ left: 0, top: 0, width: halfWidth, height })
-      .jpeg({ quality: 90 })
+      .jpeg({ quality: 95 })
       .toFile(leftCropPath);
 
     await sharp(imagePath)
       .extract({ left: rightStart, top: 0, width: width - rightStart, height })
-      .jpeg({ quality: 90 })
+      .jpeg({ quality: 95 })
       .toFile(rightCropPath);
 
     return {
