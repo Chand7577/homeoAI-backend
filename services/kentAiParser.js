@@ -297,22 +297,24 @@ ${contextInstruction}
    - Under a main heading like "DIARRHŒA.", every indented line starting with a lowercase qualifier (e.g. "aged people: Ant-c., Ars...") MUST include "aged people" as a sub-rubric! Output: "DIARRHŒA - aged people".
    - NEVER drop the qualifier "aged people" and attach remedies directly to "DIARRHŒA"!
 
-3. SUB-RUBRICS WITH PARENTHETICAL CROSS-REFERENCES:
-   - Whenever an indented sub-rubric line includes a parenthetical note like "(see 'Inactivity')" or "(see under 'difficult')", e.g.:
-     "difficult stool (see 'Inactivity'): Æsc., agar., all-c., Alum., ..."
-   - You MUST extract "difficult stool" as a SUB-RUBRIC under the main rubric!
-   - STRIP the "(see ...)" note, but DO NOT drop the sub-rubric title!
-   - Target output path: "CONSTIPATION - difficult stool"
+3. SUB-RUBRICS WITH PARENTHETICAL NOTES & COMPARISONS:
+   - Whenever an indented sub-rubric line includes parenthetical notes or comparisons like 'smarting (compare "burning"):', e.g.:
+     "smarting (compare 'burning'): Æsc., æth., aloe..."
+   - You MUST extract "smarting" as a SUB-RUBRIC under the parent rubric! (Target path: "PAIN - shooting - smarting").
+   - NEVER drop the sub-rubric title "smarting" and dump remedies directly into "PAIN, shooting"!
+   - STRIP parenthetical notes like "(compare ...)" or "(see ...)" from the rubric title if appropriate, but ALWAYS preserve the main sub-rubric term ("smarting", "difficult stool").
 
-4. QUALIFIERS BEFORE COLONS & SUB-RUBRICS UNDER MAIN HEADINGS:
-   - Whenever an indented line starts with a word/phrase followed by a colon (e.g., "aged people: Ant-c., Ars.", "women: Kreos.", "air, in cold: Nat-s.", "cold, on abdomen: Caust."), the text BEFORE the colon is a SUB-RUBRIC QUALIFIER.
+4. QUALIFIERS BEFORE COLONS & SUB-RUBRICS ENDING IN ETC.:
+   - Whenever an indented line starts with a word/phrase followed by a colon (e.g. "aged people:", "downward, outward, etc.:", "smarting:", "women:", "air, in cold:"), the text BEFORE the colon is a SUB-RUBRIC QUALIFIER.
    - You MUST append that qualifier to the parent rubric path!
-   - Examples under "DIARRHŒA.":
-     - Line "aged people: Ant-c., Ars..." -> "DIARRHŒA - aged people"
-     - Line "women: Kreos., nat-s." -> "DIARRHŒA - women"
-     - Line "air, in cold: Nat-s., sil." -> "DIARRHŒA - air, in cold"
-     - Line "cold, on abdomen: Caust." -> "DIARRHŒA - cold, on abdomen"
-     - Line "currents of: Acon., Caps." -> "DIARRHŒA - currents of"
+   - Examples under "PAIN, pressing, evening.":
+     - Line "bed, in: Iod." -> "PAIN - pressing - evening - bed, in"
+     - Line "sitting, while: Calc., chin-s." -> "PAIN - pressing - evening - sitting, while"
+     - Line "downward, outward, etc.: Agar, aloe..." -> "PAIN - pressing - evening - downward, outward, etc."
+   - Examples under "PAIN, shooting.":
+     - Line "smarting (compare 'burning'): Æsc., æth..." -> "PAIN - shooting - smarting"
+     - Line "soreness: Æsc., agn..." -> "PAIN - shooting - soreness"
+   - NEVER drop qualifiers like "downward, outward, etc.", "bed, in", "sitting, while", "smarting"!
 
 5. FULL RUBRIC PATH SYNTAX (DO NOT INCLUDE CHAPTER NAME IN RUBRIC_EN):
    Format: "MAIN RUBRIC - subrubric - subsubrubric" (DO NOT prefix with Chapter Name! Chapter is stored separately in chapter_en.)
