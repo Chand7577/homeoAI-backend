@@ -657,6 +657,99 @@ const convertGroqJsonToRows = (parsedJson, fallbackChapter = '') => {
 };
 
 /**
+ * Turn Tesseract line boxes into an explicit Kent rubric skeleton.  The Vision
+ * model still reads the medicines from the image, but it no longer has to
+ * invent the parent/child hierarchy from visual indentation alone.
+ */
+const buildKentHierarchyManifest = (lines) => {
+  if (!lines?.length) return { transcript: '', beginsWithRoot: false };
+
+  const leftMost = Math.min(...lines.map(line => line.x));
+  const normalisedLines = lines.map((line, index) => ({
+    ...line,
+    index,
+    indent: Math.max(0, line.x - leftMost),
+  }));
+
+  const isRootHeading = (line) =>
+    line.indent <= 36 && /^[A-ZÆŒ]{3,}(?=[\s,.:;-])/.test(line.text);
+
+  const headingText = (line) => {
+    const beforeColon = line.text.split(':', 1)[0];
+    return beforeColon
+      .replace(/\s*\(\s*see[^)]*\)/i, '')
+      .replace(/[.\s]+$/, '')
+      .trim();
+  };
+
+  // A colon introduces a rubric/qualifier. An all-caps word at the baseline
+  // also introduces a root, even when Kent prints a period instead of a colon.
+  const candidates = normalisedLines
+    .filter(line => isRootHeading(line) || line.text.includes(':'))
+    .map(line => ({
+      ...line,
+      root: isRootHeading(line),
+      label: headingText(line),
+    }))
+    .filter(line => line.label.length > 0);
+
+  if (!candidates.length) {
+    return {
+      transcript: normalisedLines
+        .map(line => `[RAW indent=${line.indent}px; y=${line.y}] ${line.text}`)
+        .join('\n'),
+      beginsWithRoot: false,
+    };
+  }
+
+  // Cluster only heading positions. Wrapped remedy rows never enter this
+  // calculation, so their hanging indent cannot create a false child level.
+  const headingIndents = [...new Set(candidates.filter(line => !line.root).map(line => line.indent))]
+    .sort((a, b) => a - b);
+  const indentAnchors = [];
+  for (const indent of headingIndents) {
+    if (!indentAnchors.length || indent - indentAnchors[indentAnchors.length - 1] >= 24) {
+      indentAnchors.push(indent);
+    }
+  }
+
+  const levelFor = (line) => {
+    if (line.root) return 0;
+    const closest = indentAnchors.reduce((best, anchor, index) =>
+      Math.abs(anchor - line.indent) < Math.abs(indentAnchors[best] - line.indent) ? index : best, 0);
+    // The first non-root indent is level 1. Cap depth at 3 because Kent pages
+    // use a shallow hierarchy and OCR x-coordinates are not pixel-perfect.
+    return Math.min(3, closest + 1);
+  };
+
+  const stack = [];
+  const manifest = [];
+  for (const candidate of candidates) {
+    let level = levelFor(candidate);
+    // A page/crop may begin just below a root heading. Keep this as a pending
+    // child rather than pretending it is an unrelated main rubric.
+    if (stack.length === 0 && level > 0) level = 0;
+
+    stack.length = level;
+    stack[level] = candidate.label;
+    const path = stack.filter(Boolean).join(' > ');
+    manifest.push({ ...candidate, level, path, type: level === 0 ? 'ROOT' : 'CHILD' });
+  }
+
+  const manifestText = manifest
+    .map(item => `[${item.type} L${item.level}; indent=${item.indent}px; y=${item.y}] ${item.path}`)
+    .join('\n');
+  const rawText = normalisedLines
+    .map(line => `[RAW indent=${line.indent}px; y=${line.y}] ${line.text}`)
+    .join('\n');
+
+  return {
+    transcript: `LOCAL HIERARCHY MANIFEST (authoritative for rubric paths):\n${manifestText}\n\nRAW OCR LINES (use only for medicines and spelling):\n${rawText}`,
+    beginsWithRoot: manifest[0]?.type === 'ROOT',
+  };
+};
+
+/**
  * Parse an image directly using OpenAI's gpt-4o-mini Vision API.
  * Bypasses Tesseract entirely to perfectly preserve indentation and formatting.
  */
@@ -672,7 +765,7 @@ const continuationInstruction = lastRubricContext
   ? `The previous column ended at "${lastRubricContext}". If this crop begins with a continuation medicine list, attach it to that exact rubric until a new flush-left main rubric starts.`
   : '';
 const layoutInstruction = layoutTranscript
-  ? `\nLAYOUT TRANSCRIPT (additional evidence from OCR; indentation is relative to the column's left edge):\n${layoutTranscript}\n\nUse this to preserve hierarchy. A line with a larger indent than its parent is a child rubric only when it introduces a heading/qualifier; a similarly indented line that continues a comma-separated remedy list is NOT a new rubric. The source image remains authoritative for exact typography and spelling.\n`
+  ? `\n${layoutTranscript}\n\nThe LOCAL HIERARCHY MANIFEST is authoritative for rubric paths. Output a separate rubric_en for every listed ROOT or CHILD that has medicines. Do not merge a CHILD's medicines into its parent. RAW lines without a manifest entry are medicine-list continuations, never new rubrics. The source image remains authoritative only for exact medicine spelling and typography.\n`
   : '';
 
 const prompt = `You are a medical data extraction expert structuring a raw page from Kent's Repertory.
@@ -809,14 +902,6 @@ const parsePageWithOpenAIVision = async (imagePath) => {
   const leftPath = path.join(directory, `${cropId}_left${extension}`);
   const rightPath = path.join(directory, `${cropId}_right${extension}`);
 
-  const buildLayoutTranscript = (lines) => {
-    if (!lines?.length) return '';
-    const leftMost = Math.min(...lines.map(line => line.x));
-    return lines
-      .map(line => `[indent=${Math.max(0, line.x - leftMost)}px; y=${line.y}] ${line.text}`)
-      .join('\n');
-  };
-
   try {
     const leftWidth = Math.floor(width * 0.55);
     const rightStart = Math.floor(width * 0.45);
@@ -832,12 +917,15 @@ const parsePageWithOpenAIVision = async (imagePath) => {
 
     let leftLayout = '';
     let rightLayout = '';
+    let rightBeginsWithRoot = false;
     try {
       console.log('[Kent Parser] Reading column layout for hierarchy reconstruction...');
       const leftLayoutOcr = await runOCRWithLineLayout(leftPath);
-      leftLayout = buildLayoutTranscript(leftLayoutOcr.lines);
+      leftLayout = buildKentHierarchyManifest(leftLayoutOcr.lines).transcript;
       const rightLayoutOcr = await runOCRWithLineLayout(rightPath);
-      rightLayout = buildLayoutTranscript(rightLayoutOcr.lines);
+      const rightManifest = buildKentHierarchyManifest(rightLayoutOcr.lines);
+      rightLayout = rightManifest.transcript;
+      rightBeginsWithRoot = rightManifest.beginsWithRoot;
     } catch (layoutError) {
       // Vision can still extract the page if local layout OCR is temporarily unavailable.
       console.warn(`[Kent Parser] Layout OCR unavailable; using visual indentation only: ${layoutError.message}`);
@@ -848,7 +936,10 @@ const parsePageWithOpenAIVision = async (imagePath) => {
     const lastLeftRubric = leftRows.length ? leftRows[leftRows.length - 1].rubric_en : '';
 
     console.log('[Kent Parser] Vision pass 2/2: RIGHT column (55% crop with gutter overlap)...');
-    const rightRows = await parseImageWithOpenAIVision(rightPath, 'right', lastLeftRubric, rightLayout);
+    // Only inherit the left path when the right crop begins mid-list. A root
+    // heading at the top of the right column starts a separate Kent tree.
+    const rightContext = rightBeginsWithRoot ? '' : lastLeftRubric;
+    const rightRows = await parseImageWithOpenAIVision(rightPath, 'right', rightContext, rightLayout);
 
     const uniqueRows = [];
     const seen = new Set();
