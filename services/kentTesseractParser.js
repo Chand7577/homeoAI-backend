@@ -739,12 +739,15 @@ const buildKentHierarchyManifest = (lines) => {
   const manifestText = manifest
     .map(item => `[${item.type} L${item.level}; indent=${item.indent}px; y=${item.y}] ${item.path}`)
     .join('\n');
-  const rawText = normalisedLines
-    .map(line => `[RAW indent=${line.indent}px; y=${line.y}] ${line.text}`)
-    .join('\n');
-
   return {
-    transcript: `LOCAL HIERARCHY MANIFEST (authoritative for rubric paths):\n${manifestText}\n\nRAW OCR LINES (use only for medicines and spelling):\n${rawText}`,
+    // Do not include the full OCR transcript here. It is long and makes the
+    // model fall back to its old habit of merging child medicines into the
+    // nearest main heading. The image supplies the medicine text; this compact
+    // manifest supplies the non-negotiable structure.
+    transcript: `LOCAL HIERARCHY MANIFEST (authoritative for rubric paths):\n${manifestText}`,
+    expectedPaths: manifest
+      .filter(item => item.text.includes(':'))
+      .map(item => item.path),
     beginsWithRoot: manifest[0]?.type === 'ROOT',
   };
 };
@@ -753,7 +756,7 @@ const buildKentHierarchyManifest = (lines) => {
  * Parse an image directly using OpenAI's gpt-4o-mini Vision API.
  * Bypasses Tesseract entirely to perfectly preserve indentation and formatting.
  */
-const parseImageWithOpenAIVision = async (imagePath, columnSide = 'full', lastRubricContext = '', layoutTranscript = '') => {
+const parseImageWithOpenAIVision = async (imagePath, columnSide = 'full', lastRubricContext = '', layoutManifest = {}, recoveryOnly = false) => {
   const fs = require('fs-extra');
   const https = require('https');
   const base64Image = fs.readFileSync(imagePath).toString('base64');
@@ -764,14 +767,18 @@ const scopeInstruction = columnSide === 'full'
 const continuationInstruction = lastRubricContext
   ? `The previous column ended at "${lastRubricContext}". If this crop begins with a continuation medicine list, attach it to that exact rubric until a new flush-left main rubric starts.`
   : '';
-const layoutInstruction = layoutTranscript
-  ? `\n${layoutTranscript}\n\nThe LOCAL HIERARCHY MANIFEST is authoritative for rubric paths. Output a separate rubric_en for every listed ROOT or CHILD that has medicines. Do not merge a CHILD's medicines into its parent. RAW lines without a manifest entry are medicine-list continuations, never new rubrics. The source image remains authoritative only for exact medicine spelling and typography.\n`
+const layoutInstruction = layoutManifest.transcript
+  ? `\n${layoutManifest.transcript}\n\nThe LOCAL HIERARCHY MANIFEST is authoritative for rubric paths. Output a separate rubric_en for every listed ROOT or CHILD that has medicines. Do not merge a CHILD's medicines into its parent. The source image remains authoritative only for exact medicine spelling and typography.\n`
+  : '';
+const recoveryInstruction = recoveryOnly
+  ? '\nRECOVERY MODE: Extract medicines ONLY for the manifest paths supplied above that were missing from the first pass. Do not return broad parent rubrics or any path not explicitly listed in the manifest.\n'
   : '';
 
 const prompt = `You are a medical data extraction expert structuring a raw page from Kent's Repertory.
 ${scopeInstruction}
 ${continuationInstruction}
 ${layoutInstruction}
+${recoveryInstruction}
 
 CRITICAL INSTRUCTIONS:
 1. CHAPTER IDENTIFICATION: Look at the very top of the page for the chapter name in large capitals (e.g., "RECTUM"). You must prefix ALL extracted rubrics with this chapter name.
@@ -915,16 +922,15 @@ const parsePageWithOpenAIVision = async (imagePath) => {
       .jpeg({ quality: 95 })
       .toFile(rightPath);
 
-    let leftLayout = '';
-    let rightLayout = '';
+    let leftManifest = {};
+    let rightManifest = {};
     let rightBeginsWithRoot = false;
     try {
       console.log('[Kent Parser] Reading column layout for hierarchy reconstruction...');
       const leftLayoutOcr = await runOCRWithLineLayout(leftPath);
-      leftLayout = buildKentHierarchyManifest(leftLayoutOcr.lines).transcript;
+      leftManifest = buildKentHierarchyManifest(leftLayoutOcr.lines);
       const rightLayoutOcr = await runOCRWithLineLayout(rightPath);
-      const rightManifest = buildKentHierarchyManifest(rightLayoutOcr.lines);
-      rightLayout = rightManifest.transcript;
+      rightManifest = buildKentHierarchyManifest(rightLayoutOcr.lines);
       rightBeginsWithRoot = rightManifest.beginsWithRoot;
     } catch (layoutError) {
       // Vision can still extract the page if local layout OCR is temporarily unavailable.
@@ -932,14 +938,49 @@ const parsePageWithOpenAIVision = async (imagePath) => {
     }
 
     console.log('[Kent Parser] Vision pass 1/2: LEFT column (55% crop with gutter overlap)...');
-    const leftRows = await parseImageWithOpenAIVision(leftPath, 'left', '', leftLayout);
+    let leftRows = await parseImageWithOpenAIVision(leftPath, 'left', '', leftManifest);
     const lastLeftRubric = leftRows.length ? leftRows[leftRows.length - 1].rubric_en : '';
 
     console.log('[Kent Parser] Vision pass 2/2: RIGHT column (55% crop with gutter overlap)...');
     // Only inherit the left path when the right crop begins mid-list. A root
     // heading at the top of the right column starts a separate Kent tree.
     const rightContext = rightBeginsWithRoot ? '' : lastLeftRubric;
-    const rightRows = await parseImageWithOpenAIVision(rightPath, 'right', rightContext, rightLayout);
+    let rightRows = await parseImageWithOpenAIVision(rightPath, 'right', rightContext, rightManifest);
+
+    const normalisePath = (value) => (value || '')
+      .toLowerCase()
+      .replace(/^[a-zæœ]+\s*-\s*/, '') // strip chapter prefix
+      .replace(/[.\s,;:>\-]+/g, '');
+    const recoverMissingPaths = async (rows, manifest, cropPath, side, context) => {
+      const expected = [...new Set(manifest.expectedPaths || [])];
+      if (!expected.length) return rows;
+
+      const actual = rows.map(row => normalisePath(row.rubric_en));
+      const missing = expected.filter(path => {
+        const wanted = normalisePath(path);
+        return !actual.some(found => found.endsWith(wanted));
+      });
+      if (!missing.length) return rows;
+
+      console.warn(`[Kent Parser] ${side} column is missing ${missing.length}/${expected.length} detected rubric paths. Running targeted recovery.`);
+      const recoveryManifest = {
+        transcript: `LOCAL HIERARCHY MANIFEST — RECOVER ONLY THESE PATHS:\n${missing.map((path, index) => `[REQUIRED ${index + 1}] ${path}`).join('\n')}`,
+        expectedPaths: missing,
+      };
+      const recoveredRows = await parseImageWithOpenAIVision(cropPath, side, context, recoveryManifest, true);
+      const seen = new Set(rows.map(row => `${row.rubric_en}|||${row.medicine}`.toLowerCase()));
+      for (const row of recoveredRows) {
+        const key = `${row.rubric_en}|||${row.medicine}`.toLowerCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          rows.push(row);
+        }
+      }
+      return rows;
+    };
+
+    leftRows = await recoverMissingPaths(leftRows, leftManifest, leftPath, 'left', '');
+    rightRows = await recoverMissingPaths(rightRows, rightManifest, rightPath, 'right', rightContext);
 
     const uniqueRows = [];
     const seen = new Set();
