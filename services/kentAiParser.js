@@ -90,7 +90,15 @@ const REMEDY_SPELL_CORRECTIONS = {
   'gaub': 'gamb',
   'uux-m': 'nux-m',
   'uat-c': 'nat-c',
-  'uat-s': 'nat-s'
+  'uat-s': 'nat-s',
+  'nnr-ac': 'nit-ac',
+  'nil-ac': 'nit-ac',
+  'anhlr': 'anthr',
+  'ciunic': 'cimic',
+  'crol-t': 'crot-t',
+  'saug': 'sang',
+  'slaph': 'staph',
+  'canst': 'caust'
 };
 
 /**
@@ -281,68 +289,49 @@ ${contextInstruction}
    Do NOT combine sub-rubrics into their parent. Every line with a colon or qualifier MUST generate its own distinct sub-rubric entry!
 
 2. TYPOGRAPHY & INDENTATION STACK:
-   - MAIN RUBRICS (ALL CAPS / BOLD CAPS & SYNONYMS): Flush left headings starting with ALL-CAPS (e.g., "CONSTIPATION", "CONSTRICTION, contraction, closure, etc.", "PAIN", "TEARING", "STITCHING"). Resets sub-rubric stack. Never drop synonym descriptors like ", contraction, closure, etc." from the main rubric title!
-   - SUB-RUBRICS (SMALL / LOWERCASE): Printed in small/lowercase letters indented under main rubric (e.g., "difficult stool:", "morning:", "afternoon:", "evening:", "stitching, stool:").
-   - SUB-SUB-RUBRICS (FURTHER INDENTED LOWERCASE): Indented qualifiers with colons (e.g., "rising, after:", "after:", "during stool:", "extending into abdomen:").
+   - MAIN RUBRICS (ALL CAPS / BOLD CAPS & SYNONYMS): Flush left headings starting with ALL-CAPS (e.g., "DIARRHŒA.", "CONSTIPATION", "PAIN"). Resets sub-rubric stack.
+   - PRIMARY SUB-RUBRICS (SMALL / LOWERCASE INDENTED LEVEL 1): Printed in small/lowercase letters indented under main rubric (e.g., "aged people:", "burns, after:", "cabbage, after:", "children, in:").
+   - SECONDARY QUALIFIERS / SUB-SUB-RUBRICS (LEVEL 2 INDENTED): Further indented qualifiers under a primary sub-rubric (e.g. under "breakfast:", "amel.: Bov., nat-s." -> "DIARRHŒA - breakfast - amel.").
 
-   WARNING (SEPARATE MAIN RUBRICS - DO NOT MERGE MAIN RUBRICS):
-   - "CONSTIPATION" and "CONSTRICTION, contraction, closure, etc." are TWO DIFFERENT, INDEPENDENT MAIN RUBRICS.
-   - NEVER output "RECTUM - CONSTIPATION - CONSTRICTION, contraction, closure, etc."! That is a major error.
-   - When "CONSTRICTION, contraction, closure, etc." appears at the left margin, it RESETS the main rubric.
-   - Output path for CONSTRICTION remedies: "[CHAPTER] - CONSTRICTION, contraction, closure, etc."
-   - Output path for indented sub-rubrics under it:
-     - "morning: Nux-v." -> "[CHAPTER] - CONSTRICTION, contraction, closure, etc. - morning"
-     - "rising, after: Nux-v." -> "[CHAPTER] - CONSTRICTION, contraction, closure, etc. - morning - rising, after"
-     - "afternoon: Coloc." -> "[CHAPTER] - CONSTRICTION, contraction, closure, etc. - afternoon"
-     - "evening: Ign." -> "[CHAPTER] - CONSTRICTION, contraction, closure, etc. - evening"
-   - DO NOT attach "morning", "afternoon", "evening" to CONSTIPATION! They belong to CONSTRICTION.
+   CRITICAL (SUB-RUBRIC IS MANDATORY):
+   - Under a main heading like "DIARRHŒA.", every indented line starting with a lowercase qualifier (e.g. "aged people: Ant-c., Ars...") MUST include "aged people" as a sub-rubric! Output: "DIARRHŒA - aged people".
+   - NEVER drop the qualifier "aged people" and attach remedies directly to "DIARRHŒA"!
 
-3. SUB-RUBRICS WITH PARENTHETICAL CROSS-REFERENCES (CRITICAL FIX FOR MISSED SUB-RUBRICS):
+3. SUB-RUBRICS WITH PARENTHETICAL CROSS-REFERENCES:
    - Whenever an indented sub-rubric line includes a parenthetical note like "(see 'Inactivity')" or "(see under 'difficult')", e.g.:
      "difficult stool (see 'Inactivity'): Æsc., agar., all-c., Alum., ..."
    - You MUST extract "difficult stool" as a SUB-RUBRIC under the main rubric!
    - STRIP the "(see ...)" note, but DO NOT drop the sub-rubric title!
-   - Target output path: "[CHAPTER] - CONSTIPATION - difficult stool"
-   - NEVER attach remedies following "difficult stool" directly to "[CHAPTER] - CONSTIPATION"! They belong to "[CHAPTER] - CONSTIPATION - difficult stool".
+   - Target output path: "CONSTIPATION - difficult stool"
 
 4. QUALIFIERS BEFORE COLONS & SUB-RUBRICS UNDER MAIN HEADINGS:
-   - Whenever an indented line starts with a word/phrase followed by a colon (e.g., "morning: Nux-v.", "rising, after: Nux-v.", "afternoon: Coloc.", "evening: Ign.", "tenesmus: Acon., Æsc."), the text BEFORE the colon is a SUB-RUBRIC QUALIFIER.
-   - You MUST append that qualifier to the parent rubric path for those remedies!
-   - Examples under "CONSTRICTION, contraction, closure, etc.":
-     - Main line: "CONSTRICTION, contraction, closure, etc.: Acon., æsc..." -> "[CHAPTER] - CONSTRICTION, contraction, closure, etc."
-     - Indented line "morning: Nux-v." -> "[CHAPTER] - CONSTRICTION, contraction, closure, etc. - morning"
-     - Indented line "rising, after: Nux-v." under morning -> "[CHAPTER] - CONSTRICTION, contraction, closure, etc. - morning - rising, after"
-     - Indented line "afternoon: Coloc." -> "[CHAPTER] - CONSTRICTION, contraction, closure, etc. - afternoon"
-     - Indented line "evening: Ign." -> "[CHAPTER] - CONSTRICTION, contraction, closure, etc. - evening"
-   - NEVER drop "contraction, closure, etc.", "morning:", "rising, after:", "afternoon:", "evening:", etc.
+   - Whenever an indented line starts with a word/phrase followed by a colon (e.g., "aged people: Ant-c., Ars.", "women: Kreos.", "air, in cold: Nat-s.", "cold, on abdomen: Caust."), the text BEFORE the colon is a SUB-RUBRIC QUALIFIER.
+   - You MUST append that qualifier to the parent rubric path!
+   - Examples under "DIARRHŒA.":
+     - Line "aged people: Ant-c., Ars..." -> "DIARRHŒA - aged people"
+     - Line "women: Kreos., nat-s." -> "DIARRHŒA - women"
+     - Line "air, in cold: Nat-s., sil." -> "DIARRHŒA - air, in cold"
+     - Line "cold, on abdomen: Caust." -> "DIARRHŒA - cold, on abdomen"
+     - Line "currents of: Acon., Caps." -> "DIARRHŒA - currents of"
 
 5. FULL RUBRIC PATH SYNTAX (DO NOT INCLUDE CHAPTER NAME IN RUBRIC_EN):
    Format: "MAIN RUBRIC - subrubric - subsubrubric" (DO NOT prefix with Chapter Name! Chapter is stored separately in chapter_en.)
    Examples:
-     - Line "CONSTIPATION." followed by "difficult stool (see 'Inactivity'): Æsc., agar..." ->
-       "rubric_en": "CONSTIPATION - difficult stool"
-     - Line "menses, suppressed, during: Graph., ham." ->
-       "rubric_en": "CONSTIPATION - menses, suppressed, during"
-     - Line "with general amel.: Psor." ->
-       "rubric_en": "CONSTIPATION - with general amel."
-     - Line "PAIN, stitching, stool." followed by "after: Aloe, am-m." ->
-       "rubric_en": "PAIN - stitching, stool - after"
-     - Line "PAIN, tearing." followed by "tenesmus: Acon., Æsc., agar..." ->
-       "rubric_en": "PAIN - tearing - tenesmus"
-     - Line "CONSTIPATION." followed by "menses, before: Am-c., bry..." ->
-       "rubric_en": "CONSTIPATION - menses, before"
-     - Line "CONSTIPATION." followed by "during: Alum., am-c..." under menses ->
-       "rubric_en": "CONSTIPATION - menses, during"
-     - Line "CONSTRICTION, contraction, closure, etc.: Acon., æsc..." ->
-       "rubric_en": "CONSTRICTION, contraction, closure, etc."
-     - Line "morning: Nux-v." under CONSTRICTION ->
-       "rubric_en": "CONSTRICTION, contraction, closure, etc. - morning"
-     - Line "rising, after: Nux-v." under morning ->
-       "rubric_en": "CONSTRICTION, contraction, closure, etc. - morning - rising, after"
+     - Line "DIARRHŒA." followed by "aged people: Ant-c., Ars..." -> "rubric_en": "DIARRHŒA - aged people"
+     - Line "DIARRHŒA." followed by "women: Kreos., nat-s." -> "rubric_en": "DIARRHŒA - women"
+     - Line "DIARRHŒA." followed by "air, in cold: Nat-s., sil." -> "rubric_en": "DIARRHŒA - air, in cold"
 
-6. COLUMN CONTINUATION HEADERS AT TOP OF COLUMN:
-   - If the column top starts with a line like "PAIN, tearing." or "COLOR, redness, inside.", this is an INHERITED PARENT HEADER from the previous column.
-   - Reconstruct the parent path using the previous column context and append all subsequent sub-rubrics under it until a new flush-left ALL-CAPS rubric appears.
+6. COLUMN CONTINUATION HEADERS AT TOP OF COLUMN (CRITICAL FIX FOR CONTINUATION CONTAMINATION):
+   - At the top of a column, a header like "DIARRHŒA, breakfast." means:
+     - MAIN RUBRIC is "DIARRHŒA".
+     - Active sub-rubric continuing from the previous column is "breakfast".
+   - Lines indented DEEPER under "breakfast" (e.g. "amel.: Bov., nat-s., tromb.") belong to "DIARRHŒA - breakfast - amel.".
+   - IMPORTANT (SUB-RUBRIC LEVEL RESET): As soon as a line appears at the PRIMARY sub-rubric indent level (e.g. "burns, after: Ars.", "cabbage, after: Bry.", "children, in: Acon."), it is a NEW primary sub-rubric under "DIARRHŒA"!
+   - You MUST RESET the sub-rubric stack back to "DIARRHŒA"! Output:
+     - "DIARRHŒA - burns, after"
+     - "DIARRHŒA - cabbage, after"
+     - "DIARRHŒA - children, in"
+   - DO NOT lock the whole column under "DIARRHŒA - breakfast"! "breakfast" ONLY applies to lines indented under it.
 
 7. MEDICINES & CLINICAL TYPOGRAPHY GRADING — TOKEN-EFFICIENT GROUPED OUTPUT (CRITICAL):
    - Capture every remedy abbreviation on every line. Clean off trailing periods.
