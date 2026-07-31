@@ -344,14 +344,14 @@ ${rawText}`;
     let completion = null;
     let lastErr = null;
 
-    // ── Phase 1: OpenAI Primary (gpt-4o-mini) ─────────
-    // Extremely cheap ($0.15/1M tokens) - $5 credit will last for ~3000+ pages
+    // ── Phase 1: OpenAI Primary (gpt-4o) ─────────────────────────────────
+    // Strong hierarchy reasoning needed for Kent Repertory extraction
     if (process.env.OPENAI_API_KEY) {
       try {
-        console.log('[Groq Structurer] Trying OpenAI gpt-4o-mini as primary...');
+        console.log('[Groq Structurer] Trying OpenAI gpt-4o as primary...');
         const https = require('https');
         const body = JSON.stringify({
-          model: 'gpt-4o-mini',
+          model: 'gpt-4o',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.1,
           max_tokens: 3500,
@@ -381,7 +381,7 @@ ${rawText}`;
         });
         
         if (openAIResp.choices?.[0]?.message?.content) {
-          console.log(`[Groq Structurer] ✅ OpenAI gpt-4o-mini succeeded.`);
+          console.log(`[Groq Structurer] ✅ OpenAI gpt-4o succeeded.`);
           return JSON.parse(openAIResp.choices[0].message.content);
         } else if (openAIResp.error) {
           console.warn(`[OpenAI] Failed: ${openAIResp.error.message}`);
@@ -831,7 +831,7 @@ CRITICAL INSTRUCTIONS:
 }`;
 
   const body = JSON.stringify({
-    model: 'gpt-4o-mini',
+    model: 'gpt-4o',
     messages: [
       {
         role: 'user',
