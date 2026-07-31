@@ -85,7 +85,6 @@ const REMEDY_SPELL_CORRECTIONS = {
   'lo-bi': 'lob',
   'auac': 'anac',
   'direc': 'dirc',
-  'an-m': 'am-m',
   'stauu': 'stann',
   'gaub': 'gamb',
   'uux-m': 'nux-m',
@@ -95,10 +94,21 @@ const REMEDY_SPELL_CORRECTIONS = {
   'nil-ac': 'nit-ac',
   'anhlr': 'anthr',
   'ciunic': 'cimic',
+  'ciniic': 'cimic',
   'crol-t': 'crot-t',
   'saug': 'sang',
   'slaph': 'staph',
-  'canst': 'caust'
+  'canst': 'caust',
+  'causl': 'caust',
+  'nal-m': 'nat-m',
+  'siu-a': 'sin-a',
+  'ran-s': 'ran-sc',
+  'stamn': 'stann',
+  'chiin': 'chin',
+  'arr': 'arn',
+  'gal-c': 'gal-ac',
+  'merc-i': 'merc-i-f',
+  'sulp': 'sulph'
 };
 
 /**
@@ -285,24 +295,23 @@ ${contextInstruction}
 --- REPERTORY LAYOUT & HIERARCHY STACK RULES ---
 1. EXHAUSTIVE LINE-BY-LINE EXTRACTION (CRITICAL):
    Extract EVERY SINGLE rubric and EVERY SINGLE remedy listed from top to bottom of this column image.
-   Do NOT skip small sub-rubrics (e.g. "difficult stool", "after:", "during menses:", "walking, while:", "extending to:", "tenesmus:").
+   Do NOT skip small sub-rubrics (e.g. "downward, outward, etc.:", "smarting:", "difficult stool", "after:", "during menses:", "walking, while:", "extending to:", "tenesmus:").
    Do NOT combine sub-rubrics into their parent. Every line with a colon or qualifier MUST generate its own distinct sub-rubric entry!
 
 2. TYPOGRAPHY & INDENTATION STACK:
    - MAIN RUBRICS (ALL CAPS / BOLD CAPS & SYNONYMS): Flush left headings starting with ALL-CAPS (e.g., "DIARRHŒA.", "CONSTIPATION", "PAIN"). Resets sub-rubric stack.
-   - PRIMARY SUB-RUBRICS (SMALL / LOWERCASE INDENTED LEVEL 1): Printed in small/lowercase letters indented under main rubric (e.g., "aged people:", "burns, after:", "cabbage, after:", "children, in:").
-   - SECONDARY QUALIFIERS / SUB-SUB-RUBRICS (LEVEL 2 INDENTED): Further indented qualifiers under a primary sub-rubric (e.g. under "breakfast:", "amel.: Bov., nat-s." -> "DIARRHŒA - breakfast - amel.").
+   - PRIMARY SUB-RUBRICS / SIBLING RUBRICS: Printed flush left or slightly indented (e.g., "smarting (compare 'burning'):", "soreness:", "rasping:", "rawness:", "scraping:", "shooting:").
+   - QUALIFIERS / SUB-SUB-RUBRICS (LEVEL 2 INDENTED): Further indented qualifiers under a primary sub-rubric (e.g. under "soreness:", line "morning: Thuj." -> "PAIN - soreness - morning").
 
-   CRITICAL (SUB-RUBRIC IS MANDATORY):
-   - Under a main heading like "DIARRHŒA.", every indented line starting with a lowercase qualifier (e.g. "aged people: Ant-c., Ars...") MUST include "aged people" as a sub-rubric! Output: "DIARRHŒA - aged people".
-   - NEVER drop the qualifier "aged people" and attach remedies directly to "DIARRHŒA"!
+   CRITICAL (QUALIFIERS ARE MANDATORY):
+   - Under a heading like "PAIN, pressing, evening.", a line starting with "downward, outward, etc.: Agar, aloe..." MUST include "downward, outward, etc." as a sub-rubric! Target path: "PAIN - pressing - evening - downward, outward, etc.".
+   - NEVER drop "downward, outward, etc." and attach remedies directly to "PAIN - pressing - evening"!
 
 3. SUB-RUBRICS WITH PARENTHETICAL NOTES & COMPARISONS:
-   - Whenever an indented sub-rubric line includes parenthetical notes or comparisons like 'smarting (compare "burning"):', e.g.:
+   - Whenever a line includes parenthetical notes or comparisons like 'smarting (compare "burning"):', e.g.:
      "smarting (compare 'burning'): Æsc., æth., aloe..."
-   - You MUST extract "smarting" as a SUB-RUBRIC under the parent rubric! (Target path: "PAIN - shooting - smarting").
-   - NEVER drop the sub-rubric title "smarting" and dump remedies directly into "PAIN, shooting"!
-   - STRIP parenthetical notes like "(compare ...)" or "(see ...)" from the rubric title if appropriate, but ALWAYS preserve the main sub-rubric term ("smarting", "difficult stool").
+   - You MUST extract "smarting" as a RUBRIC / SUB-RUBRIC under the parent rubric! (Target path: "PAIN - smarting").
+   - NEVER drop the rubric title "smarting" and dump remedies into a previous header like "PAIN - shooting"!
 
 4. QUALIFIERS BEFORE COLONS & SUB-RUBRICS ENDING IN ETC.:
    - Whenever an indented line starts with a word/phrase followed by a colon (e.g. "aged people:", "downward, outward, etc.:", "smarting:", "women:", "air, in cold:"), the text BEFORE the colon is a SUB-RUBRIC QUALIFIER.
@@ -311,45 +320,41 @@ ${contextInstruction}
      - Line "bed, in: Iod." -> "PAIN - pressing - evening - bed, in"
      - Line "sitting, while: Calc., chin-s." -> "PAIN - pressing - evening - sitting, while"
      - Line "downward, outward, etc.: Agar, aloe..." -> "PAIN - pressing - evening - downward, outward, etc."
-   - Examples under "PAIN, shooting.":
-     - Line "smarting (compare 'burning'): Æsc., æth..." -> "PAIN - shooting - smarting"
-     - Line "soreness: Æsc., agn..." -> "PAIN - shooting - soreness"
+   - Examples under "PAIN":
+     - Line "smarting (compare 'burning'): Æsc., æth..." -> "PAIN - smarting"
+     - Line "soreness: Æsc., agn..." -> "PAIN - soreness"
+     - Line "soreness:" followed by indented "morning: Thuj." -> "PAIN - soreness - morning"
    - NEVER drop qualifiers like "downward, outward, etc.", "bed, in", "sitting, while", "smarting"!
 
 5. FULL RUBRIC PATH SYNTAX (DO NOT INCLUDE CHAPTER NAME IN RUBRIC_EN):
    Format: "MAIN RUBRIC - subrubric - subsubrubric" (DO NOT prefix with Chapter Name! Chapter is stored separately in chapter_en.)
-   Examples:
-     - Line "DIARRHŒA." followed by "aged people: Ant-c., Ars..." -> "rubric_en": "DIARRHŒA - aged people"
-     - Line "DIARRHŒA." followed by "women: Kreos., nat-s." -> "rubric_en": "DIARRHŒA - women"
-     - Line "DIARRHŒA." followed by "air, in cold: Nat-s., sil." -> "rubric_en": "DIARRHŒA - air, in cold"
 
-6. COLUMN CONTINUATION HEADERS AT TOP OF COLUMN (CRITICAL FIX FOR CONTINUATION CONTAMINATION):
-   - At the top of a column, a header like "DIARRHŒA, breakfast." means:
-     - MAIN RUBRIC is "DIARRHŒA".
-     - Active sub-rubric continuing from the previous column is "breakfast".
-   - Lines indented DEEPER under "breakfast" (e.g. "amel.: Bov., nat-s., tromb.") belong to "DIARRHŒA - breakfast - amel.".
-   - IMPORTANT (SUB-RUBRIC LEVEL RESET): As soon as a line appears at the PRIMARY sub-rubric indent level (e.g. "burns, after: Ars.", "cabbage, after: Bry.", "children, in: Acon."), it is a NEW primary sub-rubric under "DIARRHŒA"!
-   - You MUST RESET the sub-rubric stack back to "DIARRHŒA"! Output:
-     - "DIARRHŒA - burns, after"
-     - "DIARRHŒA - cabbage, after"
-     - "DIARRHŒA - children, in"
-   - DO NOT lock the whole column under "DIARRHŒA - breakfast"! "breakfast" ONLY applies to lines indented under it.
+6. COLUMN CONTINUATION HEADERS & SIBLING RUBRIC RESET (PREVENT CONTINUATION CONTAMINATION):
+   - At the top of a column, a header like "PAIN, shooting." is a continuation header from the previous page/column.
+   - It ONLY applies to immediate sub-items indented under it (e.g. "evening: Sulph.", "itching: Sulph.", "extending to penis: Carl.").
+   - CRITICAL RESET RULE: As soon as a new primary rubric line appears (e.g. "smarting (compare 'burning'):", "soreness:", "rasping:", "rawness:", "scraping:"), it is a NEW sibling rubric under PAIN, NOT a sub-rubric of "shooting"!
+   - Immediately reset the path from "PAIN - shooting" to "PAIN - smarting" or "PAIN - soreness"!
+   - Example output for "soreness:":
+     - Line "soreness: Æsc..." -> "PAIN - soreness"
+     - Line indented "morning: Thuj." -> "PAIN - soreness - morning" (NOT "PAIN - shooting - soreness - morning"!)
+     - Line indented "sitting, while: Mag-c." -> "PAIN - soreness - sitting, while"
 
-7. MEDICINES & CLINICAL TYPOGRAPHY GRADING — TOKEN-EFFICIENT GROUPED OUTPUT (CRITICAL):
+7. MEDICINES & STRICT 3-TIER CLINICAL TYPOGRAPHY GRADING (CRITICAL):
    - Capture every remedy abbreviation on every line. Clean off trailing periods.
-   - Grade each remedy by its typography: BOLD ALL CAPS or BOLD = grading 3, ITALIC = grading 2, NORMAL ROMAN = grading 1.
-   - DO NOT output one JSON object per remedy. That format burns output tokens fast and causes the response to hit the token limit and truncate partway through a long column, silently losing every rubric after the cutoff.
-   - INSTEAD: for each rubric, group all remedies of the same grading into a SINGLE object, with the remedy names joined by commas in one "name" string. Emit at most 3 objects per rubric (one per grading level that is actually present).
-   - Example — a rubric with remedies "Æsc.(bold), agar., all-c., Alum.(bold), am-c., Am-m.(bold)" must be emitted as:
+   - EXACT TYPOGRAPHY GRADING RULES:
+     * GRADE 3 = HEAVY BOLD ALL CAPS ONLY (e.g. "SULPH", "ALOE", "GRAPH", "CAUST", "BELL", "BERB", "LYC", "MERC", "PULS").
+     * GRADE 2 = ITALICS / Title-case Italic (e.g. "Ammc.", "Arn.", "Ant-c.", "Apoc.", "Dros.", "Lach.", "Carl.", "Rhus-t.", "Agar.", "Caust.", "Graph.", "Ham.").
+       --> CRITICAL: ITALS ARE ALWAYS GRADE 2. DO NOT GRADE ITALICS AS 3!
+     * GRADE 1 = PLAIN ROMAN LOWERCASE (e.g. "chin-s", "ferr", "cob", "grat", "nat-m", "verat").
+   - TOKEN-EFFICIENT GROUPED OUTPUT: for each rubric, group remedies of the same grading into a SINGLE object, with remedy names joined by commas:
      "medicines": [
-       {"name": "Æsc,Alum,Am-m", "grading": 3},
-       {"name": "agar,all-c,am-c", "grading": 1}
+       {"name": "Æsc,Aloe,Graph", "grading": 3},
+       {"name": "Ammc,Arn,Ant-c", "grading": 2},
+       {"name": "bar-c,nux-v,sulph", "grading": 1}
      ]
-     NOT as six separate {"name": "...", "grading": ...} objects.
-   - This grouped format is REQUIRED for every single rubric in this column, especially long ones like "difficult stool" that may list 80+ remedies — grouping keeps the whole column well within the output budget.
 
 8. STANDALONE CROSS-REFERENCES:
-   - Skip ONLY lines that contain NO remedies and ONLY a cross reference, e.g. "slips back, stool: (See under 'difficult')". If a line contains medicines (e.g. "difficult stool (see 'Inactivity'): Æsc., agar..."), extract the sub-rubric "difficult stool" with all its remedies!
+   - Skip ONLY lines that contain NO remedies and ONLY a cross reference. If a line contains medicines, extract the sub-rubric with all its remedies!
 
 --- OUTPUT FORMAT ---
 Return ONLY valid JSON matching this structure (no markdown, no preamble). Remember: group remedies by grading tier per rubric as shown — do not emit one object per remedy.
