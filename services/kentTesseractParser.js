@@ -6,6 +6,30 @@ const fs = require('fs-extra');
 const path = require('path');
 const sharp = require('sharp');
 
+// Vision is excellent at preserving the remedy spelling/case, but it is not
+// dependable at emitting the grading number consistently for every item in a
+// 60+ remedy list.  Kent's printed edition encodes the grade in that case:
+// initial capital = bold (3); the known lowercase italic remedies = 2; the
+// remaining lowercase remedies are normal (1).  Apply this in one place to
+// every AI path rather than trusting a model to classify a whole list at once.
+const KENT_ITALIC_REMEDIES = new Set([
+  'acon', 'agar', 'alum', 'all-c', 'am-c', 'am-m', 'anac', 'apis', 'arn',
+  'bell', 'berb', 'bry', 'calc', 'caust', 'chel', 'chin', 'con', 'cupr',
+  'dulc', 'graph', 'hep', 'ign', 'kali-c', 'kali-bi', 'lach', 'laur', 'lyc',
+  'mag-c', 'mag-m', 'mang', 'merc', 'nat-c', 'nat-m', 'nat-s', 'nit-ac',
+  'nux-v', 'nux-m', 'phos', 'phos-ac', 'plat', 'puls', 'rhodo', 'ruta',
+  'sabad', 'sep', 'sil', 'sulph', 'thuj', 'valer', 'verat'
+]);
+
+const inferKentGrading = (medicineName) => {
+  const name = (medicineName || '').trim().replace(/^[^A-Za-zÆŒæœ]+/, '');
+  if (!name) return 1;
+
+  // This accepts Kent ligatures as well as regular A-Z capitals.
+  if (/^[A-ZÆŒ]/.test(name)) return 3;
+  return KENT_ITALIC_REMEDIES.has(name.toLowerCase()) ? 2 : 1;
+};
+
 /**
  * Clean up common OCR errors in chapter names.
  * @param {string} chapterName - Raw chapter name from OCR
@@ -620,7 +644,11 @@ const convertGroqJsonToRows = (parsedJson, fallbackChapter = '') => {
           rubric_en: rubric_en,
           rubric_hi: '',
           medicine: cleanMed,
-          grading: typeof medObj === 'object' ? (medObj.grading || 1) : 1
+          // Do not trust the model's grouped grading label here.  The raw
+          // medicine case is preserved in its response and is the reliable
+          // Kent grade signal; this prevents an entire long list becoming
+          // grade 3 (the error visible on page 590's "difficult stool").
+          grading: inferKentGrading(medicineName)
         });
       }
     }
