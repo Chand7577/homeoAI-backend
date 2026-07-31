@@ -112,7 +112,6 @@ const runOCR = async (imagePath) => {
 
   try {
     await worker.setParameters({
-      tessedit_ocr_engine_mode: 1,
       tessedit_pageseg_mode: 4,
       preserve_interword_spaces: '1',
     });
@@ -148,7 +147,6 @@ const runOCRWithLineLayout = async (imagePath) => {
 
   try {
     await worker.setParameters({
-      tessedit_ocr_engine_mode: 1,
       tessedit_pageseg_mode: 4,
       preserve_interword_spaces: '1',
     });
@@ -187,7 +185,6 @@ const runOCRSingleLine = async (imagePath) => {
 
   try {
     await worker.setParameters({
-      tessedit_ocr_engine_mode: 1,
       tessedit_pageseg_mode: 7,   // PSM 7 = single text line (correct for header strips)
       tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz.',
       preserve_interword_spaces: '1',

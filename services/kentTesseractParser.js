@@ -922,20 +922,13 @@ const parsePageWithOpenAIVision = async (imagePath) => {
       .jpeg({ quality: 95 })
       .toFile(rightPath);
 
-    let leftManifest = {};
-    let rightManifest = {};
-    let rightBeginsWithRoot = false;
-    try {
-      console.log('[Kent Parser] Reading column layout for hierarchy reconstruction...');
-      const leftLayoutOcr = await runOCRWithLineLayout(leftPath);
-      leftManifest = buildKentHierarchyManifest(leftLayoutOcr.lines);
-      const rightLayoutOcr = await runOCRWithLineLayout(rightPath);
-      rightManifest = buildKentHierarchyManifest(rightLayoutOcr.lines);
-      rightBeginsWithRoot = rightManifest.beginsWithRoot;
-    } catch (layoutError) {
-      // Vision can still extract the page if local layout OCR is temporarily unavailable.
-      console.warn(`[Kent Parser] Layout OCR unavailable; using visual indentation only: ${layoutError.message}`);
-    }
+    // Layout manifest via Tesseract has been removed.
+    // The Vision model reads indentation and bold/italic typography directly
+    // from the image — Tesseract OCR in this path added latency and the
+    // 'tessedit_ocr_engine_mode' init-only warnings without improving accuracy.
+    const leftManifest = {};
+    const rightManifest = {};
+    const rightBeginsWithRoot = false;
 
     console.log('[Kent Parser] Vision pass 1/2: LEFT column (55% crop with gutter overlap)...');
     let leftRows = await parseImageWithOpenAIVision(leftPath, 'left', '', leftManifest);
