@@ -43,9 +43,12 @@ const preprocessAndSplitColumns = async (inputPath, outputDir) => {
   const width = processedMeta.width;
   const height = processedMeta.height;
 
-  // Split down vertical center with 4% overlap
-  const halfWidth = Math.floor(width * 0.52);
-  const rightStart = Math.floor(width * 0.48);
+  // Keep a 10% overlap around the gutter.  Kent's left column frequently
+  // reaches past the visual centre line; the old 52% crop clipped its last
+  // words before OCR ever saw them.  These values match the proven Vision
+  // crop geometry and deliberately let both passes see the gutter text.
+  const halfWidth = Math.floor(width * 0.55);
+  const rightStart = Math.floor(width * 0.45);
 
   // MEMORY FIX: Process columns sequentially instead of parallel to reduce peak RAM
   await sharp(tempProcessedPath)
@@ -256,5 +259,4 @@ module.exports = {
   extractColumnTextsFromImage,
   extractTopStripText
 };
-
 

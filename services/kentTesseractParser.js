@@ -4,6 +4,7 @@ const { extractColumnTextsFromImage, extractTextFromImage, extractTopStripText }
 const { parseKentOcrTextAdvanced } = require('./kentTextParser');
 const fs = require('fs-extra');
 const path = require('path');
+const sharp = require('sharp');
 
 /**
  * Clean up common OCR errors in chapter names.
@@ -602,18 +603,26 @@ const convertGroqJsonToRows = (parsedJson, fallbackChapter = '') => {
 
     const medicines = item.medicines || [];
     for (const medObj of medicines) {
+      // Vision responses group remedies with the same grade into one
+      // comma-separated field.  Expanding that field here keeps responses
+      // compact enough to finish a dense left column without changing the
+      // flat row format used by the database and Excel export.
       const medName = typeof medObj === 'string' ? medObj : (medObj.name || '');
-      const cleanMed = correctMedicineName(medName.replace(/\.$/, '').trim());
-      if (!cleanMed) continue;
+      const medicineNames = medName.split(',').map(name => name.trim()).filter(Boolean);
 
-      rows.push({
-        chapter_en: chapter,
-        chapter_hi: '',
-        rubric_en: rubric_en,
-        rubric_hi: '',
-        medicine: cleanMed,
-        grading: typeof medObj === 'object' ? (medObj.grading || 1) : 1
-      });
+      for (const medicineName of medicineNames) {
+        const cleanMed = correctMedicineName(medicineName.replace(/\.$/, '').trim());
+        if (!cleanMed) continue;
+
+        rows.push({
+          chapter_en: chapter,
+          chapter_hi: '',
+          rubric_en: rubric_en,
+          rubric_hi: '',
+          medicine: cleanMed,
+          grading: typeof medObj === 'object' ? (medObj.grading || 1) : 1
+        });
+      }
     }
   }
   return rows;
@@ -623,13 +632,21 @@ const convertGroqJsonToRows = (parsedJson, fallbackChapter = '') => {
  * Parse an image directly using OpenAI's gpt-4o-mini Vision API.
  * Bypasses Tesseract entirely to perfectly preserve indentation and formatting.
  */
-const parseImageWithOpenAIVision = async (imagePath) => {
+const parseImageWithOpenAIVision = async (imagePath, columnSide = 'full', lastRubricContext = '') => {
   const fs = require('fs-extra');
   const https = require('https');
   const base64Image = fs.readFileSync(imagePath).toString('base64');
   
+const scopeInstruction = columnSide === 'full'
+  ? 'This page contains TWO columns. Extract the left column from top to bottom, then the right column from top to bottom.'
+  : `This image is the ${columnSide.toUpperCase()} column crop only. Extract every rubric and medicine visible in this one column; do not attempt to infer or extract the other column.`;
+const continuationInstruction = lastRubricContext
+  ? `The previous column ended at "${lastRubricContext}". If this crop begins with a continuation medicine list, attach it to that exact rubric until a new flush-left main rubric starts.`
+  : '';
+
 const prompt = `You are a medical data extraction expert structuring a raw page from Kent's Repertory.
-This page contains TWO columns. You must extract ALL rubrics and medicines from BOTH columns, reading the left column from top to bottom, then the right column from top to bottom.
+${scopeInstruction}
+${continuationInstruction}
 
 CRITICAL INSTRUCTIONS:
 1. CHAPTER IDENTIFICATION: Look at the very top of the page for the chapter name in large capitals (e.g., "RECTUM"). You must prefix ALL extracted rubrics with this chapter name.
@@ -664,15 +681,17 @@ CRITICAL INSTRUCTIONS:
    - ITALIC FONT = Grade 2 (e.g., slanted letters)
    - PLAIN FONT = Grade 1 (e.g., normal, unslanted, unbolded letters)
    Many plain medicines start with capital letters (e.g., Alum., Ars.). Only assign Grade 3 if the text is physically printed in BOLD.
-5. EXHAUSTIVE ANTI-TRUNCATION RULE: You MUST extract EVERY SINGLE rubric and EVERY SINGLE medicine on this page. DO NOT SUMMARIZE. DO NOT SKIP. Some medicine lists are very long (e.g., "difficult stool: Æsc., agar., all-c., ..."). You must transcribe the ENTIRE list. If you skip any data, this extraction is considered a failure.
-6. JSON OUTPUT: Output ONLY a valid JSON object matching this schema:
+5. EXHAUSTIVE ANTI-TRUNCATION RULE: You MUST extract EVERY SINGLE rubric and EVERY SINGLE medicine in this image. DO NOT SUMMARIZE. DO NOT SKIP. Some medicine lists are very long (e.g., "difficult stool: Æsc., agar., all-c., ..."). You must transcribe the ENTIRE list. If you skip any data, this extraction is considered a failure.
+6. COMPACT OUTPUT: Group all medicines of the same grading within a rubric into one comma-separated "name" value. This is required so the response completes the entire column. Never emit one object per medicine.
+7. JSON OUTPUT: Output ONLY a valid JSON object matching this schema:
 {
   "chapter_en": "DETECTED_CHAPTER",
   "data": [
     {
       "rubric_en": "DETECTED_CHAPTER - MAIN - sub1 - sub2",
       "medicines": [
-        {"name": "MedName", "grading": 3}
+        {"name": "MedName1,MedName2,MedName3", "grading": 3},
+        {"name": "MedName4,MedName5", "grading": 1}
       ]
     }
   ]
@@ -695,7 +714,7 @@ CRITICAL INSTRUCTIONS:
       }
     ],
     temperature: 0.1,
-    max_tokens: 15000,
+    max_tokens: 16000,
     response_format: { type: 'json_object' }
   });
 
@@ -727,11 +746,70 @@ CRITICAL INSTRUCTIONS:
   }
 
   if (openAIResp.choices?.[0]?.message?.content) {
+    if (openAIResp.choices[0].finish_reason === 'length') {
+      throw new Error(`OpenAI Vision output was truncated for the ${columnSide} column`);
+    }
     const parsedJson = JSON.parse(openAIResp.choices[0].message.content);
     return convertGroqJsonToRows(parsedJson, parsedJson.chapter_en);
   }
   
   return [];
+};
+
+/**
+ * Send the two printed columns to Vision independently.  A single full-page
+ * request has two failure modes: the model sees the gutter as a reading-order
+ * boundary, and a dense left column consumes the response budget before all
+ * of its remedies are emitted.  Each crop receives the same 55%/45% overlap
+ * that fixed the known good Kent extraction.
+ */
+const parsePageWithOpenAIVision = async (imagePath) => {
+  const metadata = await sharp(imagePath).metadata();
+  const width = metadata.width;
+  const height = metadata.height;
+  if (!width || !height) throw new Error('Could not read Kent page dimensions');
+
+  const directory = path.dirname(imagePath);
+  const extension = path.extname(imagePath) || '.jpg';
+  const baseName = path.basename(imagePath, extension);
+  const cropId = `${baseName}_vision_columns_${Date.now()}`;
+  const leftPath = path.join(directory, `${cropId}_left${extension}`);
+  const rightPath = path.join(directory, `${cropId}_right${extension}`);
+
+  try {
+    const leftWidth = Math.floor(width * 0.55);
+    const rightStart = Math.floor(width * 0.45);
+
+    await sharp(imagePath)
+      .extract({ left: 0, top: 0, width: leftWidth, height })
+      .jpeg({ quality: 95 })
+      .toFile(leftPath);
+    await sharp(imagePath)
+      .extract({ left: rightStart, top: 0, width: width - rightStart, height })
+      .jpeg({ quality: 95 })
+      .toFile(rightPath);
+
+    console.log('[Kent Parser] Vision pass 1/2: LEFT column (55% crop with gutter overlap)...');
+    const leftRows = await parseImageWithOpenAIVision(leftPath, 'left');
+    const lastLeftRubric = leftRows.length ? leftRows[leftRows.length - 1].rubric_en : '';
+
+    console.log('[Kent Parser] Vision pass 2/2: RIGHT column (55% crop with gutter overlap)...');
+    const rightRows = await parseImageWithOpenAIVision(rightPath, 'right', lastLeftRubric);
+
+    const uniqueRows = [];
+    const seen = new Set();
+    for (const row of [...leftRows, ...rightRows]) {
+      const key = `${row.rubric_en}|||${row.medicine}`.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueRows.push(row);
+      }
+    }
+    console.log(`[Kent Parser] Vision columns complete: left=${leftRows.length}, right=${rightRows.length}, unique=${uniqueRows.length}`);
+    return uniqueRows;
+  } finally {
+    await Promise.all([fs.remove(leftPath), fs.remove(rightPath)]);
+  }
 };
 
 /**
@@ -748,8 +826,8 @@ const parseImageWithTesseract = async (imagePath) => {
   // Step 0: Direct OpenAI Vision Extraction (Primary Pipeline)
   if (process.env.OPENAI_API_KEY) {
     try {
-      console.log('[Kent Parser] Attempting direct OpenAI Vision extraction...');
-      const visionRows = await parseImageWithOpenAIVision(imagePath);
+      console.log('[Kent Parser] Attempting two-pass OpenAI Vision extraction...');
+      const visionRows = await parsePageWithOpenAIVision(imagePath);
       if (visionRows && visionRows.length > 0) {
         console.log(`[Kent Parser] ✅ Vision extraction successful! Extracted ${visionRows.length} rubrics.`);
         return visionRows;
@@ -932,4 +1010,3 @@ module.exports = {
   parseImageWithTesseract,
   parseTesseractOcrWithRules: parseImageWithTesseract
 };
-
