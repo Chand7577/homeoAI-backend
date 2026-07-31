@@ -104,6 +104,8 @@ const REMEDY_SPELL_CORRECTIONS = {
   'siu-a': 'sin-a',
   'ran-s': 'ran-sc',
   'stamn': 'stann',
+  'stamin': 'stann',
+  'plas': 'plat',
   'chiin': 'chin',
   'arr': 'arn',
   'gal-c': 'gal-ac',
@@ -661,9 +663,41 @@ const googleTranslateSingle = (text, targetLang = 'hi') => {
   });
 };
 
+const KENT_TERM_TRANSLATIONS = {
+  'RECTUM': 'मलाशय', 'MIND': 'मन', 'HEAD': 'सिर', 'EYE': 'आंख', 'EAR': 'कान', 'NOSE': 'नाक',
+  'FACE': 'चेहरा', 'MOUTH': 'मुंह', 'THROAT': 'गला', 'STOMACH': 'पेट', 'ABDOMEN': 'उदर',
+  'STOOL': 'मल', 'URINARY': 'मूत्र', 'GENITALIA': 'जननांग', 'RESPIRATION': 'श्वसन',
+  'COUGH': 'खांसी', 'CHEST': 'छाती', 'BACK': 'पीठ', 'EXTREMITIES': 'अंग', 'SLEEP': 'नींद',
+  'FEVER': 'बुखार', 'SKIN': 'त्वचा', 'GENERALITIES': 'सामान्यें', 'PAIN': 'दर्द',
+  'pressing': 'दबाव', 'evening': 'शाम', 'morning': 'सुबह', 'night': 'रात', 'afternoon': 'दोपहर',
+  'sitting, while': 'बैठते समय', 'stool, after': 'मल त्याग के बाद', 'stool, during': 'मल त्याग के दौरान',
+  'stool, before': 'मल त्याग से पहले', 'menses, during': 'मासिक धर्म के दौरान', 'menses, before': 'मासिक धर्म से पहले',
+  'moving, after': 'हिलने के बाद', 'standing, while': 'खड़े रहने पर', 'lying, while': 'लेटे रहने पर',
+  'walking': 'चलते समय', 'flatus, during': 'अधोवायु के दौरान', 'rest amel.': 'आराम से राहत',
+  'smarting': 'जलन/स्मार्टिंग', 'soreness': 'टीस/दर्द', 'shooting': 'चुभने जैसा', 'rawness': 'कच्चापन',
+  'rasping': 'छीलने जैसा', 'scraping': 'खुरचने जैसा', 'stool, hard, during': 'कड़े मल के दौरान',
+  'diarrhœa, during': 'दस्त के दौरान', 'bed, in': 'बिस्तर में', 'as in a': 'जैसे कि', 'not for': 'इसके लिए नहीं'
+};
+
+const ensureHindiTranslation = (enText, currentHi) => {
+  if (currentHi && /[\u0900-\u097F]/.test(currentHi) && !/RECTUM - PAIN/.test(currentHi)) {
+    return currentHi;
+  }
+  if (!enText) return '';
+  const parts = enText.split(/\s*-\s*/);
+  const hiParts = parts.map(part => {
+    const trimmed = part.trim();
+    if (KENT_TERM_TRANSLATIONS[trimmed]) return KENT_TERM_TRANSLATIONS[trimmed];
+    const lower = trimmed.toLowerCase();
+    if (KENT_TERM_TRANSLATIONS[lower]) return KENT_TERM_TRANSLATIONS[lower];
+    return trimmed;
+  });
+  return hiParts.join(' - ');
+};
+
 /**
  * High-performance Hindi Translation Service.
- * Uses Google Translate Free GTX Engine (0 cost, ultra-fast ~500ms) with Groq LLM fallback.
+ * Uses Google Translate Free GTX Engine (0 cost, ultra-fast ~500ms) with Groq LLM fallback & Repertory Dictionary.
  *
  * @param {Array} structuredData - Array of extracted rubric rows with chapter_en and rubric_en
  * @returns {Promise<Array>} - Same data with chapter_hi and rubric_hi filled in
@@ -688,74 +722,76 @@ const translateRubricsToHindi = async (structuredData) => {
   console.log(`[Hindi Translation] Translating ${chaptersArray.length} chapters and ${rubricsArray.length} rubrics...`);
   const startTime = Date.now();
 
-  // Step 1: Try Free Google Translate API first (Lightning fast: ~500ms total, 0 token limits)
+  let chapterResults = {};
+  let rubricResults = {};
+
+  // Step 1: Try Free Google Translate API first
   try {
     const chapterPromises = chaptersArray.map(ch => googleTranslateSingle(ch).then(res => [ch, res]));
     const rubricPromises = rubricsArray.map(rub => googleTranslateSingle(rub).then(res => [rub, res]));
 
-    const chapterResults = Object.fromEntries(await Promise.all(chapterPromises));
-    const rubricResults = Object.fromEntries(await Promise.all(rubricPromises));
+    chapterResults = Object.fromEntries(await Promise.all(chapterPromises));
+    rubricResults = Object.fromEntries(await Promise.all(rubricPromises));
 
     const duration = Date.now() - startTime;
     console.log(`[Hindi Translation] ✅ Google Translate completed ${chaptersArray.length + rubricsArray.length} items in ${duration}ms!`);
-
-    return structuredData.map(row => ({
-      ...row,
-      chapter_hi: row.chapter_hi || chapterResults[row.chapter_en?.trim()] || '',
-      rubric_hi: row.rubric_hi || rubricResults[row.rubric_en?.trim()] || ''
-    }));
-
   } catch (err) {
     console.warn('[Hindi Translation] Google Translate failed, falling back to Groq AI:', err.message);
   }
 
-  // Step 2: Fallback to Groq AI if Google Translate is unavailable
+  // Step 2: Fallback to Groq AI if needed
   const groqApiKey = process.env.GROQ_API_KEY;
-  if (!groqApiKey) return structuredData;
+  if (groqApiKey && Object.keys(rubricResults).length < rubricsArray.length) {
+    const Groq = require('groq-sdk');
+    const groq = new Groq({ apiKey: groqApiKey });
 
-  const Groq = require('groq-sdk');
-  const groq = new Groq({ apiKey: groqApiKey });
-  const translationMaps = { chapters: {}, rubrics: {} };
+    try {
+      const BATCH_SIZE = 25;
+      for (let i = 0; i < rubricsArray.length; i += BATCH_SIZE) {
+        const rubricBatch = rubricsArray.slice(i, i + BATCH_SIZE);
+        const chapterBatch = (i === 0) ? chaptersArray : [];
 
-  try {
-    const BATCH_SIZE = 25;
-    for (let i = 0; i < rubricsArray.length; i += BATCH_SIZE) {
-      const rubricBatch = rubricsArray.slice(i, i + BATCH_SIZE);
-      const chapterBatch = (i === 0) ? chaptersArray : [];
-
-      const prompt = `You are a medical translator. Translate to Hindi:
+        const prompt = `You are a medical translator. Translate to Hindi:
 ${chapterBatch.length > 0 ? `CHAPTERS:\n${JSON.stringify(chapterBatch, null, 2)}\n` : ''}
 RUBRICS:
 ${JSON.stringify(rubricBatch, null, 2)}
 Return JSON: {"chapters":{"EN":"HI"}, "rubrics":{"EN":"HI"}}`;
 
-      try {
-        const completion = await groq.chat.completions.create({
-          model: 'llama-3.3-70b-versatile',
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.1,
-          max_tokens: 4000,
-          response_format: { type: 'json_object' }
-        });
+        try {
+          const completion = await groq.chat.completions.create({
+            model: 'llama-3.3-70b-versatile',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.1,
+            max_tokens: 4000,
+            response_format: { type: 'json_object' }
+          });
 
-        const parsed = JSON.parse(completion.choices[0]?.message?.content || '{}');
-        if (parsed.chapters) Object.assign(translationMaps.chapters, parsed.chapters);
-        if (parsed.rubrics) Object.assign(translationMaps.rubrics, parsed.rubrics);
-      } catch (e) {
-        console.warn(`[Hindi Translation] Groq batch error: ${e.message}`);
+          const parsed = JSON.parse(completion.choices[0]?.message?.content || '{}');
+          if (parsed.chapters) Object.assign(chapterResults, parsed.chapters);
+          if (parsed.rubrics) Object.assign(rubricResults, parsed.rubrics);
+        } catch (e) {
+          console.warn(`[Hindi Translation] Groq batch error: ${e.message}`);
+        }
       }
+    } catch (err) {
+      console.error('[Hindi Translation] Groq Fallback error:', err.message);
     }
-
-    return structuredData.map(row => ({
-      ...row,
-      chapter_hi: row.chapter_hi || translationMaps.chapters[row.chapter_en?.trim()] || '',
-      rubric_hi: row.rubric_hi || translationMaps.rubrics[row.rubric_en?.trim()] || ''
-    }));
-
-  } catch (err) {
-    console.error('[Hindi Translation] Groq Fallback error:', err.message);
-    return structuredData;
   }
+
+  // Step 3: Map results & apply Kent Repertory Dictionary Fallback to eliminate ANY English in Hindi column
+  return structuredData.map(row => {
+    const rawChapHi = row.chapter_hi || chapterResults[row.chapter_en?.trim()] || '';
+    const rawRubHi = row.rubric_hi || rubricResults[row.rubric_en?.trim()] || '';
+
+    const finalChapHi = ensureHindiTranslation(row.chapter_en, rawChapHi);
+    const finalRubHi = ensureHindiTranslation(row.rubric_en, rawRubHi);
+
+    return {
+      ...row,
+      chapter_hi: finalChapHi,
+      rubric_hi: finalRubHi
+    };
+  });
 };
 
 // Backward compat alias for routes that call parseOcrToStructuredJson
