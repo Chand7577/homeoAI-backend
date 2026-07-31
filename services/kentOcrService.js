@@ -135,6 +135,42 @@ const runOCR = async (imagePath) => {
 };
 
 /**
+ * OCR one isolated column and retain each recognised line's bounding box.
+ * The x-coordinate is the signal needed to distinguish a nested Kent rubric
+ * from a wrapped remedy continuation line; plain OCR text loses that signal.
+ *
+ * @param {string} imagePath Image path for a single physical column crop
+ * @returns {Promise<{text: string, lines: Array<{text: string, x: number, y: number}>}>}
+ */
+const runOCRWithLineLayout = async (imagePath) => {
+  const Tesseract = require('tesseract.js');
+  const worker = await Tesseract.createWorker('eng', 1, { logger: () => {} });
+
+  try {
+    await worker.setParameters({
+      tessedit_ocr_engine_mode: 1,
+      tessedit_pageseg_mode: 4,
+      preserve_interword_spaces: '1',
+    });
+
+    const { data } = await worker.recognize(imagePath);
+    const lines = (data.lines || [])
+      .map(line => ({
+        text: (line.text || '').trim(),
+        x: Math.round(line.bbox?.x0 || 0),
+        y: Math.round(line.bbox?.y0 || 0),
+      }))
+      .filter(line => line.text.length > 0);
+
+    await worker.terminate();
+    return { text: data.text || '', lines };
+  } catch (error) {
+    try { await worker.terminate(); } catch (_) {}
+    throw error;
+  }
+};
+
+/**
  * Run Tesseract OCR on a single-line image strip (e.g. a page running header).
  * Uses PSM 7 (single text line) which is far more accurate for short 1-line strips
  * than PSM 4 (single column), which expects multi-line columnar text.
@@ -254,9 +290,9 @@ module.exports = {
   preprocessImage,
   preprocessAndSplitColumns,
   runOCR,
+  runOCRWithLineLayout,
   runOCRSingleLine,
   extractTextFromImage,
   extractColumnTextsFromImage,
   extractTopStripText
 };
-

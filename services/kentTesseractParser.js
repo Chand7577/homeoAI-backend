@@ -1,6 +1,6 @@
 'use strict';
 
-const { extractColumnTextsFromImage, extractTextFromImage, extractTopStripText } = require('./kentOcrService');
+const { extractColumnTextsFromImage, extractTextFromImage, extractTopStripText, runOCRWithLineLayout } = require('./kentOcrService');
 const { parseKentOcrTextAdvanced } = require('./kentTextParser');
 const fs = require('fs-extra');
 const path = require('path');
@@ -660,7 +660,7 @@ const convertGroqJsonToRows = (parsedJson, fallbackChapter = '') => {
  * Parse an image directly using OpenAI's gpt-4o-mini Vision API.
  * Bypasses Tesseract entirely to perfectly preserve indentation and formatting.
  */
-const parseImageWithOpenAIVision = async (imagePath, columnSide = 'full', lastRubricContext = '') => {
+const parseImageWithOpenAIVision = async (imagePath, columnSide = 'full', lastRubricContext = '', layoutTranscript = '') => {
   const fs = require('fs-extra');
   const https = require('https');
   const base64Image = fs.readFileSync(imagePath).toString('base64');
@@ -671,10 +671,14 @@ const scopeInstruction = columnSide === 'full'
 const continuationInstruction = lastRubricContext
   ? `The previous column ended at "${lastRubricContext}". If this crop begins with a continuation medicine list, attach it to that exact rubric until a new flush-left main rubric starts.`
   : '';
+const layoutInstruction = layoutTranscript
+  ? `\nLAYOUT TRANSCRIPT (additional evidence from OCR; indentation is relative to the column's left edge):\n${layoutTranscript}\n\nUse this to preserve hierarchy. A line with a larger indent than its parent is a child rubric only when it introduces a heading/qualifier; a similarly indented line that continues a comma-separated remedy list is NOT a new rubric. The source image remains authoritative for exact typography and spelling.\n`
+  : '';
 
 const prompt = `You are a medical data extraction expert structuring a raw page from Kent's Repertory.
 ${scopeInstruction}
 ${continuationInstruction}
+${layoutInstruction}
 
 CRITICAL INSTRUCTIONS:
 1. CHAPTER IDENTIFICATION: Look at the very top of the page for the chapter name in large capitals (e.g., "RECTUM"). You must prefix ALL extracted rubrics with this chapter name.
@@ -703,6 +707,7 @@ CRITICAL INSTRUCTIONS:
 
    WARNING: Never skip a parent! If you see "after: Aloe" indented under "stitching, stool", the path MUST include "stitching, stool" (e.g., "RECTUM - PAIN, stitching, stool - after").
    WARNING: Pay close attention to words like "extending to" or "extending into". The locations below them (e.g. "abdomen:", "back:", "bladder:") are subrubrics OF "extending to". E.g., "RECTUM - PAIN, stitching, stool - extending to - back".
+   WARNING: Never merge medicines from a child line into its main rubric. Every colon-bearing child line such as "walking, while:", "bladder:", "twitching:", "during stool:", or "tenesmus:" must produce its own rubric_en path.
 3. RUBRICS vs MEDICINES: A rubric ends with a colon (:). Everything AFTER the colon is a list of medicines. Do NOT put medicines in the rubric name.
 4. GRADING (CRITICAL - LOOK AT TYPOGRAPHY): Look very closely at the font style of EACH medicine abbreviation in the image. DO NOT rely on capitalization!
    - BOLD FONT = Grade 3 (e.g., thick, dark letters)
@@ -804,6 +809,14 @@ const parsePageWithOpenAIVision = async (imagePath) => {
   const leftPath = path.join(directory, `${cropId}_left${extension}`);
   const rightPath = path.join(directory, `${cropId}_right${extension}`);
 
+  const buildLayoutTranscript = (lines) => {
+    if (!lines?.length) return '';
+    const leftMost = Math.min(...lines.map(line => line.x));
+    return lines
+      .map(line => `[indent=${Math.max(0, line.x - leftMost)}px; y=${line.y}] ${line.text}`)
+      .join('\n');
+  };
+
   try {
     const leftWidth = Math.floor(width * 0.55);
     const rightStart = Math.floor(width * 0.45);
@@ -817,12 +830,25 @@ const parsePageWithOpenAIVision = async (imagePath) => {
       .jpeg({ quality: 95 })
       .toFile(rightPath);
 
+    let leftLayout = '';
+    let rightLayout = '';
+    try {
+      console.log('[Kent Parser] Reading column layout for hierarchy reconstruction...');
+      const leftLayoutOcr = await runOCRWithLineLayout(leftPath);
+      leftLayout = buildLayoutTranscript(leftLayoutOcr.lines);
+      const rightLayoutOcr = await runOCRWithLineLayout(rightPath);
+      rightLayout = buildLayoutTranscript(rightLayoutOcr.lines);
+    } catch (layoutError) {
+      // Vision can still extract the page if local layout OCR is temporarily unavailable.
+      console.warn(`[Kent Parser] Layout OCR unavailable; using visual indentation only: ${layoutError.message}`);
+    }
+
     console.log('[Kent Parser] Vision pass 1/2: LEFT column (55% crop with gutter overlap)...');
-    const leftRows = await parseImageWithOpenAIVision(leftPath, 'left');
+    const leftRows = await parseImageWithOpenAIVision(leftPath, 'left', '', leftLayout);
     const lastLeftRubric = leftRows.length ? leftRows[leftRows.length - 1].rubric_en : '';
 
     console.log('[Kent Parser] Vision pass 2/2: RIGHT column (55% crop with gutter overlap)...');
-    const rightRows = await parseImageWithOpenAIVision(rightPath, 'right', lastLeftRubric);
+    const rightRows = await parseImageWithOpenAIVision(rightPath, 'right', lastLeftRubric, rightLayout);
 
     const uniqueRows = [];
     const seen = new Set();
