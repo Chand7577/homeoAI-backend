@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { runAnalysisHandler, getAnalyses, getAnalysis, deleteAnalysis } = require('../controllers/analysisController');
+const { runAnalysisHandler, getAnalyses, getAnalysis, deleteAnalysis, getAnalysisStats } = require('../controllers/analysisController');
 const { authenticate } = require('../middleware/auth');
 
 // All analysis routes require authentication
@@ -8,6 +8,7 @@ const { authenticate } = require('../middleware/auth');
 router.use(authenticate);
 
 router.post('/run',  runAnalysisHandler);  // Anyone can run analysis
+router.get('/stats', getAnalysisStats);    // Get statistics for current doctor
 router.get('/',      getAnalyses);          // Controller filters by user role
 router.get('/:id',   getAnalysis);          // Controller checks ownership
 router.delete('/:id', deleteAnalysis);      // Controller checks ownership

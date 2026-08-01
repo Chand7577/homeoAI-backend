@@ -178,4 +178,58 @@ const deleteAnalysis = async (req, res) => {
   res.json({ success: true, message: 'Analysis deleted successfully' });
 };
 
-module.exports = { runAnalysisHandler, getAnalyses, getAnalysis, deleteAnalysis };
+// GET /api/analysis/stats - Get statistics for current doctor
+const getAnalysisStats = async (req, res) => {
+  const user = req.user;
+  const filter = {};
+  
+  // Role-based filtering (same as getAnalyses)
+  if (user.role === 'Patient') {
+    filter.patientId = user._id;
+  } else {
+    // Doctors and Core Team see stats for their own analyses only
+    if (user.role !== 'Admin') {
+      filter.doctorId = user._id;
+    }
+  }
+  
+  const analyses = await Analysis.find(filter)
+    .select('patientId medicineDistribution')
+    .lean();
+  
+  // Calculate statistics
+  const totalAnalyses = analyses.length;
+  
+  // Count unique patients (referred patients)
+  const uniquePatients = new Set();
+  analyses.forEach(analysis => {
+    if (analysis.patientId) {
+      uniquePatients.add(analysis.patientId.toString());
+    }
+  });
+  const referredPatients = uniquePatients.size;
+  
+  // Count unique remedies used across all analyses
+  const uniqueRemedies = new Set();
+  analyses.forEach(analysis => {
+    if (analysis.medicineDistribution && Array.isArray(analysis.medicineDistribution)) {
+      analysis.medicineDistribution.forEach(med => {
+        if (med.medicine) {
+          uniqueRemedies.add(med.medicine);
+        }
+      });
+    }
+  });
+  const remediesUsed = uniqueRemedies.size;
+  
+  res.json({
+    success: true,
+    data: {
+      totalAnalyses,
+      referredPatients,
+      remediesUsed
+    }
+  });
+};
+
+module.exports = { runAnalysisHandler, getAnalyses, getAnalysis, deleteAnalysis, getAnalysisStats };
