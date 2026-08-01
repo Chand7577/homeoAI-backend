@@ -244,6 +244,67 @@ const getProfile = async (req, res) => {
   }
 };
 
+// Update user profile (non-Admin users can update their own profile)
+const updateProfile = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { name, phone, specialization, experience, qualifications, profilePicture } = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Users cannot change their email, role, or approval status through this endpoint
+    // Only allow updating basic profile information
+    const updates = {};
+    if (name !== undefined) updates.name = name;
+    if (phone !== undefined) updates.phone = phone;
+    
+    // Doctor-specific fields
+    if (user.role !== 'Patient') {
+      if (specialization !== undefined) updates.specialization = specialization;
+      if (experience !== undefined) updates.experience = experience;
+      if (qualifications !== undefined) updates.qualifications = qualifications;
+    }
+    
+    if (profilePicture !== undefined) updates.profilePicture = profilePicture;
+
+    // Validate phone if provided
+    if (phone && phone !== user.phone) {
+      const existingUser = await User.findOne({ phone, _id: { $ne: userId } });
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: 'This phone number is already in use'
+        });
+      }
+    }
+
+    // Update user
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { $set: updates },
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    res.json({
+      success: true,
+      message: 'Profile updated successfully',
+      user: updatedUser
+    });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update profile'
+    });
+  }
+};
+
 // Admin: Get all pending registrations
 const getPendingRegistrations = async (req, res) => {
   try {
@@ -520,6 +581,7 @@ module.exports = {
   login,
   logout,
   getProfile,
+  updateProfile,
   getPendingRegistrations,
   approveUser,
   rejectUser,

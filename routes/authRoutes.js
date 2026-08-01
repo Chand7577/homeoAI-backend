@@ -5,6 +5,7 @@ const {
   login,
   logout,
   getProfile,
+  updateProfile,
   getPendingRegistrations,
   approveUser,
   rejectUser,
@@ -35,6 +36,7 @@ router.post('/logout', logout);
 
 // Protected routes (require authentication)
 router.get('/profile', authenticate, getProfile);
+router.put('/profile', authenticate, updateProfile);
 router.get('/chat-contacts', authenticate, getChatContacts);
 
 // Admin only routes
