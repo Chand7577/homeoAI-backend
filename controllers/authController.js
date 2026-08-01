@@ -29,7 +29,7 @@ const register = async (req, res) => {
     if (!name || !email || !phone || !password || !role) {
       return res.status(400).json({
         success: false,
-        message: 'All fields (name, email, phone, password, role) are required'
+        message: '⚠️ Please fill in all required fields: name, email, phone, password, and role'
       });
     }
 
@@ -38,7 +38,7 @@ const register = async (req, res) => {
     if (!emailRegex.test(email)) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide a valid email address'
+        message: '📧 Please provide a valid email address (e.g., name@example.com)'
       });
     }
 
@@ -46,7 +46,7 @@ const register = async (req, res) => {
     if (password.length < 8) {
       return res.status(400).json({
         success: false,
-        message: 'Password must be at least 8 characters long'
+        message: '🔒 Password must be at least 8 characters long for security'
       });
     }
 
@@ -56,7 +56,7 @@ const register = async (req, res) => {
     if (!['Patient', 'External Doctor', 'Core Team'].includes(role)) {
       return res.status(400).json({
         success: false,
-        message: 'Only Patient, External Doctor, or Core Team registration is allowed'
+        message: '❌ Only Patient, External Doctor, or Core Team registration is allowed'
       });
     }
 
@@ -66,11 +66,17 @@ const register = async (req, res) => {
     });
 
     if (existingUser) {
-      const field = existingUser.email === email ? 'email' : 'phone number';
-      return res.status(400).json({
-        success: false,
-        message: `A user with this ${field} already exists`
-      });
+      if (existingUser.email === email) {
+        return res.status(400).json({
+          success: false,
+          message: '📧 This email is already registered. Try logging in instead, or use a different email.'
+        });
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: '📱 This phone number is already registered. Please use a different number.'
+        });
+      }
     }
 
     // Create new user: All users start as Pending and require admin approval
@@ -92,16 +98,26 @@ const register = async (req, res) => {
     // Don't include password in response
     const { password: _, ...userResponse } = user.toObject();
 
+    // Role-specific success messages
+    let successMessage = '';
+    if (role === 'Patient') {
+      successMessage = '🎉 Welcome! Your patient account has been created. Our team will review and approve it shortly. You\'ll receive an email once you can log in.';
+    } else if (role === 'Core Team') {
+      successMessage = '🎉 Welcome to the team! Your Core Team account is pending admin approval. We\'ll notify you via email once activated. Usually takes 1-2 hours.';
+    } else if (role === 'External Doctor') {
+      successMessage = '🎉 Registration successful! Your doctor account is under review. Our admin will verify your credentials and approve within 24 hours. Check your email for updates.';
+    }
+
     res.status(201).json({
       success: true,
-      message: 'Registration successful! Your account is pending admin approval.',
+      message: successMessage,
       user: userResponse
     });
   } catch (error) {
     console.error('Registration error:', error);
     res.status(500).json({
       success: false,
-      message: 'Registration failed. Please try again.'
+      message: '❌ Registration failed due to a server error. Please try again in a moment.'
     });
   }
 };
@@ -115,7 +131,7 @@ const login = async (req, res) => {
     if (!email || !password) {
       return res.status(400).json({
         success: false,
-        message: 'Email and password are required'
+        message: '⚠️ Please enter both email and password to log in'
       });
     }
 
@@ -155,7 +171,7 @@ const login = async (req, res) => {
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid email or password'
+        message: '❌ Invalid email or password. Please check your credentials and try again.'
       });
     }
 
@@ -164,21 +180,21 @@ const login = async (req, res) => {
     if (!isPasswordValid) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid email or password'
+        message: '❌ Invalid email or password. Please check your credentials and try again.'
       });
     }
 
     // Check if account is approved
     if (user.status !== 'Approved') {
       const statusMessages = {
-        'Pending': 'Your account is pending admin approval',
-        'Rejected': 'Your account has been rejected. Please contact support.',
-        'Suspended': 'Your account has been suspended. Please contact support.'
+        'Pending': '⏳ Your account is pending admin approval. We\'ll notify you via email once approved. This usually takes 1-24 hours.',
+        'Rejected': '❌ Your account registration was not approved. Please contact support at support@homeoai.com for more information.',
+        'Suspended': '⚠️ Your account has been suspended. Please contact support at support@homeoai.com to resolve this issue.'
       };
       
       return res.status(403).json({
         success: false,
-        message: statusMessages[user.status] || 'Account access denied'
+        message: statusMessages[user.status] || '❌ Account access denied. Please contact support.'
       });
     }
 
@@ -186,7 +202,7 @@ const login = async (req, res) => {
     if (!user.isActive) {
       return res.status(403).json({
         success: false,
-        message: 'Your account has been deactivated. Please contact support.'
+        message: '⚠️ Your account has been deactivated. Please contact support at support@homeoai.com to reactivate.'
       });
     }
 
@@ -205,7 +221,7 @@ const login = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Login successful',
+      message: '✅ Welcome back! Login successful.',
       user: userResponse,
       // Enables Netlify/Render deployments where browsers block third-party
       // cookies. The client sends this only in an Authorization header.
@@ -215,7 +231,7 @@ const login = async (req, res) => {
     console.error('Login error:', error);
     res.status(500).json({
       success: false,
-      message: 'Login failed. Please try again.'
+      message: '❌ Login failed due to a server error. Please try again in a moment.'
     });
   }
 };
