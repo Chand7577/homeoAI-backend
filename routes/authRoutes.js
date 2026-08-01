@@ -43,7 +43,7 @@ router.get('/chat-contacts', authenticate, getChatContacts);
 router.get('/pending', authenticate, requireAdmin, getPendingRegistrations);
 router.put('/approve/:userId', authenticate, requireAdmin, approveUser);
 router.put('/reject/:userId', authenticate, requireAdmin, rejectUser);
-router.get('/users', authenticate, requireAdmin, getAllUsers);
+router.get('/users', authenticate, requireClinicalUser, getAllUsers);
 router.delete('/users/:userId', authenticate, requireAdmin, deleteUser);
 
 module.exports = router;
