@@ -264,20 +264,21 @@ const getProfile = async (req, res) => {
 const updateProfile = async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { name, phone, specialization, experience, qualifications, profilePicture } = req.body;
+    const { name, email, phone, specialization, experience, qualifications, profilePicture } = req.body;
 
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: '❌ User not found'
       });
     }
 
-    // Users cannot change their email, role, or approval status through this endpoint
-    // Only allow updating basic profile information
+    // Users can update basic profile information including email
+    // Role and approval status cannot be changed through this endpoint
     const updates = {};
     if (name !== undefined) updates.name = name;
+    if (email !== undefined) updates.email = email;
     if (phone !== undefined) updates.phone = phone;
     
     // Doctor-specific fields
@@ -289,13 +290,32 @@ const updateProfile = async (req, res) => {
     
     if (profilePicture !== undefined) updates.profilePicture = profilePicture;
 
-    // Validate phone if provided
+    // Validate email if provided and changed
+    if (email && email !== user.email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({
+          success: false,
+          message: '📧 Please provide a valid email address'
+        });
+      }
+      
+      const existingUser = await User.findOne({ email, _id: { $ne: userId } });
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: '📧 This email is already in use by another account'
+        });
+      }
+    }
+
+    // Validate phone if provided and changed
     if (phone && phone !== user.phone) {
       const existingUser = await User.findOne({ phone, _id: { $ne: userId } });
       if (existingUser) {
         return res.status(400).json({
           success: false,
-          message: 'This phone number is already in use'
+          message: '📱 This phone number is already in use'
         });
       }
     }
@@ -309,14 +329,14 @@ const updateProfile = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Profile updated successfully',
+      message: '✅ Profile updated successfully!',
       user: updatedUser
     });
   } catch (error) {
     console.error('Update profile error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to update profile'
+      message: '❌ Failed to update profile. Please try again.'
     });
   }
 };
