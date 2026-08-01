@@ -13,7 +13,7 @@ const {
   getChatContacts,
   deleteUser
 } = require('../controllers/authController');
-const { authenticate, requireAdmin } = require('../middleware/auth');
+const { authenticate, requireAdmin, requireClinicalUser } = require('../middleware/auth');
 
 const rateLimit = require('express-rate-limit');
 
