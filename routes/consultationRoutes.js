@@ -23,7 +23,7 @@ const consultationLimiter = rateLimit({
 router.get('/doctors', getApprovedDoctors); // Get list of approved doctors for patient form
 
 // Protected routes
-router.post('/', consultationLimiter, createConsultation); // Create new consultation (can be called by patient or anonymous)
+router.post('/', authenticate, consultationLimiter, createConsultation); // Create new consultation (requires authentication to link patientId)
 router.get('/', authenticate, getConsultations); // Get consultations (patients see their own, doctors see assigned)
 router.get('/:id', authenticate, getConsultation); // Get single consultation
 router.put('/:id', authenticate, requireClinicalUser, updateConsultation); // Update consultation status/notes (doctors only)

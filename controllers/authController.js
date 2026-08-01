@@ -50,12 +50,13 @@ const register = async (req, res) => {
       });
     }
 
-    // Public registration must never mint privileged accounts. Administrators
-    // create Core Team accounts; external doctors stay pending until approved.
-    if (!['Patient', 'External Doctor'].includes(role)) {
+    // Public registration allows Patient, External Doctor, and Core Team.
+    // All accounts except Admin require approval. Admin accounts can only be
+    // created directly in the database or through special setup.
+    if (!['Patient', 'External Doctor', 'Core Team'].includes(role)) {
       return res.status(400).json({
         success: false,
-        message: 'Only Patient or External Doctor registration is allowed'
+        message: 'Only Patient, External Doctor, or Core Team registration is allowed'
       });
     }
 
