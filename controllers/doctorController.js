@@ -185,7 +185,7 @@ const updateDoctor = async (req, res) => {
   res.json({ success: true, data: userToDoctor(user) });
 };
 
-// DELETE /api/doctors/:id - Soft delete doctor (deactivate user)
+// DELETE /api/doctors/:id - Delete doctor (removes user completely)
 const deleteDoctor = async (req, res) => {
   const user = await User.findById(req.params.id);
 
@@ -194,8 +194,14 @@ const deleteDoctor = async (req, res) => {
     throw new Error('Doctor not found');
   }
 
-  user.isActive = false;
-  await user.save();
+  // Prevent deleting admin accounts
+  if (user.role === 'Admin') {
+    res.status(403);
+    throw new Error('Cannot delete admin accounts');
+  }
+
+  // Actually delete the user record instead of soft delete
+  await User.findByIdAndDelete(req.params.id);
 
   res.json({ success: true, message: 'Doctor removed successfully' });
 };
