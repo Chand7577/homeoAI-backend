@@ -171,7 +171,7 @@ const login = async (req, res) => {
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: '❌ Invalid email or password. Please check your credentials and try again.'
+        message: '❌ No account found with this email address. Please check your email or register a new account.'
       });
     }
 
@@ -180,7 +180,7 @@ const login = async (req, res) => {
     if (!isPasswordValid) {
       return res.status(401).json({
         success: false,
-        message: '❌ Invalid email or password. Please check your credentials and try again.'
+        message: '🔒 Incorrect password. Please check your password and try again.'
       });
     }
 
