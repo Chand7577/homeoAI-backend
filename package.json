@@ -8,7 +8,8 @@
     "dev": "nodemon --max-old-space-size=12288 server.js",
     "start": "node --expose-gc --max-old-space-size=480 --optimize-for-size server.js",
     "start:local": "node --max-old-space-size=12288 server.js",
-    "create-admin": "node scripts/create-admin.js"
+    "create-admin": "node scripts/create-admin.js",
+    "delete-therapeutics": "node scripts/deleteTherapeuticRecords.js"
   },
   "keywords": [],
   "author": "",

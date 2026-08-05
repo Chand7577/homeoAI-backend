@@ -266,6 +266,48 @@ const KENT_CHAPTER_INDEX = {
   '36': 'Skin', '37': 'Generalities'
 };
 
+const CHAPTER_RULES = [
+  { name: 'Head', keywords: ['headache', 'head', 'migraine', 'vertigo', 'scalp', 'temple', 'forehead', 'occiput', 'vertex', 'hair', 'dandruff', 'alopecia', 'baldness'] },
+  { name: 'Mind', keywords: ['anxiety', 'fear', 'phobia', 'depression', 'anger', 'grief', 'weeping', 'restless', 'mind', 'memory', 'confusion', 'delusion', 'hysteria', 'compulsive', 'shock', 'emotional', 'mental', 'sadness', 'irritability', 'mania', 'burnout', 'forgetful', 'mood'] },
+  { name: 'Eye', keywords: ['eye', 'vision', 'cornea', 'eyelid', 'tear', 'cataract', 'conjunctiv', 'stye', 'nystagmus', 'blepharitis', 'ptosis'] },
+  { name: 'Ear', keywords: ['ear', 'hearing', 'tinnitus', 'earache', 'otitis', 'eustachian', 'mastoid', 'wax'] },
+  { name: 'Nose', keywords: ['nose', 'coryza', 'sneezing', 'nasal', 'sinus', 'epistaxis', 'polyp'] },
+  { name: 'Face', keywords: ['face', 'jaw', 'lip', 'facial', 'cheek', 'trigeminal', 'bell’s'] },
+  { name: 'Mouth', keywords: ['mouth', 'tongue', 'tooth', 'teeth', 'gum', 'taste', 'saliva', 'salivation', 'uvula', 'stomatitis', 'thrush', 'dental'] },
+  { name: 'Throat', keywords: ['throat', 'tonsil', 'pharynx', 'swallow', 'larynx', 'hoarseness', 'gag', 'voice', 'hawking'] },
+  { name: 'Stomach', keywords: ['stomach', 'nausea', 'vomit', 'eructation', 'heartburn', 'appetite', 'thirst', 'gastric', 'acidity', 'eating', 'food', 'hunger', 'craving', 'aversion', 'digestive'] },
+  { name: 'Abdomen', keywords: ['abdomen', 'abdominal', 'flatulence', 'colic', 'liver', 'spleen', 'navel', 'umbilicus', 'bloating', 'gas', 'ascites', 'inguinal', 'flank', 'appendicitis', 'hepatitis', 'enteritis', 'colitis', 'pancreas', 'pancreatic'] },
+  { name: 'Rectum', keywords: ['stool', 'diarrhea', 'constipation', 'rectum', 'rectal', 'hemorrhoid', 'fissure', 'anus', 'worm', 'tenesmus', 'prolapse'] },
+  { name: 'Bladder & Urinary', keywords: ['urin', 'bladder', 'kidney', 'urethra', 'cystitis', 'prostat', 'renal', 'urethritis', 'dysuria'] },
+  { name: 'Respiration & Cough', keywords: ['cough', 'respirat', 'asthma', 'breath', 'expectorat', 'bronchitis', 'wheezing', 'dyspnea', 'sputum', 'snoring', 'suffocation', 'emphysema', 'pneumonia'] },
+  { name: 'Chest & Heart', keywords: ['chest', 'lung', 'heart', 'palpitat', 'pulse', 'cardiac', 'pleurisy', 'sternum', 'nipple', 'cardio', 'angina', 'pericarditis', 'endocarditis', 'valvular', 'mitral', 'aortic'] },
+  { name: 'Back & Spine', keywords: ['back', 'lumbar', 'spine', 'cervical', 'sacrum', 'scapula', 'neck', 'coccyx', 'dorsal'] },
+  { name: 'Extremities', keywords: ['extremit', 'leg', 'arm', 'knee', 'foot', 'feet', 'hand', 'shoulder', 'joint', 'gout', 'rheumatism', 'thigh', 'ankle', 'wrist', 'finger', 'toe', 'sciatica', 'elbow', 'carpal', 'hip', 'limb', 'calf', 'locomotors'] },
+  { name: 'Skin', keywords: ['skin', 'itch', 'erupt', 'eczema', 'ulcer', 'psoriasis', 'wart', 'boil', 'abscess', 'hives', 'rash', 'acne', 'pigment', 'freckle', 'wound', 'cellulitis', 'pimples', 'vesicles', 'papules', 'crust'] },
+  { name: 'Fever & Chill', keywords: ['fever', 'chill', 'perspirat', 'sweat', 'heat', 'typhoid', 'influenza', 'febrile'] },
+  { name: 'Sleep', keywords: ['sleep', 'dream', 'insomnia', 'drowsiness', 'yawning', 'hypersomnia'] },
+  { name: 'Blood & Glands', keywords: ['blood', 'gland', 'thyroid', 'axillary', 'parotid', 'lymph', 'anaemia', 'circulation', 'hematology', 'endocrine', 'hormonal', 'pituitary'] },
+  { name: 'Male Genitalia', keywords: ['penis', 'testicular', 'prostate', 'erectile', 'spermatic', 'hydrocele', 'varicocele', 'erection'] },
+  { name: 'Female Genitalia', keywords: ['uterus', 'uterine', 'ovary', 'ovarian', 'menses', 'dysmenorrhoea', 'leucorrhoea', 'pms', 'menopause', 'vaginal', 'vulvar', 'pelvic', 'coition', 'breast', 'mastitis', 'reproductive', 'postpartum'] },
+  { name: 'Nervous System', keywords: ['nerve', 'nervous', 'neuralgia', 'paralysis', 'tremor', 'seizure', 'epilepsy', 'convulsion', 'parkinson', 'ataxia', 'gait', 'spasm', 'chorea', 'numbness', 'tingling'] },
+  { name: 'Generalities', keywords: ['general', 'exhaustion', 'faintness', 'dizziness', 'weakness', 'worse', 'better', 'modalities', 'emergency', 'cancer', 'fibrosis'] }
+];
+
+function inferChapterFromRubric(text) {
+  if (!text) return 'Generalities';
+  const t = text.toLowerCase();
+  for (const rule of CHAPTER_RULES) {
+    if (rule.keywords.some(kw => t.includes(kw))) {
+      return rule.name;
+    }
+  }
+  const firstWord = text.split(/[\s<>\-:,_]/)[0].trim();
+  if (firstWord.length >= 3 && firstWord.length <= 18) {
+    return firstWord.charAt(0).toUpperCase() + firstWord.slice(1).toLowerCase();
+  }
+  return 'Generalities';
+}
+
 const cleanChapterName = (val) => {
   if (!val) return '';
   const str = String(val).trim();
@@ -273,6 +315,10 @@ const cleanChapterName = (val) => {
   let cleaned = str.replace(/^[\d\s\.\-_:\)\(#]+/g, '').trim();
 
   if (cleaned) {
+    // If cleaned string is a full sentence/rubric description rather than a single chapter word
+    if (cleaned.length > 20 || cleaned.includes(' ') || /[<>-]/.test(cleaned)) {
+      return inferChapterFromRubric(cleaned);
+    }
     return cleaned.charAt(0).toUpperCase() + cleaned.slice(1).toLowerCase();
   }
   if (pureDigits && KENT_CHAPTER_INDEX[pureDigits]) {
