@@ -966,17 +966,21 @@ const parseExcel = async (buffer) => {
 
       if (isSingleColMode) {
         const rawMeds = row[singleColHeader] || '';
+        // Split by comma or semicolon
         const medList = rawMeds.split(/[;,]/).map(s => s.trim()).filter(Boolean);
         medList.forEach(medToken => {
+          // Check if medicine token contains a grade (1, 2, or 3)
           const gradeMatch = medToken.match(/\b([1-3])\b/) || medToken.match(/\(([1-3])\)/);
           let grade = defaultGrade;
           let medName = medToken;
 
           if (gradeMatch) {
+            // Grade found - extract it and clean the medicine name
             grade = Number(gradeMatch[1]);
             medName = medToken.replace(/\b[1-3]\b/g, '').replace(/[\(\)]/g, '').trim();
           }
           
+          // Add medicine with grade (default is 1 if no grade specified)
           if (medName) {
             medicines[medName] = grade;
           }
@@ -991,9 +995,9 @@ const parseExcel = async (buffer) => {
         });
       }
 
-      // Only skip if absolutely no medicines
-      if (!fields.rubricEn && Object.keys(medicines).length === 0) {
-        errors.push(`[Sheet: ${sheetName}] Row ${rowNum}: No rubric and no medicine grades. Skipped.`);
+      // Only skip if NO rubric (en or hi) AND no medicines
+      if (!fields.rubricEn && !fields.rubricHi && Object.keys(medicines).length === 0) {
+        errors.push(`[Sheet: ${sheetName}] Row ${rowNum}: No rubric and no medicines. Skipped.`);
         return;
       }
 
@@ -1011,7 +1015,7 @@ const parseExcel = async (buffer) => {
 
       rubrics.push({
         chapter:   { en: effectiveChapter || 'General', hi: fields.chapterHi },
-        rubric:    { en: fields.rubricEn || '(unnamed)', hi: fields.rubricHi },
+        rubric:    { en: fields.rubricEn || fields.rubricHi || '(unnamed)', hi: fields.rubricHi },
         subrubric: { en: fields.subrubricEn, hi: fields.subrubricHi },
         modalities: {
           aggravation:  fields.aggEn,
