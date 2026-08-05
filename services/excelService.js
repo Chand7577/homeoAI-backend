@@ -358,7 +358,7 @@ const resolveFields = (row, headers, metaHeaders) => {
 
   // Check for COMBINED modalities column (Therpau/Classical format)
   // Columns like "Modalities (Eng + Hindi)", "Agg/Amel", etc.
-  const combinedModRaw = get('modalities (eng + hindi)', 'modalities', 'agg/amel', 'worse/better', 'modalit');
+  const combinedModRaw = get('modalities (eng + hindi)', 'modalities', 'agg//amel', 'agg/amel', 'worse/better', 'modalit');
   
   if (combinedModRaw && !aggRaw && !amelRaw) {
     // Split combined modalities into aggravation and amelioration
@@ -551,7 +551,7 @@ const detectColumnType = (columnData, colIdx, firstCellValue) => {
  * Smart chapter resolver that handles multi-sheet tabs and master sheets.
  * ENHANCED: Better detection of chapter from sheet name for repertories without chapter columns
  */
-const getEffectiveChapter = (sheetName, fieldsChapterEn, lastChapter) => {
+const getEffectiveChapter = (sheetName, fieldsChapterEn, lastChapter, rubricEnForInference) => {
   const cleanedSheetName = String(sheetName || '').trim();
   const normalizedSheetName = cleanedSheetName.replace(/[\s\-_]/g, '');
   
@@ -579,18 +579,21 @@ const getEffectiveChapter = (sheetName, fieldsChapterEn, lastChapter) => {
     result = sheetFallbackChapter;
     console.log(`📌 Using sheet name as chapter: "${result}"`);
   }
-  // 3. Last known chapter (carry forward)
+  // 3. Infer chapter from rubric text (Therapeutic/non-standard formats)
+  else if (rubricEnForInference) {
+    result = inferChapterFromRubric(rubricEnForInference);
+  }
+  // 4. Last known chapter (carry forward)
   else if (lastChapter) {
     result = lastChapter;
   }
-  // 4. Fallback to numeric chapter mapping
+  // 5. Fallback to numeric chapter mapping
   else if (fieldsChapterEn) {
     result = cleanChapterName(fieldsChapterEn);
   }
-  // 5. Ultimate fallback
+  // 6. Ultimate fallback
   else {
-    result = 'General';
-    console.log(`⚠️ No chapter detected, using "General"`);
+    result = 'Generalities';
   }
 
   return result;
@@ -921,7 +924,7 @@ const parseExcel = async (buffer) => {
     // Detect single-column medicine list mode for this sheet
     let isSingleColMode = false;
     let singleColHeader = null;
-    let defaultGrade = 3;
+    let defaultGrade = 1; // Default grade 1 for comma-separated medicine lists (no grading info)
 
     const foundSingleColHeader = medicineHeaders.find(h => {
       const lower = h.toLowerCase();
@@ -948,7 +951,7 @@ const parseExcel = async (buffer) => {
       const rowNum = idx + 2;
       const fields = resolveFields(row, headers, metaHeaders);
 
-      const effectiveChapter = getEffectiveChapter(sheetName, fields.chapterEn, lastChapter);
+      const effectiveChapter = getEffectiveChapter(sheetName, fields.chapterEn, lastChapter, fields.rubricEn);
       if (effectiveChapter) {
         lastChapter = effectiveChapter;
       }
