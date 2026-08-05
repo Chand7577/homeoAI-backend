@@ -503,14 +503,18 @@ const detectColumnType = (columnData, colIdx, firstCellValue) => {
 
 /**
  * Smart chapter resolver that handles multi-sheet tabs and master sheets.
+ * ENHANCED: Better detection of chapter from sheet name for repertories without chapter columns
  */
 const getEffectiveChapter = (sheetName, fieldsChapterEn, lastChapter) => {
   const cleanedSheetName = String(sheetName || '').trim();
   const normalizedSheetName = cleanedSheetName.replace(/[\s\-_]/g, '');
-  const isGenericSheet = /^(sheet\d*|mastersheet|data|rubrics|repertory)$/i.test(normalizedSheetName);
+  
+  // List of generic sheet names that should NOT be used as chapter names
+  const isGenericSheet = /^(sheet\d*|mastersheet|data|rubrics|repertory|upload|export|import|all|combined)$/i.test(normalizedSheetName);
   
   let sheetFallbackChapter = '';
-  if (!isGenericSheet) {
+  if (!isGenericSheet && cleanedSheetName) {
+    // Use sheet name as chapter if it's not generic
     sheetFallbackChapter = cleanChapterName(cleanedSheetName);
   }
 
@@ -518,14 +522,29 @@ const getEffectiveChapter = (sheetName, fieldsChapterEn, lastChapter) => {
   const isNumericChapter = rawChapterStr && /^\d+$/.test(rawChapterStr);
 
   let result = '';
+  
+  // Priority order:
+  // 1. Valid chapter column value (not numeric)
   if (fieldsChapterEn && !isNumericChapter) {
     result = cleanChapterName(fieldsChapterEn);
-  } else if (sheetFallbackChapter) {
+  }
+  // 2. Sheet name (if not generic)
+  else if (sheetFallbackChapter) {
     result = sheetFallbackChapter;
-  } else if (lastChapter) {
+    console.log(`📌 Using sheet name as chapter: "${result}"`);
+  }
+  // 3. Last known chapter (carry forward)
+  else if (lastChapter) {
     result = lastChapter;
-  } else if (fieldsChapterEn) {
+  }
+  // 4. Fallback to numeric chapter mapping
+  else if (fieldsChapterEn) {
     result = cleanChapterName(fieldsChapterEn);
+  }
+  // 5. Ultimate fallback
+  else {
+    result = 'General';
+    console.log(`⚠️ No chapter detected, using "General"`);
   }
 
   return result;
