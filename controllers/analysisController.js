@@ -160,7 +160,7 @@ const getAnalysis = async (req, res) => {
 };
 
 // DELETE /api/analysis/:id
-const deleteAnalysis = async (req, res) => {
+const deleteAnalysis = async (req, res) => {  
   const doctorId = req.user._id;
   
   const analysis = await Analysis.findOne({ _id: req.params.id, doctorId });

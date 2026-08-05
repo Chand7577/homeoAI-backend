@@ -164,19 +164,76 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
   });
 
 
-  // Fallback: If no candidate matched, get first 20 rubrics so AI has options
-  if (candidateMap.size === 0) {
-    try {
-      const fallback = await Rubric.find({ repertoryId })
+  
+  // Fallback: If no candidate matched, try hierarchical matching
+if (candidateMap.size === 0) {
+  try {
+    // Collect all cleaned terms from symptoms
+    const allTerms = symptoms
+      .flatMap(s => extractSearchTerms(s))
+      .filter(Boolean);
+
+    const uniqueTerms = [...new Set(allTerms)];
+
+    if (uniqueTerms.length > 0) {
+      const termRegex = uniqueTerms.map(term => new RegExp(term, 'i'));
+
+      // 1. First try matching by Chapter (en + hi)
+      let fallback = await Rubric.find({
+        repertoryId,
+        $or: [
+          { 'chapter.en': { $in: termRegex } },
+          { 'chapter.hi': { $in: termRegex } }
+        ]
+      })
         .select('_id chapter rubric subrubric modalities synonyms searchText medicines')
-        .limit(20).lean();
+        .limit(20)
+        .lean();
+
+      // 2. If still empty, try matching by Rubric (en + hi)
+      if (fallback.length === 0) {
+        fallback = await Rubric.find({
+          repertoryId,
+          $or: [
+            { 'rubric.en': { $in: termRegex } },
+            { 'rubric.hi': { $in: termRegex } }
+          ]
+        })
+          .select('_id chapter rubric subrubric modalities synonyms searchText medicines')
+          .limit(20)
+          .lean();
+      }
+
+      // 3. If still empty, try matching by Subrubric (en + hi)
+      if (fallback.length === 0) {
+        fallback = await Rubric.find({
+          repertoryId,
+          $or: [
+            { 'subrubric.en': { $in: termRegex } },
+            { 'subrubric.hi': { $in: termRegex } }
+          ]
+        })
+          .select('_id chapter rubric subrubric modalities synonyms searchText medicines')
+          .limit(20)
+          .lean();
+      }
+
+      // 4. Last resort: just take any 20 rubrics
+      if (fallback.length === 0) {
+        fallback = await Rubric.find({ repertoryId })
+          .select('_id chapter rubric subrubric modalities synonyms searchText medicines')
+          .limit(20)
+          .lean();
+      }
+
       fallback.forEach(m => {
         candidateMap.set(m._id.toString(), m);
       });
-    } catch (e) {
-      console.error('Fallback query failed:', e.message);
     }
+  } catch (e) {
+    console.error('Fallback query failed:', e.message);
   }
+}
 
   return Array.from(candidateMap.values());
 };

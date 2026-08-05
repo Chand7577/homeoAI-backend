@@ -101,6 +101,60 @@ const parseBilingualList = (rawStr) => {
 };
 
 /**
+ * Parse combined modalities column (e.g., "worse motion / चलने में बढ़ता; better rest / आराम में ठीक")
+ * Splits into aggravation and amelioration based on keywords: worse, better, agg, amel
+ */
+const parseCombinedModalities = (rawStr) => {
+  if (!rawStr) return { aggravation: '', amelioration: '' };
+
+  const text = String(rawStr).trim();
+  
+  // Try to split by keywords like "worse:", "better:", "Worse:", "Better:", etc.
+  // Regex explanation: match "worse" or "better" (case-insensitive) followed by optional colon/space
+  const worseMatch = text.match(/(?:worse|agg(?:ravation)?)[:\s]+(.*?)(?=(?:better|amel|$))/i);
+  const betterMatch = text.match(/(?:better|amel(?:ioration)?)[:\s]+(.*?)(?=(?:worse|agg|$))/i);
+  
+  let aggravation = '';
+  let amelioration = '';
+  
+  if (worseMatch) {
+    aggravation = worseMatch[1].trim();
+  }
+  
+  if (betterMatch) {
+    amelioration = betterMatch[1].trim();
+  }
+  
+  // If no clear keyword split, try splitting by semicolon and guess based on content
+  if (!aggravation && !amelioration && text.includes(';')) {
+    const parts = text.split(';').map(s => s.trim());
+    parts.forEach(part => {
+      const lowerPart = part.toLowerCase();
+      if (lowerPart.includes('worse') || lowerPart.includes('agg') || lowerPart.includes('बढ़')) {
+        aggravation += (aggravation ? '; ' : '') + part;
+      } else if (lowerPart.includes('better') || lowerPart.includes('amel') || lowerPart.includes('ठीक') || lowerPart.includes('राहत')) {
+        amelioration += (amelioration ? '; ' : '') + part;
+      }
+    });
+  }
+  
+  // Fallback: if still nothing detected, treat entire text as aggravation (safer assumption)
+  if (!aggravation && !amelioration && text) {
+    // Check if text contains both "worse" and "better" patterns without clear separation
+    if (text.match(/worse|agg/i)) {
+      aggravation = text;
+    } else if (text.match(/better|amel/i)) {
+      amelioration = text;
+    } else {
+      // Default: assume it's aggravation
+      aggravation = text;
+    }
+  }
+  
+  return { aggravation, amelioration };
+};
+
+/**
  * Detect if a sheet uses row-based medicine format by scanning all columns
  * to find one that contains medicine names and one that contains grades.
  */
@@ -252,9 +306,20 @@ const resolveFields = (row, headers, metaHeaders) => {
 
   const subrubricRaw = get('sub-rubric', 'sub rubric', 'subrubric_en', 'subrubric');
 
-  const aggRaw       = get('aggravation', 'agg', 'worse');
-  const amelRaw      = get('amelioration', 'amel', 'better');
+  let aggRaw       = get('aggravation', 'agg', 'worse');
+  let amelRaw      = get('amelioration', 'amel', 'better');
   const synRaw       = get('synonyms', 'synonym', 'syn');
+
+  // Check for COMBINED modalities column (Therpau/Classical format)
+  // Columns like "Modalities (Eng + Hindi)", "Agg/Amel", etc.
+  const combinedModRaw = get('modalities (eng + hindi)', 'modalities', 'agg/amel', 'worse/better', 'modalit');
+  
+  if (combinedModRaw && !aggRaw && !amelRaw) {
+    // Split combined modalities into aggravation and amelioration
+    const splitMod = parseCombinedModalities(combinedModRaw);
+    aggRaw = splitMod.aggravation;
+    amelRaw = splitMod.amelioration;
+  }
 
   // Parse bilingual fields
   const chapterSplit = parseBilingualField(chapterEnRaw);
@@ -429,6 +494,7 @@ const detectColumnType = (columnData, colIdx, firstCellValue) => {
 
   if (sampleText.includes('aggrav') || sampleText.includes('worse')) return 'Aggravation';
   if (sampleText.includes('amelior') || sampleText.includes('better')) return 'Amelioration';
+  if (sampleText.includes('modalit') || (sampleText.includes('worse') && sampleText.includes('better'))) return 'Modalities';
   if (sampleText.includes('synonym')) return 'Synonyms';
 
   return `Column_${String.fromCharCode(65 + colIdx)}`;
