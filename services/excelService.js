@@ -549,7 +549,6 @@ const getEffectiveChapter = (sheetName, fieldsChapterEn, lastChapter) => {
 
   return result;
 };
-};
 
 const parseExcel = async (buffer) => {
   console.log(`📊 Starting Excel parsing. Buffer size: ${(buffer.length / 1024 / 1024).toFixed(2)} MB`);
