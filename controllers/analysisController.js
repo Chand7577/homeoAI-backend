@@ -47,6 +47,7 @@ const runAnalysisHandler = async (req, res) => {
   }
 
   console.info('⏱️ [ANALYSIS] phase timings (ms):', stats.timingsMs);
+  console.info(`📊 [ANALYSIS] Matched ${matchedRubrics.length} rubrics for ${cleanSymptoms.length} symptoms`);
 
   // Normalise matchedRubrics: ensure medicines is a plain object (Mixed type allows dotted keys like 'Sulph.')
   const normalisedRubrics = matchedRubrics.map(r => ({
@@ -55,6 +56,8 @@ const runAnalysisHandler = async (req, res) => {
       ? Object.fromEntries(r.medicines)
       : (r.medicines || {}),
   }));
+  
+  console.info(`✅ [ANALYSIS] Normalised ${normalisedRubrics.length} rubrics for response`);
 
   // Save analysis to DB
   const analysis = await Analysis.create({
@@ -87,7 +90,7 @@ const runAnalysisHandler = async (req, res) => {
       analysisId: analysis._id,
       repertoryName: repertory.name,
       symptoms: cleanSymptoms,
-      matchedRubrics,
+      matchedRubrics: normalisedRubrics,
       medicineDistribution,
       aiUsed,
       stats,
