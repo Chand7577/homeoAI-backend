@@ -520,15 +520,18 @@ const runAnalysis = async ({ symptoms, repertoryId, repertoryName }) => {
   const rubricMap = {};
   rubrics.forEach(r => { rubricMap[r._id.toString()] = r; });
 
-  console.log(`🗺️ Rubric map contains ${Object.keys(rubricMap).length} rubrics`);
-  console.log(`🔍 AI returned ${aiMatches.length} matches`);
+  console.log(`🗺️ [ENRICHMENT] Rubric map contains ${Object.keys(rubricMap).length} rubrics`);
+  console.log(`🔍 [ENRICHMENT] AI returned ${aiMatches.length} matches to process`);
+  
+  let droppedCount = 0;
 
   const matchedRubrics = aiMatches
     .filter(m => m.matched_rubric_id)
     .map(m => {
       const rubric = rubricMap[m.matched_rubric_id];
       if (!rubric) {
-        console.warn(`⚠️ Rubric ${m.matched_rubric_id} not found in candidate set for symptom: "${m.symptom}"`);
+        droppedCount++;
+        console.error(`❌ [ENRICHMENT] Rubric ${m.matched_rubric_id} NOT FOUND for symptom: "${m.symptom}"`);
         return null;
       }
       return {
@@ -545,7 +548,8 @@ const runAnalysis = async ({ symptoms, repertoryId, repertoryName }) => {
     })
     .filter(Boolean);
   
-  console.log(`✅ Enriched ${matchedRubrics.length} rubrics successfully (${aiMatches.length - matchedRubrics.length} dropped)`);
+  console.log(`✅ [ENRICHMENT] Successfully enriched ${matchedRubrics.length} rubrics`);
+  console.log(`❌ [ENRICHMENT] Dropped ${droppedCount} rubrics (not in candidate set)`);
 
   
 
