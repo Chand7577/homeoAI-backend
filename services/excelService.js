@@ -980,6 +980,9 @@ const parseExcel = async (buffer) => {
             medName = medToken.replace(/\b[1-3]\b/g, '').replace(/[\(\)]/g, '').trim();
           }
           
+          // Clean medicine name: remove trailing periods and extra spaces
+          medName = medName.replace(/\.+$/g, '').trim();
+          
           // Add medicine with grade (default is 1 if no grade specified)
           if (medName) {
             medicines[medName] = grade;
