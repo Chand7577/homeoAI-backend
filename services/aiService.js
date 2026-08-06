@@ -150,7 +150,7 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
       )
         .select('_id chapter rubric subrubric modalities synonyms searchText medicines')
         .sort({ score: { $meta: 'textScore' } })
-        .limit(15) // 15 candidates per symptom → up to 9×15=135 before dedup
+        .limit(25) // Increased: 25 candidates per symptom → up to 9×25=225 before dedup
         .lean();
     } catch (e) {
       console.error('Text query failed:', e.message);
@@ -159,8 +159,8 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
   }));
 
   candidateGroups.flat().forEach(m => {
-    // Cap at 75 total: enough for 9 symptoms × 15 candidates each (post dedup)
-    if (candidateMap.size < 75) candidateMap.set(m._id.toString(), m);
+    // Cap at 150 total: enough for 9 symptoms × 25 candidates each (after dedup typically ~100-120)
+    if (candidateMap.size < 150) candidateMap.set(m._id.toString(), m);
   });
 
 
