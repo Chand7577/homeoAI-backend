@@ -520,11 +520,17 @@ const runAnalysis = async ({ symptoms, repertoryId, repertoryName }) => {
   const rubricMap = {};
   rubrics.forEach(r => { rubricMap[r._id.toString()] = r; });
 
+  console.log(`🗺️ Rubric map contains ${Object.keys(rubricMap).length} rubrics`);
+  console.log(`🔍 AI returned ${aiMatches.length} matches`);
+
   const matchedRubrics = aiMatches
     .filter(m => m.matched_rubric_id)
     .map(m => {
       const rubric = rubricMap[m.matched_rubric_id];
-      if (!rubric) return null;
+      if (!rubric) {
+        console.warn(`⚠️ Rubric ${m.matched_rubric_id} not found in candidate set for symptom: "${m.symptom}"`);
+        return null;
+      }
       return {
         symptom: m.symptom,
         rubricId: rubric._id,
@@ -538,6 +544,8 @@ const runAnalysis = async ({ symptoms, repertoryId, repertoryName }) => {
       };
     })
     .filter(Boolean);
+  
+  console.log(`✅ Enriched ${matchedRubrics.length} rubrics successfully (${aiMatches.length - matchedRubrics.length} dropped)`);
 
   
 
