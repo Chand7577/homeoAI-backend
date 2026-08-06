@@ -258,6 +258,9 @@ ${symptoms.map((s, i) => `${i + 1}. ${s}`).join('\n')}
 AVAILABLE RUBRICS:
 ${JSON.stringify(rubricSummaries)}
 
+IMPORTANT: You MUST provide a match for EVERY symptom listed above (all ${symptoms.length} symptoms).
+Even if confidence is low, always return a matched_rubric_id (never null unless truly no match exists).
+
 Return ONLY a valid JSON object with this structure:
 { "matches": [
   {
@@ -266,7 +269,9 @@ Return ONLY a valid JSON object with this structure:
     "confidence": 0-100,
     "reasoning": "brief clinical reason"
   }
-] }`;
+] }
+
+Ensure the "matches" array contains exactly ${symptoms.length} entries.`;
 
   // Groq is primary and responds in ~300-500ms, so 15s timeout is plenty
   // If using Gemini (when key is fixed), it may take up to 10s
@@ -288,18 +293,29 @@ Return ONLY a valid JSON object with this structure:
   const response = result.response;
   const responseText = response.candidates[0].content.parts[0].text;
   
+  console.log(`🤖 AI response length: ${responseText.length} characters`);
+  
   // Extract JSON from response
   const jsonMatch = responseText.match(/\[[\s\S]*\]/);
   if (!jsonMatch) {
     // If response_format JSON gave us an object, try to extract array
-    const parsed = JSON.parse(responseText);
-    if (parsed.matches || parsed.results) {
-      return parsed.matches || parsed.results;
+    try {
+      const parsed = JSON.parse(responseText);
+      if (parsed.matches || parsed.results) {
+        console.log(`✅ AI returned ${(parsed.matches || parsed.results).length} matches`);
+        return parsed.matches || parsed.results;
+      }
+    } catch (parseError) {
+      console.error('❌ AI response parsing failed:', parseError.message);
+      console.error('Response text:', responseText.substring(0, 500));
+      throw new Error('AI returned invalid JSON format');
     }
     throw new Error('AI returned invalid JSON format');
   }
 
-  return JSON.parse(jsonMatch[0]);
+  const matches = JSON.parse(jsonMatch[0]);
+  console.log(`✅ AI returned ${matches.length} matches`);
+  return matches;
 };
 
 /**
@@ -473,9 +489,16 @@ const runAnalysis = async ({ symptoms, repertoryId, repertoryName }) => {
     if (isAIReady() && rubrics.length > 0) {
       try {
         console.log(`🤖 [PERF] Starting AI matching with ${getProvider() || 'AI'}...`);
+        console.log(`📋 Analyzing ${symptoms.length} symptoms...`);
         aiMatches = await matchWithAI(symptoms, rubrics, repertoryName);
         aiUsed = true;
         console.log(`✅ [PERF] AI matching completed in ${Date.now() - candidateFinishedAt}ms`);
+        console.log(`📊 AI returned ${aiMatches.length} matches for ${symptoms.length} symptoms`);
+        
+        // Validate: AI should return one match per symptom
+        if (aiMatches.length !== symptoms.length) {
+          console.warn(`⚠️ AI returned ${aiMatches.length} matches but expected ${symptoms.length}!`);
+        }
       } catch (err) {
         console.error('AI error, falling back to keyword logic:', err.message);
         aiMatches = matchWithKeywords(symptoms, rubrics);
