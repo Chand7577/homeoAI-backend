@@ -563,7 +563,7 @@ const getEffectiveChapter = (sheetName, fieldsChapterEn, lastChapter, rubricEnFo
   const normalizedSheetName = cleanedSheetName.replace(/[\s\-_]/g, '');
   
   // List of generic sheet names that should NOT be used as chapter names
-  const isGenericSheet = /^(sheet\d*|mastersheet|data|rubrics|repertory|upload|export|import|all|combined)$/i.test(normalizedSheetName);
+  const isGenericSheet = /^(sheet\d*|mastersheet|data|rubrics|repertory|upload|export|import|all|combined|therpau|therapeutic)$/i.test(normalizedSheetName);
   
   let sheetFallbackChapter = '';
   if (!isGenericSheet && cleanedSheetName) {
@@ -587,11 +587,14 @@ const getEffectiveChapter = (sheetName, fieldsChapterEn, lastChapter, rubricEnFo
     console.log(`📌 Using sheet name as chapter: "${result}"`);
   }
   // 3. Infer chapter from rubric text (Therapeutic/non-standard formats)
+  // IMPORTANT: For therapeutic formats with generic sheet names, ALWAYS infer from rubric
+  // Do NOT carry forward lastChapter as it causes incorrect grouping
   else if (rubricEnForInference) {
     result = inferChapterFromRubric(rubricEnForInference);
   }
-  // 4. Last known chapter (carry forward)
-  else if (lastChapter) {
+  // 4. Last known chapter (carry forward) - ONLY for Kent format with Chapter columns
+  // This should only be used when we have explicit chapter structure
+  else if (lastChapter && !isGenericSheet) {
     result = lastChapter;
   }
   // 5. Fallback to numeric chapter mapping
