@@ -29,7 +29,7 @@ const register = async (req, res) => {
     if (!name || !email || !phone || !password || !role) {
       return res.status(400).json({
         success: false,
-        message: '⚠️ Please fill in all required fields: name, email, phone, password, and role'
+        message: 'Please fill in all required fields: name, email, phone, password, and role'
       });
     }
 
@@ -38,7 +38,7 @@ const register = async (req, res) => {
     if (!emailRegex.test(email)) {
       return res.status(400).json({
         success: false,
-        message: '📧 Please provide a valid email address (e.g., name@example.com)'
+        message: 'Please provide a valid email address (e.g., name@example.com)'
       });
     }
 
@@ -46,7 +46,7 @@ const register = async (req, res) => {
     if (password.length < 8) {
       return res.status(400).json({
         success: false,
-        message: '🔒 Password must be at least 8 characters long for security'
+        message: 'Password must be at least 8 characters long for security'
       });
     }
 
@@ -56,7 +56,7 @@ const register = async (req, res) => {
     if (!['Patient', 'External Doctor', 'Core Team'].includes(role)) {
       return res.status(400).json({
         success: false,
-        message: '❌ Only Patient, External Doctor, or Core Team registration is allowed'
+        message: 'Only Patient, External Doctor, or Core Team registration is allowed'
       });
     }
 
@@ -69,12 +69,12 @@ const register = async (req, res) => {
       if (existingUser.email === email) {
         return res.status(400).json({
           success: false,
-          message: '📧 This email is already registered. Try logging in instead, or use a different email.'
+          message: 'This email is already registered. Try logging in instead, or use a different email.'
         });
       } else {
         return res.status(400).json({
           success: false,
-          message: '📱 This phone number is already registered. Please use a different number.'
+          message: 'This phone number is already registered. Please use a different number.'
         });
       }
     }
@@ -101,11 +101,11 @@ const register = async (req, res) => {
     // Role-specific success messages
     let successMessage = '';
     if (role === 'Patient') {
-      successMessage = '🎉 Welcome! Your patient account has been created. Our team will review and approve it shortly. You\'ll receive an email once you can log in.';
+      successMessage = 'Welcome! Your patient account has been created. Our team will review and approve it shortly. You\'ll receive an email once you can log in.';
     } else if (role === 'Core Team') {
-      successMessage = '🎉 Welcome to the team! Your Core Team account is pending admin approval. We\'ll notify you via email once activated. Usually takes 1-2 hours.';
+      successMessage = 'Welcome to the team! Your Core Team account is pending admin approval. We\'ll notify you via email once activated. Usually takes 1-2 hours.';
     } else if (role === 'External Doctor') {
-      successMessage = '🎉 Registration successful! Your doctor account is under review. Our admin will verify your credentials and approve within 24 hours. Check your email for updates.';
+      successMessage = 'Registration successful! Your doctor account is under review. Our admin will verify your credentials and approve within 24 hours. Check your email for updates.';
     }
 
     res.status(201).json({
@@ -117,7 +117,7 @@ const register = async (req, res) => {
     console.error('Registration error:', error);
     res.status(500).json({
       success: false,
-      message: '❌ Registration failed due to a server error. Please try again in a moment.'
+      message: 'Registration failed due to a server error. Please try again in a moment.'
     });
   }
 };
@@ -131,7 +131,7 @@ const login = async (req, res) => {
     if (!email || !password) {
       return res.status(400).json({
         success: false,
-        message: '⚠️ Please enter both email and password to log in'
+        message: 'Please enter both email and password to log in'
       });
     }
 
@@ -171,7 +171,7 @@ const login = async (req, res) => {
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: '❌ No account found with this email address. Please check your email or register a new account.'
+        message: 'No account found with this email address. Please check your email or register a new account.'
       });
     }
 
@@ -180,21 +180,21 @@ const login = async (req, res) => {
     if (!isPasswordValid) {
       return res.status(401).json({
         success: false,
-        message: '🔒 Incorrect password. Please check your password and try again.'
+        message: 'Incorrect password. Please check your password and try again.'
       });
     }
 
     // Check if account is approved
     if (user.status !== 'Approved') {
       const statusMessages = {
-        'Pending': '⏳ Your account is pending admin approval. We\'ll notify you via email once approved. This usually takes 1-24 hours.',
-        'Rejected': '❌ Your account registration was not approved. Please contact support at support@homeoai.com for more information.',
-        'Suspended': '⚠️ Your account has been suspended. Please contact support at support@homeoai.com to resolve this issue.'
+        'Pending': 'Your account is pending admin approval. We\'ll notify you via email once approved. This usually takes 1-24 hours.',
+        'Rejected': 'Your account registration was not approved. Please contact support at support@homeoai.com for more information.',
+        'Suspended': 'Your account has been suspended. Please contact support at support@homeoai.com to resolve this issue.'
       };
       
       return res.status(403).json({
         success: false,
-        message: statusMessages[user.status] || '❌ Account access denied. Please contact support.'
+        message: statusMessages[user.status] || 'Account access denied. Please contact support.'
       });
     }
 
@@ -202,7 +202,7 @@ const login = async (req, res) => {
     if (!user.isActive) {
       return res.status(403).json({
         success: false,
-        message: '⚠️ Your account has been deactivated. Please contact support at support@homeoai.com to reactivate.'
+        message: 'Your account has been deactivated. Please contact support at support@homeoai.com to reactivate.'
       });
     }
 
@@ -221,7 +221,7 @@ const login = async (req, res) => {
 
     res.json({
       success: true,
-      message: '✅ Welcome back! Login successful.',
+      message: 'Welcome back! Login successful.',
       user: userResponse,
       // Enables Netlify/Render deployments where browsers block third-party
       // cookies. The client sends this only in an Authorization header.
@@ -231,7 +231,7 @@ const login = async (req, res) => {
     console.error('Login error:', error);
     res.status(500).json({
       success: false,
-      message: '❌ Login failed due to a server error. Please try again in a moment.'
+      message: 'Login failed due to a server error. Please try again in a moment.'
     });
   }
 };
@@ -270,7 +270,7 @@ const updateProfile = async (req, res) => {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: '❌ User not found'
+        message: 'User not found'
       });
     }
 
@@ -296,7 +296,7 @@ const updateProfile = async (req, res) => {
       if (!emailRegex.test(email)) {
         return res.status(400).json({
           success: false,
-          message: '📧 Please provide a valid email address'
+          message: 'Please provide a valid email address'
         });
       }
       
@@ -304,7 +304,7 @@ const updateProfile = async (req, res) => {
       if (existingUser) {
         return res.status(400).json({
           success: false,
-          message: '📧 This email is already in use by another account'
+          message: 'This email is already in use by another account'
         });
       }
     }
@@ -315,7 +315,7 @@ const updateProfile = async (req, res) => {
       if (existingUser) {
         return res.status(400).json({
           success: false,
-          message: '📱 This phone number is already in use'
+          message: 'This phone number is already in use'
         });
       }
     }
@@ -329,14 +329,14 @@ const updateProfile = async (req, res) => {
 
     res.json({
       success: true,
-      message: '✅ Profile updated successfully!',
+      message: 'Profile updated successfully!',
       user: updatedUser
     });
   } catch (error) {
     console.error('Update profile error:', error);
     res.status(500).json({
       success: false,
-      message: '❌ Failed to update profile. Please try again.'
+      message: 'Failed to update profile. Please try again.'
     });
   }
 };
