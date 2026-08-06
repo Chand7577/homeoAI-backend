@@ -51,6 +51,7 @@ const isMetaHeader = (h) => {
     lower.startsWith('synon') ||
     lower.startsWith('aggrav') ||
     lower.startsWith('amelior') ||
+    lower.startsWith('modalit') ||
     lower.startsWith('section');
 };
 
@@ -243,7 +244,12 @@ const detectMedicineColumns = (headers, rows) => {
       return;
     }
 
-    const sample = rows.slice(0, 20).map(r => r[h]);
+    const sample = rows.slice(0, 20).map(r => r[h]).filter(v => v !== undefined && v !== null && String(v).trim() !== '');
+    if (sample.length === 0) {
+      metaHeaders.push(h);
+      return;
+    }
+    
     const gradeCount = sample.filter(v => looksLikeGrade(v)).length;
     if (gradeCount >= sample.length * 0.7) {
       medicineHeaders.push(h);
@@ -348,9 +354,10 @@ const resolveFields = (row, headers, metaHeaders) => {
   const chapterHiRaw = get('chapter (hindi)', 'chapter hindi', 'chapter_hindi', 'chapter_hi');
   
   const rubricEnRaw  = get('rubric (english – verb + action)', 'rubric (english)', 'rubric eng', 'rubric_eng', 'rubric_en', 'rubric');
-  const rubricHiRaw  = get('rubric (hindi – क्रिया आधारित)', 'rubric (hindi)', 'rubric hindi', 'rubric_hindi', 'rubric_hi');
+  const rubricHiRaw  = get('rubric (hindi – क्रिया आधारित)', 'rubric (hindi)', 'hindi rubric', 'rubric hindi', 'rubric_hindi', 'rubric_hi');
 
   const subrubricRaw = get('sub-rubric', 'sub rubric', 'subrubric_en', 'subrubric');
+  const subrubricHiRaw = get('sub-rubric (hindi)', 'sub-rubric hindi', 'subrubric hindi', 'subrubric_hindi', 'subrubric_hi');
 
   let aggRaw       = get('aggravation', 'agg', 'worse');
   let amelRaw      = get('amelioration', 'amel', 'better');
