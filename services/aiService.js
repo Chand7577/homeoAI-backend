@@ -275,7 +275,7 @@ Return ONLY a valid JSON object with this structure:
     generationConfig: {
       temperature: 0.3,
       responseMimeType: "application/json",
-      maxOutputTokens: 1500 // Enough for up to 9 symptom matches without truncation
+      maxOutputTokens: 3000 // Increased to handle up to 9 symptoms with detailed reasoning
     }
   });
 
