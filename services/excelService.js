@@ -966,9 +966,12 @@ const parseExcel = async (buffer) => {
         lastChapter = effectiveChapter;
       }
 
-      // Skip row if no chapter or rubric is present
-      if (!effectiveChapter && !fields.rubricEn) {
-        if (idx > 0) errors.push(`[Sheet: ${sheetName}] Row ${rowNum}: No chapter or rubric. Skipped.`);
+      // Skip row if no rubric is present (chapter-only rows are separators/headers)
+      if (!fields.rubricEn && !fields.rubricHi) {
+        if (idx > 0) {
+          // This is likely a chapter separator row or empty row
+          return; // Skip silently
+        }
         return;
       }
 
@@ -1006,12 +1009,6 @@ const parseExcel = async (buffer) => {
             medicines[String(med).trim()] = grade;
           }
         });
-      }
-
-      // Only skip if NO rubric (en or hi) AND no medicines
-      if (!fields.rubricEn && !fields.rubricHi && Object.keys(medicines).length === 0) {
-        errors.push(`[Sheet: ${sheetName}] Row ${rowNum}: No rubric and no medicines. Skipped.`);
-        return;
       }
 
       const parts = [
