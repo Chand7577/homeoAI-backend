@@ -156,10 +156,19 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
     }
   }));
 
-  candidateGroups.flat().forEach(m => {
-    // Cap at 120 total: balance between coverage and token limits
-    // 120 rubrics × ~60 tokens each = ~7,200 tokens (safely under Groq's 12K TPM limit)
-    if (candidateMap.size < 120) candidateMap.set(m._id.toString(), m);
+  // Fair candidate distribution: ensure each symptom gets representation
+  // Instead of first-come-first-served, distribute slots more evenly
+  const maxPerSymptom = Math.ceil(120 / symptoms.length); // For 9 symptoms = 13-14 each
+  
+  candidateGroups.forEach((group, idx) => {
+    let added = 0;
+    group.forEach(m => {
+      const key = m._id.toString();
+      if (!candidateMap.has(key) && candidateMap.size < 120 && added < maxPerSymptom) {
+        candidateMap.set(key, m);
+        added++;
+      }
+    });
   });
 
 
