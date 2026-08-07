@@ -96,15 +96,41 @@ class UnifiedModelAdapter {
         options.response_format = { type: 'json_object' };
       }
 
-      let completion = await this.client.chat.completions.create(options);
-      const text = completion.choices[0]?.message?.content || '';
+      try {
+        let completion = await this.client.chat.completions.create(options);
+        const text = completion.choices[0]?.message?.content || '';
 
-      return {
-        response: {
-          candidates: [{ content: { parts: [{ text }] } }],
-          text: () => text
+        return {
+          response: {
+            candidates: [{ content: { parts: [{ text }] } }],
+            text: () => text
+          }
+        };
+      } catch (err) {
+        // Check if it's a rate limit error
+        const isRateLimit = err.message?.includes('429') || 
+                           err.message?.includes('rate_limit_exceeded') ||
+                           err.status === 429;
+        
+        if (isRateLimit) {
+          console.warn(`[AI Adapter] ⚠️ Groq rate limit hit. Falling back to Gemini/OpenAI...`);
+          
+          // Try Gemini first (if available)
+          if (geminiAdapter && geminiAdapter !== this) {
+            console.log('[AI Adapter] 🔄 Attempting Gemini fallback...');
+            return await geminiAdapter.generateContent({ contents, generationConfig });
+          }
+          
+          // Try OpenAI as last resort
+          if (openaiAdapter && openaiAdapter !== this) {
+            console.log('[AI Adapter] 🔄 Attempting OpenAI fallback...');
+            return await openaiAdapter.generateContent({ contents, generationConfig });
+          }
         }
-      };
+        
+        // If not rate limit or no fallback available, throw original error
+        throw err;
+      }
     }
     
     // For OpenAI - convert from Gemini format
