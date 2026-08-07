@@ -148,7 +148,7 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
       )
         .select('_id chapter rubric subrubric modalities synonyms searchText medicines')
         .sort({ score: { $meta: 'textScore' } })
-        .limit(20) // 20 per symptom: 9 symptoms × 20 = 180 → after dedup ~100 (stays under token limit)
+        .limit(22) // 22 per symptom: 9 symptoms × 22 = 198 → after dedup ~120 (stays under token limit)
         .lean();
     } catch (e) {
       console.error('Text query failed:', e.message);
@@ -157,9 +157,9 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
   }));
 
   candidateGroups.flat().forEach(m => {
-    // Cap at 100 total: balance between accuracy and staying under token limits
-    // 100 rubrics × ~140 tokens each = ~14,000 tokens (within Groq's 12K TPM limit)
-    if (candidateMap.size < 100) candidateMap.set(m._id.toString(), m);
+    // Cap at 120 total: balance between coverage and token limits
+    // 120 rubrics × ~60 tokens each = ~7,200 tokens (safely under Groq's 12K TPM limit)
+    if (candidateMap.size < 120) candidateMap.set(m._id.toString(), m);
   });
 
 
