@@ -209,10 +209,11 @@ const initAI = () => {
     const openaiKey = process.env.OPENAI_API_KEY;
     if (openaiKey) {
       const aiClient = new OpenAI({ apiKey: openaiKey });
-      openaiAdapter = new UnifiedModelAdapter(aiClient, 'gpt-4o-mini', 'openai');
+      const openaiModel = process.env.OPENAI_MODEL || 'gpt-4o';
+      openaiAdapter = new UnifiedModelAdapter(aiClient, openaiModel, 'openai');
       defaultAdapter = defaultAdapter || openaiAdapter;
       isReady = true;
-      console.log('✅ OpenAI (GPT-4o-mini) initialized successfully.');
+      console.log(`✅ OpenAI (${openaiModel}) initialized successfully.`);
     }
 
     if (!isReady) {
