@@ -21,12 +21,13 @@ const KENT_ITALIC_REMEDIES = new Set([
   'sabad', 'sep', 'sil', 'sulph', 'thuj', 'valer', 'verat'
 ]);
 
-const inferKentGrading = (medicineName) => {
+const inferKentGrading = (medicineName, aiGrading = null) => {
+  if (typeof aiGrading === 'number' && aiGrading >= 1 && aiGrading <= 3) {
+    return aiGrading;
+  }
   const name = (medicineName || '').trim().replace(/^[^A-Za-zÆŒæœ]+/, '');
   if (!name) return 1;
 
-  // This accepts Kent ligatures as well as regular A-Z capitals.
-  if (/^[A-ZÆŒ]/.test(name)) return 3;
   return KENT_ITALIC_REMEDIES.has(name.toLowerCase()) ? 2 : 1;
 };
 
@@ -598,6 +599,10 @@ const MEDICINE_CORRECTIONS = {
   'clan': 'Chin-s', 'Clan': 'Chin-s',
   'mercy-c': 'Merc-cy', 'Mercy-c': 'Merc-cy',
   'sol-tæ': 'Sol-t-ae', 'Sol-tæ': 'Sol-t-ae',
+  'poïo': 'Podo', 'poio': 'Podo', 'Poïo': 'Podo',
+  'muac': 'Manc', 'Muac': 'Manc',
+  'acou': 'Acon', 'Acou': 'Acon',
+  'alumnu': 'Alumn', 'Alumnu': 'Alumn'
 };
 
 /**
@@ -644,11 +649,8 @@ const convertGroqJsonToRows = (parsedJson, fallbackChapter = '') => {
           rubric_en: rubric_en,
           rubric_hi: '',
           medicine: cleanMed,
-          // Do not trust the model's grouped grading label here.  The raw
-          // medicine case is preserved in its response and is the reliable
-          // Kent grade signal; this prevents an entire long list becoming
-          // grade 3 (the error visible on page 590's "difficult stool").
-          grading: inferKentGrading(medicineName)
+          // Prefer AI Vision font weight detection if present, otherwise fallback to italic lookup.
+          grading: inferKentGrading(medicineName, typeof medObj === 'object' ? medObj.grading : null)
         });
       }
     }

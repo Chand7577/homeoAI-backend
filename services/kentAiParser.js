@@ -101,7 +101,7 @@ const REMEDY_SPELL_CORRECTIONS = {
   'canst': 'caust',
   'causl': 'caust',
   'nal-m': 'nat-m',
-  'siu-a': 'sin-a',
+  'siu-a': 'sul-ac',
   'ran-s': 'ran-sc',
   'stamn': 'stann',
   'stamin': 'stann',
@@ -110,7 +110,13 @@ const REMEDY_SPELL_CORRECTIONS = {
   'arr': 'arn',
   'gal-c': 'gal-ac',
   'merc-i': 'merc-i-f',
-  'sulp': 'sulph'
+  'sulp': 'sulph',
+  'poïo': 'podo',
+  'poio': 'podo',
+  'muac': 'manc',
+  'acou': 'acon',
+  'alumnu': 'alumn',
+  'alumu': 'alumn'
 };
 
 /**
@@ -300,10 +306,14 @@ ${contextInstruction}
    Do NOT skip small sub-rubrics (e.g. "downward, outward, etc.:", "smarting:", "difficult stool", "after:", "during menses:", "walking, while:", "extending to:", "tenesmus:").
    Do NOT combine sub-rubrics into their parent. Every line with a colon or qualifier MUST generate its own distinct sub-rubric entry!
 
-2. TYPOGRAPHY & INDENTATION STACK:
-   - MAIN RUBRICS (ALL CAPS / BOLD CAPS & SYNONYMS): Flush left headings starting with ALL-CAPS (e.g., "DIARRHŒA.", "CONSTIPATION", "PAIN"). Resets sub-rubric stack.
-   - PRIMARY SUB-RUBRICS / SIBLING RUBRICS: Printed flush left or slightly indented (e.g., "smarting (compare 'burning'):", "soreness:", "rasping:", "rawness:", "scraping:", "shooting:").
-   - QUALIFIERS / SUB-SUB-RUBRICS (LEVEL 2 INDENTED): Further indented qualifiers under a primary sub-rubric (e.g. under "soreness:", line "morning: Thuj." -> "PAIN - soreness - morning").
+2. SPATIAL VISUAL INDENTATION & HIERARCHY STACK (GENERALIZED FOR ALL PAGES):
+   - LEVEL 0: MAIN CHAPTER & MAIN RUBRICS (ALL CAPS / BOLD CAPS): Headings starting at top/flush-left (e.g. "RECTUM", "PAIN", "STOOL"). Resets all sub-hierarchies.
+   - LEVEL 1: PRIMARY SUB-RUBRICS / SIBLING RUBRICS (FLUSH LEFT TO COLUMN MARGIN):
+     * ANY heading or term whose text starts AT THE LEFT MARGIN of the column (not indented under a previous item) is a Level-1 Primary Sub-Rubric under the active main rubric (e.g. "PAIN - smarting", "PAIN - soreness", "PAIN - pressing").
+     * GENERALIZED MARGIN RESET RULE: Any term printed at the column's left margin IMMEDIATELY RESETS the sub-rubric stack to Level 1. It is NEVER a child of the previous line or a top-of-column continuation header!
+   - LEVEL 2+: INDENTED QUALIFIERS & SUB-MODIFIERS:
+     * Lines that are physically INDENTED under a Level-1 rubric (e.g., "evening - bed, in:", "sitting, while:", "morning:").
+     * Append these indented qualifiers sequentially to the parent Level-1 rubric path (e.g. "PAIN - pressing - evening - bed, in").
 
    CRITICAL (QUALIFIERS ARE MANDATORY):
    - Under a heading like "PAIN, pressing, evening.", a line starting with "downward, outward, etc.: Agar, aloe..." MUST include "downward, outward, etc." as a sub-rubric! Target path: "PAIN - pressing - evening - downward, outward, etc.".
@@ -315,39 +325,42 @@ ${contextInstruction}
    - You MUST extract "smarting" as a RUBRIC / SUB-RUBRIC under the parent rubric! (Target path: "PAIN - smarting").
    - NEVER drop the rubric title "smarting" and dump remedies into a previous header like "PAIN - shooting"!
 
-4. QUALIFIERS BEFORE COLONS & SUB-RUBRICS ENDING IN ETC.:
+4. QUALIFIERS BEFORE COLONS, SUB-MODIFIERS (amel., agg.) & SUB-RUBRICS ENDING IN ETC.:
    - Whenever an indented line starts with a word/phrase followed by a colon (e.g. "aged people:", "downward, outward, etc.:", "smarting:", "women:", "air, in cold:"), the text BEFORE the colon is a SUB-RUBRIC QUALIFIER.
+   - MANDATORY SUB-MODIFIER INCLUSION: When a line under a rubric (like "AIR, open, in:") is indented and starts with "amel.:" or "agg.:", you MUST append "- amel." or "- agg." to the active rubric path (e.g. "AIR - open, in - amel."). NEVER drop "amel." or "agg."!
    - You MUST append that qualifier to the parent rubric path!
    - Examples under "PAIN, pressing, evening.":
      - Line "bed, in: Iod." -> "PAIN - pressing - evening - bed, in"
      - Line "sitting, while: Calc., chin-s." -> "PAIN - pressing - evening - sitting, while"
      - Line "downward, outward, etc.: Agar, aloe..." -> "PAIN - pressing - evening - downward, outward, etc."
+   - Examples under "AIR, open, in:":
+     - Line indented "amel.: Æth., am-m., caust..." -> "AIR - open, in - amel."
    - Examples under "PAIN":
      - Line "smarting (compare 'burning'): Æsc., æth..." -> "PAIN - smarting"
      - Line "soreness: Æsc., agn..." -> "PAIN - soreness"
      - Line "soreness:" followed by indented "morning: Thuj." -> "PAIN - soreness - morning"
-   - NEVER drop qualifiers like "downward, outward, etc.", "bed, in", "sitting, while", "smarting"!
+   - NEVER drop qualifiers like "amel.", "agg.", "downward, outward, etc.", "bed, in", "sitting, while", "smarting"!
 
 5. FULL RUBRIC PATH SYNTAX (DO NOT INCLUDE CHAPTER NAME IN RUBRIC_EN):
    Format: "MAIN RUBRIC - subrubric - subsubrubric" (DO NOT prefix with Chapter Name! Chapter is stored separately in chapter_en.)
 
-6. COLUMN CONTINUATION HEADERS & SIBLING RUBRIC RESET (PREVENT CONTINUATION CONTAMINATION):
-   - At the top of a column, a header like "PAIN, shooting." is a continuation header from the previous page/column.
-   - It ONLY applies to immediate sub-items indented under it (e.g. "evening: Sulph.", "itching: Sulph.", "extending to penis: Carl.").
-   - CRITICAL RESET RULE: As soon as a new primary rubric line appears (e.g. "smarting (compare 'burning'):", "soreness:", "rasping:", "rawness:", "scraping:"), it is a NEW sibling rubric under PAIN, NOT a sub-rubric of "shooting"!
-   - Immediately reset the path from "PAIN - shooting" to "PAIN - smarting" or "PAIN - soreness"!
-   - Example output for "soreness:":
+6. COLUMN CONTINUATION HEADERS & GENERALIZED MARGIN RESET (PREVENT CONTINUATION CONTAMINATION):
+   - At the top of a column, a header like "PAIN, shooting." or "PAIN, pressing, evening." is a continuation header from the previous column/page.
+   - Continuation headers ONLY apply to items physically INDENTED beneath them (e.g. "evening: Sulph.", "itching: Sulph.", "extending to penis: Carl.").
+   - UNIVERSAL MARGIN RESET RULE: As soon as any line appears whose text starts FLUSH WITH THE LEFT MARGIN of the column (e.g., "smarting", "soreness", "rasping", "rawness", "scraping"), it is a NEW SIBLING RUBRIC at Level 1 under the main section (e.g., "PAIN - smarting", "PAIN - soreness").
+   - Immediately reset the active path to "MAIN_RUBRIC - <flush_left_rubric_name>"! NEVER nest a flush-left rubric as a sub-item of a continuation header!
+   - Example output when "soreness:" appears flush left:
      - Line "soreness: Æsc..." -> "PAIN - soreness"
      - Line indented "morning: Thuj." -> "PAIN - soreness - morning" (NOT "PAIN - shooting - soreness - morning"!)
      - Line indented "sitting, while: Mag-c." -> "PAIN - soreness - sitting, while"
 
 7. MEDICINES & STRICT 3-TIER CLINICAL TYPOGRAPHY GRADING (CRITICAL):
-   - Capture every remedy abbreviation on every line. Clean off trailing periods.
-   - EXACT TYPOGRAPHY GRADING RULES:
-     * GRADE 3 = HEAVY BOLD ALL CAPS ONLY (e.g. "SULPH", "ALOE", "GRAPH", "CAUST", "BELL", "BERB", "LYC", "MERC", "PULS").
-     * GRADE 2 = ITALICS / Title-case Italic (e.g. "Ammc.", "Arn.", "Ant-c.", "Apoc.", "Dros.", "Lach.", "Carl.", "Rhus-t.", "Agar.", "Caust.", "Graph.", "Ham.").
-       --> CRITICAL: ITALS ARE ALWAYS GRADE 2. DO NOT GRADE ITALICS AS 3!
-     * GRADE 1 = PLAIN ROMAN LOWERCASE (e.g. "chin-s", "ferr", "cob", "grat", "nat-m", "verat").
+   - DO NOT DEFAULT THE FIRST REMEDY ON A LINE TO GRADE 3! Capitalization at the beginning of a line or after a colon does NOT equal Bold.
+   - Inspect the visual font weight of EVERY remedy abbreviation carefully:
+     * GRADE 3 = HEAVY BOLD TEXT ONLY (e.g., "Sulph", "Calc", "Lyc", "Mag-c", "Crot-t", "Podo", "Caust", "Graph", "Nat-m", "Nux-v", "Puls", "Tabac"). Heavy, thick, dark letter strokes.
+     * GRADE 2 = ITALIC TEXT (Slanted/oblique font, whether capitalized or lowercase; e.g., "Iod.", "Corn.", "Lyc.", "Apoc.", "Dros.", "Lach.", "Ran-sc.", "Æsc.", "Graph.", "Bell.", "Berb.", "apis", "arn.", "ars.", "calc.", "carb-v.", "crot-t.", "dios.", "hep.", "kali-bi.", "lil-t.", "mur-ac.", "pæon.", "phos.", "podo.", "rhus-t.", "sep.", "sul-ac.", "thuj.").
+       --> CRITICAL MANDATE: ALL SLANTED/ITALIC TEXT MUST BE GRADED AS 2. DO NOT GRADE ITALICS AS 3 OR 1!
+     * GRADE 1 = PLAIN ROMAN LOWERCASE (Upright, non-italic, non-bold font; e.g., "chin-s", "ferr", "cob", "grat", "nat-m", "verat", "aloe", "berb", "bry", "calc-p", "cimic").
    - TOKEN-EFFICIENT GROUPED OUTPUT: for each rubric, group remedies of the same grading into a SINGLE object, with remedy names joined by commas:
      "medicines": [
        {"name": "Æsc,Aloe,Graph", "grading": 3},
@@ -670,13 +683,14 @@ const KENT_TERM_TRANSLATIONS = {
   'COUGH': 'खांसी', 'CHEST': 'छाती', 'BACK': 'पीठ', 'EXTREMITIES': 'अंग', 'SLEEP': 'नींद',
   'FEVER': 'बुखार', 'SKIN': 'त्वचा', 'GENERALITIES': 'सामान्यें', 'PAIN': 'दर्द',
   'pressing': 'दबाव', 'evening': 'शाम', 'morning': 'सुबह', 'night': 'रात', 'afternoon': 'दोपहर',
-  'sitting, while': 'बैठते समय', 'stool, after': 'मल त्याग के बाद', 'stool, during': 'मल त्याग के दौरान',
-  'stool, before': 'मल त्याग से पहले', 'menses, during': 'मासिक धर्म के दौरान', 'menses, before': 'मासिक धर्म से पहले',
-  'moving, after': 'हिलने के बाद', 'standing, while': 'खड़े रहने पर', 'lying, while': 'लेटे रहने पर',
-  'walking': 'चलते समय', 'flatus, during': 'अधोवायु के दौरान', 'rest amel.': 'आराम से राहत',
-  'smarting': 'जलन/स्मार्टिंग', 'soreness': 'टीस/दर्द', 'shooting': 'चुभने जैसा', 'rawness': 'कच्चापन',
-  'rasping': 'छीलने जैसा', 'scraping': 'खुरचने जैसा', 'stool, hard, during': 'कड़े मल के दौरान',
-  'diarrhœa, during': 'दस्त के दौरान', 'bed, in': 'बिस्तर में', 'as in a': 'जैसे कि', 'not for': 'इसके लिए नहीं'
+  'sitting, while': 'बैठे रहना, जबकि', 'stool, after': 'मल, के बाद', 'stool, during': 'मल, दौरान',
+  'stool, before': 'मल, पहले', 'menses, during': 'मासिक धर्म के दौरान', 'menses, before': 'मासिक धर्म, पहले',
+  'moving, after': 'हिलना, बाद में', 'standing, while': 'खड़े रहना, जबकि', 'lying, while': 'लेटते समय',
+  'walking': 'चलना', 'flatus, during': 'पेट फूलना, दौरान', 'rest amel.': 'आराम अमल।',
+  'smarting': 'टीसदार जलन', 'smarting (compare "burning")': 'टीसदार जलन (जलन से तुलना करें)',
+  'soreness': 'दुखन / पीड़ा', 'shooting': 'चुभने जैसा दर्द', 'rawness': 'कच्चापन',
+  'rasping': 'कर्कशता / छीलने जैसा', 'scraping': 'खुरचना', 'stool, hard, during': 'मल, कठोर, दौरान',
+  'diarrhœa, during': 'दस्त, दौरान', 'bed, in': 'बिस्तर, अंदर', 'as in a': 'जैसे कि', 'not for': 'मल, के लिए नहीं'
 };
 
 const ensureHindiTranslation = (enText, currentHi) => {
