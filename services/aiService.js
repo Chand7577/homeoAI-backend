@@ -94,14 +94,12 @@ const translateHindiTerms = (text) => {
 const buildRubricSummary = (rubrics) => {
   return rubrics.map(r => ({
     id: r._id.toString(),
-    chapter: (r.chapter?.en || '').slice(0, 100),
-    chapter_hi: (r.chapter?.hi || '').slice(0, 100),
-    rubric: (r.rubric?.en || '').slice(0, 220),
-    rubric_hi: (r.rubric?.hi || '').slice(0, 220),
-    subrubric: (r.subrubric?.en || '').slice(0, 220),
-    agg: (r.modalities?.aggravation || []).slice(0, 5).join(', ').slice(0, 180),
-    amel: (r.modalities?.amelioration || []).slice(0, 5).join(', ').slice(0, 180),
-    synonyms: (r.synonyms?.en || []).slice(0, 8).join(', ').slice(0, 250)
+    chapter: (r.chapter?.en || '').slice(0, 50),
+    rubric: (r.rubric?.en || '').slice(0, 150),
+    subrubric: (r.subrubric?.en || '').slice(0, 100),
+    agg: (r.modalities?.aggravation || []).slice(0, 3).join(', ').slice(0, 80),
+    amel: (r.modalities?.amelioration || []).slice(0, 3).join(', ').slice(0, 80),
+    synonyms: (r.synonyms?.en || []).slice(0, 4).join(', ').slice(0, 100)
   }));
 };
 
@@ -150,7 +148,7 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
       )
         .select('_id chapter rubric subrubric modalities synonyms searchText medicines')
         .sort({ score: { $meta: 'textScore' } })
-        .limit(25) // Increased: 25 candidates per symptom → up to 9×25=225 before dedup
+        .limit(20) // 20 per symptom: 9 symptoms × 20 = 180 → after dedup ~100 (stays under token limit)
         .lean();
     } catch (e) {
       console.error('Text query failed:', e.message);
@@ -159,8 +157,9 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
   }));
 
   candidateGroups.flat().forEach(m => {
-    // Cap at 150 total: enough for 9 symptoms × 25 candidates each (after dedup typically ~100-120)
-    if (candidateMap.size < 150) candidateMap.set(m._id.toString(), m);
+    // Cap at 100 total: balance between accuracy and staying under token limits
+    // 100 rubrics × ~140 tokens each = ~14,000 tokens (within Groq's 12K TPM limit)
+    if (candidateMap.size < 100) candidateMap.set(m._id.toString(), m);
   });
 
 
