@@ -352,7 +352,26 @@ const matchWithKeywords = (symptoms, rubrics) => {
 
     rubrics.forEach(rubric => {
       const text = rubric.searchText || '';
-      const score = allTerms.filter(t => t.length > 2 && text.includes(t)).length;
+      let score = allTerms.filter(t => t.length > 2 && text.includes(t)).length;
+      
+      // Boost score if chapter matches (gives priority to correct chapter)
+      const chapterEn = (rubric.chapter?.en || '').toLowerCase();
+      const chapterHi = (rubric.chapter?.hi || '').toLowerCase();
+      const symptomLower = flatSymptom.toLowerCase();
+      
+      if (chapterEn && symptomLower.includes(chapterEn)) {
+        score += 5; // Big boost for chapter match
+      }
+      if (chapterHi && symptomLower.includes(chapterHi)) {
+        score += 5;
+      }
+      
+      // Also boost if rubric name closely matches
+      const rubricEn = (rubric.rubric?.en || '').toLowerCase();
+      if (rubricEn && symptomLower.includes(rubricEn)) {
+        score += 3;
+      }
+      
       if (score > bestScore) {
         bestScore = score;
         bestMatch = rubric;
