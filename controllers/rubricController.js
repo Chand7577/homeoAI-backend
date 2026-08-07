@@ -54,8 +54,19 @@ const createRubric = async (req, res) => {
 
 // PUT /api/rubrics/:id
 const updateRubric = async (req, res) => {
-  const rubric = await Rubric.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
-  if (!rubric) { res.status(404); throw new Error('Rubric not found'); }
+  // Use find + save instead of findByIdAndUpdate to trigger pre-save hooks
+  const rubric = await Rubric.findById(req.params.id);
+  if (!rubric) { 
+    res.status(404); 
+    throw new Error('Rubric not found'); 
+  }
+  
+  // Update fields
+  Object.assign(rubric, req.body);
+  
+  // Save (this triggers the pre-save hook to rebuild searchText)
+  await rubric.save();
+  
   res.json({ success: true, data: rubric });
 };
 
