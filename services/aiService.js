@@ -141,6 +141,12 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
     const textQuery = [...new Set(terms)].join(' ');
     if (!textQuery) return [];
 
+    // Dynamic limit per symptom based on total symptom count
+    // More symptoms = fewer rubrics per query to prevent AI token overflow
+    const limitPerQuery = symptoms.length <= 6 ? 22 : 
+                          symptoms.length <= 9 ? 15 : 
+                          symptoms.length <= 12 ? 10 : 8;
+
     try {
       return await Rubric.find(
         { repertoryId, $text: { $search: textQuery } },
@@ -148,7 +154,7 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
       )
         .select('_id chapter rubric subrubric modalities synonyms searchText medicines')
         .sort({ score: { $meta: 'textScore' } })
-        .limit(22) // 22 per symptom: 9 symptoms × 22 = 198 → after dedup ~120 (stays under token limit)
+        .limit(limitPerQuery)
         .lean();
     } catch (e) {
       console.error('Text query failed:', e.message);
@@ -156,15 +162,21 @@ const getCandidateRubrics = async (symptoms, repertoryId) => {
     }
   }));
 
-  // Fair candidate distribution: ensure each symptom gets representation
-  // Instead of first-come-first-served, distribute slots more evenly
-  const maxPerSymptom = Math.ceil(120 / symptoms.length); // For 9 symptoms = 13-14 each
+  // Dynamic candidate limit based on symptom count to prevent token overflow
+  // More symptoms = fewer rubrics per symptom to stay within AI token limits
+  const MAX_TOTAL_RUBRICS = symptoms.length <= 6 ? 120 : 
+                            symptoms.length <= 9 ? 90 : 
+                            symptoms.length <= 12 ? 72 : 60;
+  
+  const maxPerSymptom = Math.ceil(MAX_TOTAL_RUBRICS / symptoms.length);
+  
+  console.log(`📊 Managing ${symptoms.length} symptoms: ${maxPerSymptom} rubrics/symptom, ${MAX_TOTAL_RUBRICS} total max`);
   
   candidateGroups.forEach((group, idx) => {
     let added = 0;
     group.forEach(m => {
       const key = m._id.toString();
-      if (!candidateMap.has(key) && candidateMap.size < 120 && added < maxPerSymptom) {
+      if (!candidateMap.has(key) && candidateMap.size < MAX_TOTAL_RUBRICS && added < maxPerSymptom) {
         candidateMap.set(key, m);
         added++;
       }
@@ -283,12 +295,19 @@ Ensure the "matches" array contains exactly ${symptoms.length} entries.`;
 
   // Groq is primary and responds in ~300-500ms, so 15s timeout is plenty
   // If using Gemini (when key is fixed), it may take up to 10s
+  
+  // Dynamic token limit based on symptom count
+  // Each symptom needs ~250-400 tokens for response
+  const outputTokens = Math.min(8000, symptoms.length * 400 + 1000);
+  
+  console.log(`🎯 AI config: ${symptoms.length} symptoms, ${outputTokens} max output tokens`);
+  
   const aiCall = model.generateContent({
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     generationConfig: {
       temperature: 0.3,
       responseMimeType: "application/json",
-      maxOutputTokens: 3000 // Increased to handle up to 9 symptoms with detailed reasoning
+      maxOutputTokens: outputTokens
     }
   });
 
@@ -503,6 +522,21 @@ const runAnalysis = async ({ symptoms, repertoryId, repertoryName }) => {
   let rubrics;
   let aiMatches;
   let aiUsed = false;
+  let warnings = [];
+
+  // Validate symptom count and add warnings
+  if (symptoms.length > 15) {
+    warnings.push({
+      type: 'too_many_symptoms',
+      message: `⚠️ ${symptoms.length} symptoms provided. For best AI analysis, consider limiting to 12-15 symptoms.`,
+      recommendation: 'Focus on the most prominent and characteristic symptoms for better results.'
+    });
+    console.warn(`⚠️ Warning: ${symptoms.length} symptoms may strain AI token limits`);
+  }
+
+  if (symptoms.length === 0) {
+    throw new Error('No symptoms provided for analysis');
+  }
 
   try {
     // Always use the fast $text index to get best candidates first, 
@@ -600,10 +634,13 @@ const runAnalysis = async ({ symptoms, repertoryId, repertoryName }) => {
     matchedRubrics, 
     medicineDistribution, 
     aiUsed,
+    warnings, // Include warnings in response
     stats: {
       totalMatched: matchedRubrics.length,
       withMedicines: rubricsWithMedicines,
       withoutMedicines: rubricsWithoutMedicines,
+      symptomCount: symptoms.length,
+      rubricsPerSymptom: (matchedRubrics.length / symptoms.length).toFixed(1),
       timingsMs: {
         candidates: candidateFinishedAt - startedAt,
         matching: matchingFinishedAt - candidateFinishedAt,
