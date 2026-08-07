@@ -29,12 +29,14 @@ const getChapters = async (req, res) => {
     { $match: { repertoryId: new mongoose.Types.ObjectId(repertoryId) } },
     { $group: {
         _id: '$chapter.en',
+        chapterHi: { $first: '$chapter.hi' },
         rubricCount: { $sum: 1 }
       }
     },
     { $project: {
         _id: 0,
         chapterEn: '$_id',
+        chapterHi: { $ifNull: ['$chapterHi', ''] },
         rubricCount: 1
       }
     },
