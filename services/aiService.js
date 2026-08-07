@@ -541,6 +541,15 @@ const runAnalysis = async ({ symptoms, repertoryId, repertoryName }) => {
   console.log(`🗺️ [ENRICHMENT] Rubric map contains ${Object.keys(rubricMap).length} rubrics`);
   console.log(`🔍 [ENRICHMENT] AI returned ${aiMatches.length} matches to process`);
   
+  // Check for null matches BEFORE filtering
+  const nullMatches = aiMatches.filter(m => !m.matched_rubric_id);
+  if (nullMatches.length > 0) {
+    console.warn(`⚠️ [ENRICHMENT] AI returned ${nullMatches.length} NULL matches:`);
+    nullMatches.forEach(m => {
+      console.warn(`   - Symptom: "${m.symptom}" → No rubric ID (confidence: ${m.confidence}%)`);
+    });
+  }
+  
   let droppedCount = 0;
 
   const matchedRubrics = aiMatches
