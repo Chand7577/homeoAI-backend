@@ -116,7 +116,16 @@ const REMEDY_SPELL_CORRECTIONS = {
   'muac': 'manc',
   'acou': 'acon',
   'alumnu': 'alumn',
-  'alumu': 'alumn'
+  'alumu': 'alumn',
+  // Page 117 confirmed OCR typos
+  'lacl': 'lach',       // l/h character confusion in 'lach'
+  'anil': 'anl-t',      // 'anl-t' misread as 'anil'
+  'lyos': 'hyos',       // 'h' misread as 'l' in 'hyos'
+  'plal': 'plat',       // 't' misread as 'l' in 'plat'
+  'sulpli-ac': 'sulph-ac', // 'ph' misread as 'li' in 'sulph-ac'
+  'sulpli': 'sulph',    // same ligature error without '-ac'
+  'anl-t': 'anl-t',    // passthrough identity (already correct)
+  'hyos': 'hyos'        // passthrough identity
 };
 
 /**
@@ -358,10 +367,11 @@ ${contextInstruction}
 7. MEDICINES & STRICT 3-TIER CLINICAL TYPOGRAPHY GRADING (CRITICAL):
    - DO NOT DEFAULT THE FIRST REMEDY ON A LINE TO GRADE 3! Capitalization at the beginning of a line or after a colon does NOT equal Bold.
    - Inspect the visual font weight of EVERY remedy abbreviation carefully:
-     * GRADE 3 = HEAVY BOLD TEXT ONLY (e.g., "Sulph", "Calc", "Lyc", "Mag-c", "Crot-t", "Podo", "Caust", "Graph", "Nat-m", "Nux-v", "Puls", "Tabac"). Heavy, thick, dark letter strokes.
-     * GRADE 2 = ITALIC TEXT (Slanted/oblique font, whether capitalized or lowercase; e.g., "Iod.", "Corn.", "Lyc.", "Apoc.", "Dros.", "Lach.", "Ran-sc.", "Æsc.", "Graph.", "Bell.", "Berb.", "apis", "arn.", "ars.", "calc.", "carb-v.", "crot-t.", "dios.", "hep.", "kali-bi.", "lil-t.", "mur-ac.", "pæon.", "phos.", "podo.", "rhus-t.", "sep.", "sul-ac.", "thuj.").
-       --> CRITICAL MANDATE: ALL SLANTED/ITALIC TEXT MUST BE GRADED AS 2. DO NOT GRADE ITALICS AS 3 OR 1!
-     * GRADE 1 = PLAIN ROMAN LOWERCASE (Upright, non-italic, non-bold font; e.g., "chin-s", "ferr", "cob", "grat", "nat-m", "verat", "aloe", "berb", "bry", "calc-p", "cimic").
+     * GRADE 3 = HEAVY BOLD TEXT ONLY. The letters are visibly THICKER and DARKER than surrounding text. Example bold remedies in Kent: "Sulph", "Calc", "Lyc", "Mag-c", "Crot-t", "Podo", "Caust", "Graph", "Nat-m", "Nux-v", "Puls", "Tabac". If unsure whether a remedy is Bold or Italic, prefer Grade 2 over Grade 3.
+     * GRADE 2 = ITALIC TEXT. The letters are SLANTED/OBLIQUE. Italics can be CAPITALIZED ("Agar", "Glon", "Ambr", "Nit-ac", "Cimic", "Aur", "Thuj", "Camph", "Grat", "Eug", "Ol-an", "Apis", "Lac-ac", "Aloe", "Ign", "Kali-c", "Bar-c", "Lach", "Ox-ac", "Absin", "Chel") OR lowercase-italic ("agar", "apis", "arn", "ars", "calc", "carb-v", "dios", "hep", "kali-bi", "lil-t", "mur-ac", "phos", "rhus-t", "sep", "sul-ac", "thuj").
+       --> CRITICAL MANDATE: ALL SLANTED/ITALIC TEXT — WHETHER CAPITALIZED OR NOT — MUST BE GRADED AS 2. NEVER GRADE ITALICS AS 1!
+       --> IMPORTANT: The FIRST remedy printed after a rubric colon (:) is very commonly in ITALIC (Grade 2) — do NOT assume it is Grade 1 just because it is first!
+     * GRADE 1 = PLAIN ROMAN UPRIGHT LOWERCASE. Upright, non-italic, non-bold, smaller font. e.g. "chin-s", "ferr", "cob", "grat", "nat-m", "verat", "aloe", "berb", "bry", "calc-p", "cimic".
    - TOKEN-EFFICIENT GROUPED OUTPUT: for each rubric, group remedies of the same grading into a SINGLE object, with remedy names joined by commas:
      "medicines": [
        {"name": "Æsc,Aloe,Graph", "grading": 3},
@@ -694,20 +704,71 @@ const googleTranslateSingle = (text, targetLang = 'hi') => {
 };
 
 const KENT_TERM_TRANSLATIONS = {
+  // --- Chapters ---
   'RECTUM': 'मलाशय', 'MIND': 'मन', 'HEAD': 'सिर', 'EYE': 'आंख', 'EAR': 'कान', 'NOSE': 'नाक',
   'FACE': 'चेहरा', 'MOUTH': 'मुंह', 'THROAT': 'गला', 'STOMACH': 'पेट', 'ABDOMEN': 'उदर',
   'STOOL': 'मल', 'URINARY': 'मूत्र', 'GENITALIA': 'जननांग', 'RESPIRATION': 'श्वसन',
   'COUGH': 'खांसी', 'CHEST': 'छाती', 'BACK': 'पीठ', 'EXTREMITIES': 'अंग', 'SLEEP': 'नींद',
-  'FEVER': 'बुखार', 'SKIN': 'त्वचा', 'GENERALITIES': 'सामान्यें', 'PAIN': 'दर्द',
+  'FEVER': 'बुखार', 'SKIN': 'त्वचा', 'GENERALITIES': 'सामान्यें',
+  // --- Main Rubrics ---
+  'PAIN': 'दर्द', 'CONGESTION': 'जमाव', 'CONSTRICTION': 'जकड़न', 'COLDNESS': 'ठंडापन',
+  'TENSION': 'तनाव', 'CONSTRICTION, tension': 'जकड़न, तनाव',
+  // --- Time / Condition modifiers ---
   'pressing': 'दबाव', 'evening': 'शाम', 'morning': 'सुबह', 'night': 'रात', 'afternoon': 'दोपहर',
-  'sitting, while': 'बैठे रहना, जबकि', 'stool, after': 'मल, के बाद', 'stool, during': 'मल, दौरान',
-  'stool, before': 'मल, पहले', 'menses, during': 'मासिक धर्म के दौरान', 'menses, before': 'मासिक धर्म, पहले',
-  'moving, after': 'हिलना, बाद में', 'standing, while': 'खड़े रहना, जबकि', 'lying, while': 'लेटते समय',
-  'walking': 'चलना', 'flatus, during': 'पेट फूलना, दौरान', 'rest amel.': 'आराम अमल।',
+  'tension': 'तनाव', 'amel.': 'अमेल।', 'agg.': 'बिगड़ना',
+  // --- Circumstance modifiers (page 117 specific) ---
+  'mental exertion, from': 'मानसिक परिश्रम, से',
+  'motion, from': 'गति, से',
+  'music, from': 'संगीत, से',
+  'nose, on blowing': 'नाक, फूँकने पर',
+  'pains, when, suddenly cease': 'दर्द, जब, अचानक बंद हो जाता है',
+  'parturition, in': 'प्रसव, में',
+  'perspiration, during': 'पसीना, दौरान',
+  'pressure amel.': 'दबाव अमेल।',
+  'riding, from': 'सवारी, से',
+  'rising, on': 'बढ़ना, चालू होना',
+  'rising, on - amel.': 'उठना, पर - अमेल।',
+  'room, on entering': 'कमरा, प्रवेश करने पर',
+  'room, on entering - in a hot': 'कमरा, प्रवेश करने पर - गर्मी में',
+  'room, on entering - sitting in, amel.': 'कमरा, प्रवेश करने पर - अंदर बैठना, अमेल।',
+  'sitting, while': 'बैठना, जबकि',
+  'sitting, while - must sit up': 'बैठना, जबकि - उठना चाहिए',
+  'sleep, during': 'नींद, दौरान',
+  'sleep, during - amel., after': 'नींद, दौरान - अमेल।, बाद में',
+  'smoking, from': 'धूम्रपान, से',
+  'speaking, when': 'बोलना, कब',
+  'speaking, when - when spoken to harshly': 'बोलना, कब - कब कठोरता से बोला जाए',
+  'standing, from': 'खड़ा होना, से',
+  'stepping heavily, from': 'जोर से कदम बढ़ाना, से',
+  'stool, before': 'मल, पहले',
+  'stool, during': 'मल, दौरान',
+  'stool, after': 'मल, बाद में',
+  'stooping, when': 'झुकना, जब',
+  'sun, from exposure to': 'धूप के संपर्क से',
+  'suppressed discharges or suddenly ceasing pains': 'दबे हुए स्राव या अचानक बंद होने वाला दर्द',
+  'waking, on': 'जागने पर',
+  'walking, while': 'चलना, जबकि',
+  'walking, while - in open air': 'चलना, जबकि - खुली हवा में',
+  'walking, while - amel.': 'चलना, जबकि - अमेल।',
+  'wet, from getting the feet': 'गीला होना, पैरों से',
+  'wine, after': 'शराब, बाद में',
+  'working, while': 'काम करना, जबकि',
+  'writing, while': 'लिखना, जबकि',
+  'extending to, from abdomen': 'फैलाव, उदर से',
+  'extending to, from chest': 'फैलाव, छाती से',
+  'extending to, from back': 'फैलाव, पीठ से',
+  // --- Anatomical locations ---
+  'Forehead, in': 'माथे में', 'Forehead': 'माथा',
+  'Occiput': 'पश्चकपाल', 'Temples': 'कनपटी', 'Vertex': 'शीर्ष',
+  // --- General modifiers ---
+  'standing, while': 'खड़े रहना, जबकि', 'lying, while': 'लेटते समय',
+  'walking': 'चलना', 'flatus, during': 'पेट फूलना, दौरान', 'rest amel.': 'आराम अमेल।',
   'smarting': 'टीसदार जलन', 'smarting (compare "burning")': 'टीसदार जलन (जलन से तुलना करें)',
   'soreness': 'दुखन / पीड़ा', 'shooting': 'चुभने जैसा दर्द', 'rawness': 'कच्चापन',
   'rasping': 'कर्कशता / छीलने जैसा', 'scraping': 'खुरचना', 'stool, hard, during': 'मल, कठोर, दौरान',
-  'diarrhœa, during': 'दस्त, दौरान', 'bed, in': 'बिस्तर, अंदर', 'as in a': 'जैसे कि', 'not for': 'मल, के लिए नहीं'
+  'diarrhœa, during': 'दस्त, दौरान', 'bed, in': 'बिस्तर, अंदर', 'as in a': 'जैसे कि', 'not for': 'मल, के लिए नहीं',
+  'moving, after': 'हिलना, बाद में',
+  'menses, during': 'मासिक धर्म के दौरान', 'menses, before': 'मासिक धर्म, पहले'
 };
 
 const ensureHindiTranslation = (enText, currentHi) => {
