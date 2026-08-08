@@ -307,13 +307,14 @@ ${contextInstruction}
    Do NOT combine sub-rubrics into their parent. Every line with a colon or qualifier MUST generate its own distinct sub-rubric entry!
 
 2. SPATIAL VISUAL INDENTATION & HIERARCHY STACK (GENERALIZED FOR ALL PAGES):
-   - LEVEL 0: MAIN CHAPTER & MAIN RUBRICS (ALL CAPS / BOLD CAPS): Headings starting at top/flush-left (e.g. "RECTUM", "PAIN", "STOOL"). Resets all sub-hierarchies.
+   - LEVEL 0: MAIN CHAPTER & MAIN RUBRICS (ALL CAPS / BOLD CAPS): Headings starting at top/flush-left (e.g. "RECTUM", "PAIN", "STOOL", "COLDNESS", "ERUPTION"). Resets all sub-hierarchies. ALL MAIN RUBRICS ARE ALWAYS PRINTED IN ALL CAPS!
    - LEVEL 1: PRIMARY SUB-RUBRICS / SIBLING RUBRICS (FLUSH LEFT TO COLUMN MARGIN):
-     * ANY heading or term whose text starts AT THE LEFT MARGIN of the column (not indented under a previous item) is a Level-1 Primary Sub-Rubric under the active main rubric (e.g. "PAIN - smarting", "PAIN - soreness", "PAIN - pressing").
-     * GENERALIZED MARGIN RESET RULE: Any term printed at the column's left margin IMMEDIATELY RESETS the sub-rubric stack to Level 1. It is NEVER a child of the previous line or a top-of-column continuation header!
+     * ANY heading or term whose text starts AT THE LEFT MARGIN of the column (not indented under a previous item) is a Level-1 Primary Sub-Rubric under the active main rubric (e.g. "PAIN - smarting", "PAIN - soreness", "PAIN - pressing", "COLDNESS - air, as from cold").
+     * ANATOMICAL LOCATION SUB-RUBRICS UNDER SENSATIONS: Anatomical locations in Title-case (e.g. "Forehead:", "Occiput:", "Temples:", "Vertex:", "Sides:", "Brain:", "Scalp:") printed under a main rubric (like COLDNESS, PAIN, ERUPTION, EMPTY, ENLARGED) are SUB-RUBRICS of that active Main Rubric! (Target path: "COLDNESS - Forehead", and sub-items under it: "COLDNESS - Forehead - morning", "COLDNESS - Forehead - air, as from a draft"). NEVER treat Title-case "Forehead:" as a top-level Main Rubric!
+     * GENERALIZED MARGIN RESET RULE: Any term printed at the column's left margin IMMEDIATELY RESETS the sub-rubric stack to Level 1 under the active ALL-CAPS Main Rubric.
    - LEVEL 2+: INDENTED QUALIFIERS & SUB-MODIFIERS:
      * Lines that are physically INDENTED under a Level-1 rubric (e.g., "evening - bed, in:", "sitting, while:", "morning:").
-     * Append these indented qualifiers sequentially to the parent Level-1 rubric path (e.g. "PAIN - pressing - evening - bed, in").
+     * Append these indented qualifiers sequentially to the parent Level-1 rubric path (e.g. "PAIN - pressing - evening - bed, in", "COLDNESS - Forehead - morning").
 
    CRITICAL (QUALIFIERS ARE MANDATORY):
    - Under a heading like "PAIN, pressing, evening.", a line starting with "downward, outward, etc.: Agar, aloe..." MUST include "downward, outward, etc." as a sub-rubric! Target path: "PAIN - pressing - evening - downward, outward, etc.".
@@ -470,6 +471,9 @@ const parseImageToStructuredJson = async (imagePath) => {
     return clean.trim();
   };
 
+  let activeMainRubric = '';
+  const ANATOMICAL_KEYWORDS = ['forehead', 'occiput', 'temples', 'vertex', 'sides', 'brain', 'scalp'];
+
   const addResults = (rows, detectedChapter) => {
     // Save the first valid chapter detected
     if (detectedChapter && !mainChapter) {
@@ -478,8 +482,21 @@ const parseImageToStructuredJson = async (imagePath) => {
     const currentChapter = mainChapter || detectedChapter || 'UNKNOWN';
 
     for (const group of (rows || [])) {
-      const rubric_en = cleanRubricPath(group.rubric_en || '', currentChapter);
-      const rubric_hi = cleanHindiRubricPath(group.rubric_hi || '', '');
+      let rubric_en = cleanRubricPath(group.rubric_en || '', currentChapter);
+      let rubric_hi = cleanHindiRubricPath(group.rubric_hi || '', '');
+
+      // Guardrail: Track active ALL-CAPS main rubric (e.g. CONGESTION, COLDNESS, PAIN, CONSTRICTION)
+      const parts = rubric_en.split(/\s*-\s*/);
+      const firstPart = parts[0] ? parts[0].trim() : '';
+      if (firstPart && firstPart === firstPart.toUpperCase() && firstPart.length > 2 && !/^\d+/.test(firstPart)) {
+        activeMainRubric = firstPart;
+      } else if (firstPart && activeMainRubric) {
+        // If the path starts with an anatomical term (e.g. Forehead, Occiput, Temples, Vertex) without an ALL-CAPS prefix, auto-attach active main rubric
+        const firstLower = firstPart.toLowerCase();
+        if (ANATOMICAL_KEYWORDS.some(k => firstLower.startsWith(k))) {
+          rubric_en = `${activeMainRubric} - ${rubric_en}`;
+        }
+      }
 
       // Handle the case where the model still outputs legacy flat rows
       if (group.medicine && typeof group.medicine === 'string') {
