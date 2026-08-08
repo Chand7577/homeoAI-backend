@@ -484,6 +484,23 @@ const parseImageToStructuredJson = async (imagePath) => {
   let activeMainRubric = '';
   const ANATOMICAL_KEYWORDS = ['forehead', 'occiput', 'temples', 'vertex', 'sides', 'brain', 'scalp'];
 
+  /**
+   * Extract the bare ALL-CAPS main rubric word from a segment like
+   * "COLDNESS, chilliness, etc." → "COLDNESS"
+   * "PAIN" → "PAIN"
+   * "pressing" → '' (not a main rubric)
+   */
+  const extractMainRubricWord = (segment) => {
+    if (!segment) return '';
+    // Take only the part before the first comma, space-followed-by-lowercase, or period
+    const bare = segment.split(/[,.(]/)[0].trim();
+    // Must be ALL-CAPS and at least 3 characters
+    if (bare.length >= 3 && bare === bare.toUpperCase() && /^[A-Z]/.test(bare)) {
+      return bare;
+    }
+    return '';
+  };
+
   const addResults = (rows, detectedChapter) => {
     // Save the first valid chapter detected
     if (detectedChapter && !mainChapter) {
@@ -495,13 +512,25 @@ const parseImageToStructuredJson = async (imagePath) => {
       let rubric_en = cleanRubricPath(group.rubric_en || '', currentChapter);
       let rubric_hi = cleanHindiRubricPath(group.rubric_hi || '', '');
 
-      // Guardrail: Track active ALL-CAPS main rubric (e.g. CONGESTION, COLDNESS, PAIN, CONSTRICTION)
+      // Guardrail: Track active ALL-CAPS main rubric.
+      // Use extractMainRubricWord() so qualifiers like "COLDNESS, chilliness, etc."
+      // correctly resolve to "COLDNESS" instead of failing the toUpperCase() check.
       const parts = rubric_en.split(/\s*-\s*/);
       const firstPart = parts[0] ? parts[0].trim() : '';
-      if (firstPart && firstPart === firstPart.toUpperCase() && firstPart.length > 2 && !/^\d+/.test(firstPart)) {
-        activeMainRubric = firstPart;
+
+      // Scan ALL path segments for an ALL-CAPS anchor (handles "COLDNESS - Forehead" correctly)
+      let detectedMainRubric = '';
+      for (const seg of parts) {
+        const word = extractMainRubricWord(seg.trim());
+        if (word) { detectedMainRubric = word; break; }
+      }
+
+      if (detectedMainRubric) {
+        // Row contains a valid ALL-CAPS main rubric — update tracker
+        activeMainRubric = detectedMainRubric;
       } else if (firstPart && activeMainRubric) {
-        // If the path starts with an anatomical term (e.g. Forehead, Occiput, Temples, Vertex) without an ALL-CAPS prefix, auto-attach active main rubric
+        // Row has NO ALL-CAPS prefix — check if it starts with an anatomical location
+        // (e.g. "Forehead", "Occiput") that should be attached to the active main rubric
         const firstLower = firstPart.toLowerCase();
         if (ANATOMICAL_KEYWORDS.some(k => firstLower.startsWith(k))) {
           rubric_en = `${activeMainRubric} - ${rubric_en}`;
