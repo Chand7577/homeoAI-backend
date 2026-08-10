@@ -190,10 +190,6 @@ const cleanAndCorrectMedicine = (medName) => {
   return clean;
 };
 
-/**
- * Physically split image into high-res Left and Right column crops.
- * This prevents cross-column text bleeding and doubles input visual clarity for AI Vision.
- */
 const splitImageForAi = async (imagePath) => {
   try {
     const metadata = await sharp(imagePath).metadata();
@@ -204,33 +200,53 @@ const splitImageForAi = async (imagePath) => {
     const ext = path.extname(imagePath) || '.jpg';
     const base = path.basename(imagePath, ext);
 
-    const leftCropPath = path.join(dir, `${base}_ai_left${ext}`);
-    const rightCropPath = path.join(dir, `${base}_ai_right${ext}`);
-
     const halfWidth = Math.floor(width * 0.60);
     const rightStart = Math.floor(width * 0.40);
+    const halfHeight = Math.floor(height * 0.55);
+    const bottomStart = Math.floor(height * 0.45);
 
-    await sharp(imagePath)
-      .extract({ left: 0, top: 0, width: halfWidth, height })
-      .jpeg({ quality: 95 })
-      .toFile(leftCropPath);
+    const leftTopPath = path.join(dir, `${base}_ai_lt${ext}`);
+    const leftBottomPath = path.join(dir, `${base}_ai_lb${ext}`);
+    const rightTopPath = path.join(dir, `${base}_ai_rt${ext}`);
+    const rightBottomPath = path.join(dir, `${base}_ai_rb${ext}`);
 
+    // Left Top
     await sharp(imagePath)
-      .extract({ left: rightStart, top: 0, width: width - rightStart, height })
+      .extract({ left: 0, top: 0, width: halfWidth, height: halfHeight })
       .jpeg({ quality: 95 })
-      .toFile(rightCropPath);
+      .toFile(leftTopPath);
+
+    // Left Bottom
+    await sharp(imagePath)
+      .extract({ left: 0, top: bottomStart, width: halfWidth, height: height - bottomStart })
+      .jpeg({ quality: 95 })
+      .toFile(leftBottomPath);
+
+    // Right Top
+    await sharp(imagePath)
+      .extract({ left: rightStart, top: 0, width: width - rightStart, height: halfHeight })
+      .jpeg({ quality: 95 })
+      .toFile(rightTopPath);
+
+    // Right Bottom
+    await sharp(imagePath)
+      .extract({ left: rightStart, top: bottomStart, width: width - rightStart, height: height - bottomStart })
+      .jpeg({ quality: 95 })
+      .toFile(rightBottomPath);
+
+    const cropPaths = [leftTopPath, leftBottomPath, rightTopPath, rightBottomPath];
 
     return {
-      leftCropPath,
-      rightCropPath,
+      cropPaths,
       cleanup: () => {
-        try { if (fs.existsSync(leftCropPath)) fs.unlinkSync(leftCropPath); } catch (_) { }
-        try { if (fs.existsSync(rightCropPath)) fs.unlinkSync(rightCropPath); } catch (_) { }
+        for (const p of cropPaths) {
+          try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch (_) { }
+        }
       }
     };
   } catch (err) {
     console.warn(`[Kent AI Parser] Sharp column crop warning: ${err.message}`);
-    return { leftCropPath: imagePath, rightCropPath: imagePath, cleanup: () => { } };
+    return { cropPaths: [imagePath], cleanup: () => { } };
   }
 };
 
@@ -627,83 +643,34 @@ const parseImageToStructuredJson = async (imagePath) => {
   };
 
   try {
-    // Pass 1: Left column crop
-    try {
-      console.log('[Kent AI Parser] Pass 1: Extracting LEFT column crop...');
-      const { text: leftResponse, finishReason: leftFinishReason } = await extractColumnPass(leftCropPath, 'left');
-      console.log(`[Kent AI Parser] Left column response: ${leftResponse.length} chars, finishReason=${leftFinishReason}`);
-      console.log(`[Kent AI Parser] Left response preview: ${leftResponse.substring(0, 200)}`);
-      const { data: leftParsed, wasRepaired: leftWasRepaired } = repairAndParseJson(leftResponse);
-      const { data: leftData, chapter: leftChapter } = extractDataArray(leftParsed);
-      console.log(`[Kent AI Parser] Left column parsed: ${leftData.length} groups, chapter="${leftChapter}", truncated=${leftWasRepaired || leftFinishReason === 'MAX_TOKENS'}`);
-      addResults(leftData, leftChapter);
-      console.log(`[Kent AI Parser] Left column: ${allResults.length} rows so far`);
+    const { cropPaths, cleanup } = await splitImageForAi(imagePath);
 
-      // If the left pass was truncated, one retry with a "keep it grouped and
-      // compact" nudge is cheap insurance before falling back to the full-page pass.
-      if ((leftWasRepaired || leftFinishReason === 'MAX_TOKENS')) {
-        console.warn('[Kent AI Parser] Left column was truncated — this WILL cause missing rubrics unless the full-page fallback recovers them.');
-      }
-    } catch (e) {
-      console.error('[Kent AI Parser] Left column pass failed:', e.message);
-    }
+    let lastRubricContext = '';
 
-    // Delay between passes to respect rate limits
-    await new Promise(r => setTimeout(r, 2000));
+    for (let i = 0; i < cropPaths.length; i++) {
+      const cropPath = cropPaths[i];
+      const cropLabel = `Crop ${i + 1}/${cropPaths.length}`;
+      console.log(`[Kent AI Parser] Extracting ${cropLabel}...`);
 
-    // Pass 2: Right column crop — pass the clean parent rubric context from left pass
-    let lastRubricFromLeft = '';
-    if (allResults.length > 0) {
-      const fullPath = allResults[allResults.length - 1].rubric_en || '';
-      const parts = fullPath.split(' - ');
-      lastRubricFromLeft = parts.slice(0, Math.min(3, parts.length)).join(' - ');
-    }
-    const leftRowCount = allResults.length;
-    let rightAttempts = 0;
-    const maxRetries = 2;
-
-    while (rightAttempts < maxRetries) {
-      rightAttempts++;
       try {
-        console.log(`[Kent AI Parser] Pass 2 (attempt ${rightAttempts}): Extracting RIGHT column crop...`);
-        console.log(`[Kent AI Parser] Passing last rubric context: "${lastRubricFromLeft}"`);
-        const { text: rightResponse, finishReason: rightFinishReason } = await extractColumnPass(rightCropPath, 'right', lastRubricFromLeft);
-        console.log(`[Kent AI Parser] Right column response: ${rightResponse.length} chars, finishReason=${rightFinishReason}`);
-        console.log(`[Kent AI Parser] Right response preview: ${rightResponse.substring(0, 300)}`);
+        const { text, finishReason } = await extractColumnPass(cropPath, cropLabel, lastRubricContext);
+        const { data: parsed } = repairAndParseJson(text);
+        const { data: cropData, chapter } = extractDataArray(parsed);
 
-        const { data: rightParsed } = repairAndParseJson(rightResponse);
-        const { data: rightData, chapter: rightChapter } = extractDataArray(rightParsed);
-        console.log(`[Kent AI Parser] Right column parsed: ${rightData.length} groups, chapter="${rightChapter}"`);
+        addResults(cropData, chapter);
+        console.log(`[Kent AI Parser] ${cropLabel} extracted ${cropData.length} groups. Total unique rows so far: ${allResults.length}`);
 
-        addResults(rightData, rightChapter);
-        const rightRowsAdded = allResults.length - leftRowCount;
-        console.log(`[Kent AI Parser] Right column: +${rightRowsAdded} rows (${allResults.length} total)`);
-
-        if (rightRowsAdded > 0) break; // Success
-        console.warn(`[Kent AI Parser] Right column returned 0 new rows. Retrying...`);
+        if (allResults.length > 0) {
+          const fullPath = allResults[allResults.length - 1].rubric_en || '';
+          const parts = fullPath.split(' - ');
+          lastRubricContext = parts.slice(0, Math.min(3, parts.length)).join(' - ');
+        }
       } catch (e) {
-        console.error(`[Kent AI Parser] Right column pass attempt ${rightAttempts} failed:`, e.message);
+        console.error(`[Kent AI Parser] ${cropLabel} failed:`, e.message);
       }
 
-      if (rightAttempts < maxRetries) {
-        await new Promise(r => setTimeout(r, 2000));
-      }
-    }
-
-    // Fallback: If right column produced 0 rows, try a FULL PAGE pass
-    if (allResults.length === leftRowCount) {
-      console.warn('[Kent AI Parser] ⚠️ Right column crop extraction failed after retries. Trying FULL PAGE fallback...');
-      await new Promise(r => setTimeout(r, 2000));
-      try {
-        const { text: fullResponse, finishReason: fullFinishReason } = await extractColumnPass(imagePath, 'all', lastRubricFromLeft);
-        console.log(`[Kent AI Parser] Full page response: ${fullResponse.length} chars, finishReason=${fullFinishReason}`);
-        const { data: fullParsed } = repairAndParseJson(fullResponse);
-        const { data: fullData, chapter: fullChapter } = extractDataArray(fullParsed);
-        console.log(`[Kent AI Parser] Full page parsed: ${fullData.length} groups`);
-        addResults(fullData, fullChapter);
-        console.log(`[Kent AI Parser] After full page fallback: ${allResults.length} total rows`);
-      } catch (e) {
-        console.error('[Kent AI Parser] Full page fallback also failed:', e.message);
+      if (i < cropPaths.length - 1) {
+        await new Promise(r => setTimeout(r, 1500));
       }
     }
 
