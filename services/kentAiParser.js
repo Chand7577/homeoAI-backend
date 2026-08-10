@@ -742,9 +742,19 @@ const KENT_TERM_TRANSLATIONS = {
   // --- Main Rubrics ---
   'PAIN': 'दर्द', 'CONGESTION': 'जमाव', 'CONSTRICTION': 'जकड़न', 'COLDNESS': 'ठंडापन',
   'TENSION': 'तनाव', 'CONSTRICTION, tension': 'जकड़न, तनाव',
+  'FULLNESS': 'परिपूर्णता', 'EMPTINESS': 'खालीपन', 'HEAVINESS': 'भारीपन',
+  'ERUPTIONS': 'दाने / चकत्ते', 'ERUPTION': 'दाने', 'HEAT': 'गर्मी', 'SWEAT': 'पसीना',
+  'INFLAMMATION': 'सूजन', 'ITCHING': 'खुजली', 'NUMBNESS': 'सुन्नपन',
+  'PULSATION': 'धड़कन', 'RUSH OF BLOOD': 'रक्त की तेज़ी', 'SENSITIVE': 'संवेदनशील',
+  'SHOCKS': 'झटके', 'SORE': 'दुखन', 'SORENESS': 'पीड़ा', 'SPASMS': 'ऐंठन',
+  'STIFFNESS': 'अकड़न', 'SWELLING': 'सूजन', 'TEARING': 'चीरने जैसा दर्द',
+  'THROBBING': 'धड़कता दर्द', 'TINGLING': 'झुनझुनी', 'TWITCHING': 'फड़कना',
+  'ULCERS': 'छाले', 'WEAKNESS': 'कमज़ोरी', 'WEARINESS': 'थकान',
+  'HAIR': 'बाल', 'FUNGUS': 'फफूंद', 'GURGLING': 'गड़गड़ाहट',
   // --- Time / Condition modifiers ---
   'pressing': 'दबाव', 'evening': 'शाम', 'morning': 'सुबह', 'night': 'रात', 'afternoon': 'दोपहर',
-  'tension': 'तनाव', 'amel.': 'अमेल।', 'agg.': 'बिगड़ना',
+  'forenoon': 'पूर्वाह्न', 'noon': 'दोपहर', 'midnight': 'आधी रात',
+  'tension': 'तनाव', 'amel.': 'घटता है', 'agg.': 'बढ़ता है',
   // --- Circumstance modifiers (page 117 specific) ---
   'mental exertion, from': 'मानसिक परिश्रम, से',
   'motion, from': 'गति, से',
@@ -753,17 +763,17 @@ const KENT_TERM_TRANSLATIONS = {
   'pains, when, suddenly cease': 'दर्द, जब, अचानक बंद हो जाता है',
   'parturition, in': 'प्रसव, में',
   'perspiration, during': 'पसीना, दौरान',
-  'pressure amel.': 'दबाव अमेल।',
+  'pressure amel.': 'दबाव घटता है',
   'riding, from': 'सवारी, से',
   'rising, on': 'बढ़ना, चालू होना',
-  'rising, on - amel.': 'उठना, पर - अमेल।',
+  'rising, on - amel.': 'उठना, पर - घटता है',
   'room, on entering': 'कमरा, प्रवेश करने पर',
   'room, on entering - in a hot': 'कमरा, प्रवेश करने पर - गर्मी में',
-  'room, on entering - sitting in, amel.': 'कमरा, प्रवेश करने पर - अंदर बैठना, अमेल।',
+  'room, on entering - sitting in, amel.': 'कमरा, प्रवेश करने पर - अंदर बैठना, घटता है',
   'sitting, while': 'बैठना, जबकि',
   'sitting, while - must sit up': 'बैठना, जबकि - उठना चाहिए',
   'sleep, during': 'नींद, दौरान',
-  'sleep, during - amel., after': 'नींद, दौरान - अमेल।, बाद में',
+  'sleep, during - amel., after': 'नींद, दौरान - घटता है, बाद में',
   'smoking, from': 'धूम्रपान, से',
   'speaking, when': 'बोलना, कब',
   'speaking, when - when spoken to harshly': 'बोलना, कब - कब कठोरता से बोला जाए',
@@ -778,7 +788,7 @@ const KENT_TERM_TRANSLATIONS = {
   'waking, on': 'जागने पर',
   'walking, while': 'चलना, जबकि',
   'walking, while - in open air': 'चलना, जबकि - खुली हवा में',
-  'walking, while - amel.': 'चलना, जबकि - अमेल।',
+  'walking, while - amel.': 'चलना, जबकि - घटता है',
   'wet, from getting the feet': 'गीला होना, पैरों से',
   'wine, after': 'शराब, बाद में',
   'working, while': 'काम करना, जबकि',
@@ -788,10 +798,33 @@ const KENT_TERM_TRANSLATIONS = {
   'extending to, from back': 'फैलाव, पीठ से',
   // --- Anatomical locations ---
   'Forehead, in': 'माथे में', 'Forehead': 'माथा',
-  'Occiput': 'पश्चकपाल', 'Temples': 'कनपटी', 'Vertex': 'शीर्ष',
+  'Occiput': 'पश्चकपाल', 'Temples': 'कनपटी', 'Temple': 'मंदिर / कनपटी', 'Vertex': 'शीर्ष',
+  'Side of head': 'सिर का किनारा', 'Brain': 'मस्तिष्क', 'Scalp': 'खोपड़ी',
   // --- General modifiers ---
   'standing, while': 'खड़े रहना, जबकि', 'lying, while': 'लेटते समय',
-  'walking': 'चलना', 'flatus, during': 'पेट फूलना, दौरान', 'rest amel.': 'आराम अमेल।',
+  'walking': 'चलना', 'flatus, during': 'पेट फूलना, दौरान', 'rest amel.': 'आराम घटता है',
+  'reading, while': 'पढ़ना, जबकि', 'writing, while': 'लिखते समय',
+  'talking, after, agg.': 'बात करना, बाद में, बढ़ता है',
+  'sewing agg.': 'सिलाई बढ़ता है', 'siesta, after': 'नींद, बाद में',
+  'sneezing, on': 'छींक, पर', 'sleep, agg. after': 'नींद, बढ़ता है बाद',
+  'vertigo, during': 'चक्कर, दौरान', 'wine, after': 'शराब, बाद में',
+  'motion agg.': 'गति बढ़ता है', 'pressure of hat agg.': 'टोपी का दबाव बढ़ता है',
+  'room enough, as if there were not; a forcing out, washing and eating amel.': 'पर्याप्त जगह, जैसे कि थी ही नहीं; ज़बरदस्ती बाहर निकालना, धोना और खाना।',
+  'stool amel.': 'मल घटता है', 'stooping, on': 'झुका हुआ, पर',
+  'walking, while': 'चलना, जबकि', 'eyes, over': 'आंखें, ऊपर',
+  'eyes, over - with vertigo': 'आँखें, ऊपर - चक्कर के साथ',
+  'nose, over, evening': 'नाक, ऊपर, शाम',
+  'sitting, while - up agg.': 'बैठना, जबकि - ऊपर की ओर।',
+  'stool, when straining at': 'मल, जब तनाव हो',
+  'stool, when straining at - amel. after': 'मल, जब तनाव हो - घटता है बाद',
+  'Occiput - evening, in': 'पश्च भाग - शाम, अंदर',
+  'Occiput - walking in open air': 'पश्च भाग - खुली हवा में चलना',
+  'Occiput - coughing, on': 'पश्चकपाल - खाँसना, पर',
+  'Vertex - evening': 'शिखर - संध्या', 'Vertex - reading, while': 'शीर्ष - पढ़ना, जबकि',
+  'Vertex - sitting up agg.': 'शीर्ष - ऊपर बैठना बढ़ता है', 'Vertex - stooping': 'शीर्ष - झुका हुआ',
+  'closing eyes amel.': 'आंखें बंद करना घटता है',
+  'baldness': 'गंजापन', 'patches': 'धब्बे', 'young people': 'युवा लोग',
+  'bristling': 'खड़े होना', 'brittleness': 'भुरभुरापन',
   'smarting': 'टीसदार जलन', 'smarting (compare "burning")': 'टीसदार जलन (जलन से तुलना करें)',
   'soreness': 'दुखन / पीड़ा', 'shooting': 'चुभने जैसा दर्द', 'rawness': 'कच्चापन',
   'rasping': 'कर्कशता / छीलने जैसा', 'scraping': 'खुरचना', 'stool, hard, during': 'मल, कठोर, दौरान',
@@ -801,16 +834,27 @@ const KENT_TERM_TRANSLATIONS = {
 };
 
 const ensureHindiTranslation = (enText, currentHi) => {
-  if (currentHi && /[\u0900-\u097F]/.test(currentHi) && !/RECTUM - PAIN/.test(currentHi)) {
+  // Accept existing Hindi ONLY if it contains Devanagari AND has no leftover ASCII letters
+  // (avoids accepting half-translated strings like "सिर - परिपूर्णता - motion agg.")
+  if (
+    currentHi &&
+    /[\u0900-\u097F]/.test(currentHi) &&
+    !/[a-zA-Z]/.test(currentHi)
+  ) {
     return currentHi;
   }
   if (!enText) return '';
   const parts = enText.split(/\s*-\s*/);
   const hiParts = parts.map(part => {
     const trimmed = part.trim();
+    // Direct dictionary lookup (case-sensitive first, then case-insensitive)
     if (KENT_TERM_TRANSLATIONS[trimmed]) return KENT_TERM_TRANSLATIONS[trimmed];
     const lower = trimmed.toLowerCase();
     if (KENT_TERM_TRANSLATIONS[lower]) return KENT_TERM_TRANSLATIONS[lower];
+    // Try suffix matching for compound modifiers like "motion agg."
+    for (const [key, val] of Object.entries(KENT_TERM_TRANSLATIONS)) {
+      if (key.toLowerCase() === lower) return val;
+    }
     return trimmed;
   });
   return hiParts.join(' - ');
@@ -846,18 +890,40 @@ const translateRubricsToHindi = async (structuredData) => {
   let chapterResults = {};
   let rubricResults = {};
 
-  // Step 1: Try Free Google Translate API first
+  // Step 1: Try Free Google Translate API first (per-item so one failure doesn't drop the batch)
   try {
-    const chapterPromises = chaptersArray.map(ch => googleTranslateSingle(ch).then(res => [ch, res]));
-    const rubricPromises = rubricsArray.map(rub => googleTranslateSingle(rub).then(res => [rub, res]));
+    // Use allSettled so a single item failure doesn't abort the whole batch
+    const chapterSettled = await Promise.allSettled(
+      chaptersArray.map(ch => googleTranslateSingle(ch).then(res => [ch, res]))
+    );
+    const rubricSettled = await Promise.allSettled(
+      rubricsArray.map(rub => googleTranslateSingle(rub).then(res => [rub, res]))
+    );
 
-    chapterResults = Object.fromEntries(await Promise.all(chapterPromises));
-    rubricResults = Object.fromEntries(await Promise.all(rubricPromises));
+    for (const result of chapterSettled) {
+      if (result.status === 'fulfilled') {
+        const [key, val] = result.value;
+        chapterResults[key] = val;
+      }
+    }
+    for (const result of rubricSettled) {
+      if (result.status === 'fulfilled') {
+        const [key, val] = result.value;
+        // Only accept result if it's fully in Hindi (no leftover ASCII letters)
+        if (val && !/[a-zA-Z]/.test(val)) {
+          rubricResults[key] = val;
+        } else if (val && /[\u0900-\u097F]/.test(val)) {
+          // Partial Hindi — still better than nothing, keep it for now
+          rubricResults[key] = val;
+        }
+      }
+    }
 
     const duration = Date.now() - startTime;
-    console.log(`[Hindi Translation] ✅ Google Translate completed ${chaptersArray.length + rubricsArray.length} items in ${duration}ms!`);
+    const gtSuccessCount = Object.keys(chapterResults).length + Object.keys(rubricResults).length;
+    console.log(`[Hindi Translation] ✅ Google Translate completed ${gtSuccessCount}/${chaptersArray.length + rubricsArray.length} items in ${duration}ms!`);
   } catch (err) {
-    console.warn('[Hindi Translation] Google Translate failed, falling back to Groq AI:', err.message);
+    console.warn('[Hindi Translation] Google Translate batch error, will use Groq fallback:', err.message);
   }
 
   // Step 2: Fallback to Groq AI if needed
