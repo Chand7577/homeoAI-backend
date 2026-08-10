@@ -117,52 +117,19 @@ const REMEDY_SPELL_CORRECTIONS = {
   'acou': 'acon',
   'alumnu': 'alumn',
   'alumu': 'alumn',
-  // Page 117 & 126 confirmed OCR typos
+  // Page 126 & long-tail OCR typos
+  'osim': 'osm',
+  'viinc': 'vinc',
+  'arun-t': 'arum-t',
+  'strout': 'stront',
   'lacl': 'lach',       // l/h character confusion in 'lach'
   'anil': 'anl-t',      // 'anl-t' misread as 'anil'
   'lyos': 'hyos',       // 'h' misread as 'l' in 'hyos'
   'plal': 'plat',       // 't' misread as 'l' in 'plat'
   'sulpli-ac': 'sulph-ac', // 'ph' misread as 'li' in 'sulph-ac'
   'sulpli': 'sulph',    // same ligature error without '-ac'
-  'ann-c': 'am-c',      // 'm' misread as 'nn' in 'am-c'
-  'viinc': 'vinc',      // double 'i' OCR typo in 'vinc'
-  'strout': 'stront',   // 'n' misread as 'u' in 'stront'
-  'ziuc': 'zinc',       // 'n' misread as 'u' in 'zinc'
-  'rain-sc': 'ran-sc',  // 'an' misread as 'ain' in 'ran-sc'
-  'chain': 'cham',      // 'm' misread as 'in' in 'cham'
-  'iudg': 'indg',       // 'n' misread as 'u' in 'indg'
   'anl-t': 'anl-t',    // passthrough identity (already correct)
-  'hyos': 'hyos',       // passthrough identity
-  // Page 126 confirmed OCR typos and ligatures
-  's-ac': 'fl-ac',
-  'sccalc': 'secale',
-  'abies-u': 'abies-n',
-  'asc': 'æsc',
-  'ath': 'æth',
-  'corti': 'corn',
-  'browm': 'brom',
-  'cale-n': 'calc-a',
-  'campli': 'camph',
-  'cami-s': 'cann-s',
-  'cantli': 'canth',
-  'cofl': 'coff',
-  'crol-t': 'crot-t',
-  'lura': 'hura',
-  'kali-chil': 'kali-chl',
-  'kali-un': 'kali-n',
-  'vine': 'vinc',
-  'vera': 'verat',
-  'am-in': 'am-m',
-  'zines': 'zinc',
-  'dulce': 'dulc',
-  'silly': 'sil',
-  'aruui-t': 'arum-t',
-  'nag-s': 'mag-s',
-  'phios': 'phos',
-  'dell': 'bell',
-  'alam': 'alum',
-  'mun': 'alum',
-  'osn': 'osm'
+  'hyos': 'hyos'        // passthrough identity
 };
 
 /**
@@ -190,6 +157,10 @@ const cleanAndCorrectMedicine = (medName) => {
   return clean;
 };
 
+/**
+ * Physically split image into high-res Left and Right column crops.
+ * This prevents cross-column text bleeding and doubles input visual clarity for AI Vision.
+ */
 const splitImageForAi = async (imagePath) => {
   try {
     const metadata = await sharp(imagePath).metadata();
@@ -200,53 +171,59 @@ const splitImageForAi = async (imagePath) => {
     const ext = path.extname(imagePath) || '.jpg';
     const base = path.basename(imagePath, ext);
 
-    const halfWidth = Math.floor(width * 0.60);
-    const rightStart = Math.floor(width * 0.40);
+    const tlCropPath = path.join(dir, `${base}_ai_tl${ext}`);
+    const blCropPath = path.join(dir, `${base}_ai_bl${ext}`);
+    const trCropPath = path.join(dir, `${base}_ai_tr${ext}`);
+    const brCropPath = path.join(dir, `${base}_ai_br${ext}`);
+
+    const halfWidth = Math.floor(width * 0.55);
+    const rightStart = Math.floor(width * 0.45);
     const halfHeight = Math.floor(height * 0.55);
     const bottomStart = Math.floor(height * 0.45);
 
-    const leftTopPath = path.join(dir, `${base}_ai_lt${ext}`);
-    const leftBottomPath = path.join(dir, `${base}_ai_lb${ext}`);
-    const rightTopPath = path.join(dir, `${base}_ai_rt${ext}`);
-    const rightBottomPath = path.join(dir, `${base}_ai_rb${ext}`);
-
-    // Left Top
     await sharp(imagePath)
       .extract({ left: 0, top: 0, width: halfWidth, height: halfHeight })
       .jpeg({ quality: 95 })
-      .toFile(leftTopPath);
+      .toFile(tlCropPath);
 
-    // Left Bottom
     await sharp(imagePath)
       .extract({ left: 0, top: bottomStart, width: halfWidth, height: height - bottomStart })
       .jpeg({ quality: 95 })
-      .toFile(leftBottomPath);
+      .toFile(blCropPath);
 
-    // Right Top
     await sharp(imagePath)
       .extract({ left: rightStart, top: 0, width: width - rightStart, height: halfHeight })
       .jpeg({ quality: 95 })
-      .toFile(rightTopPath);
+      .toFile(trCropPath);
 
-    // Right Bottom
     await sharp(imagePath)
       .extract({ left: rightStart, top: bottomStart, width: width - rightStart, height: height - bottomStart })
       .jpeg({ quality: 95 })
-      .toFile(rightBottomPath);
-
-    const cropPaths = [leftTopPath, leftBottomPath, rightTopPath, rightBottomPath];
+      .toFile(brCropPath);
 
     return {
-      cropPaths,
+      quadrants: [
+        { path: tlCropPath, hint: 'top-left' },
+        { path: blCropPath, hint: 'bottom-left' },
+        { path: trCropPath, hint: 'top-right' },
+        { path: brCropPath, hint: 'bottom-right' }
+      ],
+      leftCropPath: tlCropPath,
+      rightCropPath: trCropPath,
       cleanup: () => {
-        for (const p of cropPaths) {
+        [tlCropPath, blCropPath, trCropPath, brCropPath].forEach(p => {
           try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch (_) { }
-        }
+        });
       }
     };
   } catch (err) {
-    console.warn(`[Kent AI Parser] Sharp column crop warning: ${err.message}`);
-    return { cropPaths: [imagePath], cleanup: () => { } };
+    console.warn(`[Kent AI Parser] Sharp quadrant crop warning: ${err.message}`);
+    return {
+      quadrants: [{ path: imagePath, hint: 'all' }],
+      leftCropPath: imagePath,
+      rightCropPath: imagePath,
+      cleanup: () => { }
+    };
   }
 };
 
@@ -365,49 +342,66 @@ ${contextInstruction}
 --- REPERTORY LAYOUT & HIERARCHY STACK RULES ---
 1. EXHAUSTIVE LINE-BY-LINE EXTRACTION (CRITICAL):
    Extract EVERY SINGLE rubric and EVERY SINGLE remedy listed from top to bottom of this column image.
-   Do NOT skip small or short sub-rubrics (e.g. "Occiput on:", "ends at:", "lustreless:", "tangles easily:", "rising, on:", "waking, on:", "forenoon:", "noon:", "afternoon:", "evening:", "downward, outward, etc.:", "smarting:", "after:", "during menses:", "walking, while:").
+   Do NOT skip small sub-rubrics (e.g. "downward, outward, etc.:", "smarting:", "difficult stool", "after:", "during menses:", "walking, while:", "extending to:", "tenesmus:").
    Do NOT combine sub-rubrics into their parent. Every line with a colon or qualifier MUST generate its own distinct sub-rubric entry!
 
-2. ABSOLUTE LITERAL FIDELITY (NO HALLUCINATIONS):
-   - Extract ONLY remedies that are physically printed on the page image under that exact rubric line.
-   - NEVER hallucinate, guess, or add unlisted remedies (e.g. do NOT insert "cupr" or "nux-v" under "HAIR, falling" if they are not printed on that line).
-
-3. SPATIAL VISUAL INDENTATION & HIERARCHY STACK (GENERALIZED FOR ALL PAGES):
-   - LEVEL 0: MAIN CHAPTER & MAIN RUBRICS (ALL CAPS / BOLD CAPS): Headings starting at top/flush-left (e.g. "RECTUM", "PAIN", "STOOL", "COLDNESS", "ERUPTION", "HAIR", "HEAT"). Resets all sub-hierarchies. ALL MAIN RUBRICS ARE ALWAYS PRINTED IN ALL CAPS!
+2. SPATIAL VISUAL INDENTATION & HIERARCHY STACK (GENERALIZED FOR ALL PAGES):
+   - LEVEL 0: MAIN CHAPTER & MAIN RUBRICS (ALL CAPS / BOLD CAPS): Headings starting at top/flush-left (e.g. "RECTUM", "PAIN", "STOOL", "COLDNESS", "ERUPTION"). Resets all sub-hierarchies. ALL MAIN RUBRICS ARE ALWAYS PRINTED IN ALL CAPS!
    - LEVEL 1: PRIMARY SUB-RUBRICS / SIBLING RUBRICS (FLUSH LEFT TO COLUMN MARGIN):
-     * ANY heading or term whose text starts AT THE LEFT MARGIN of the column (not indented under a previous item) is a Level-1 Primary Sub-Rubric under the active main rubric (e.g. "HAIR - color changes", "HAIR - falling", "HAIR - Occiput on", "PAIN - smarting", "PAIN - soreness").
-     * ANATOMICAL LOCATION SUB-RUBRICS UNDER SENSATIONS / MAIN HEADINGS: Anatomical locations in Title-case (e.g. "Forehead:", "Occiput on:", "Temples:", "Vertex:", "Sides:", "Brain:", "Scalp:") printed under a main rubric (like HAIR, COLDNESS, PAIN, ERUPTION) are SUB-RUBRICS of that active Main Rubric! (Target path: "HAIR - Occiput on", "COLDNESS - Forehead"). NEVER skip or treat Title-case "Occiput on:" as a top-level Main Rubric!
+     * ANY heading or term whose text starts AT THE LEFT MARGIN of the column (not indented under a previous item) is a Level-1 Primary Sub-Rubric under the active main rubric (e.g. "PAIN - smarting", "PAIN - soreness", "PAIN - pressing", "COLDNESS - air, as from cold").
+     * ANATOMICAL LOCATION SUB-RUBRICS UNDER SENSATIONS: Anatomical locations in Title-case (e.g. "Forehead:", "Occiput:", "Temples:", "Vertex:", "Sides:", "Brain:", "Scalp:") printed under a main rubric (like COLDNESS, PAIN, ERUPTION, EMPTY, ENLARGED) are SUB-RUBRICS of that active Main Rubric! (Target path: "COLDNESS - Forehead", and sub-items under it: "COLDNESS - Forehead - morning", "COLDNESS - Forehead - air, as from a draft"). NEVER treat Title-case "Forehead:" as a top-level Main Rubric!
      * GENERALIZED MARGIN RESET RULE: Any term printed at the column's left margin IMMEDIATELY RESETS the sub-rubric stack to Level 1 under the active ALL-CAPS Main Rubric.
    - LEVEL 2+: INDENTED QUALIFIERS & SUB-MODIFIERS:
-     * Lines that are physically INDENTED under a Level-1 rubric (e.g., "evening - bed, in:", "sitting, while:", "morning:", "rising, on:", "waking, on:").
-     * Append these indented qualifiers sequentially to the parent Level-1 rubric path (e.g. "HEAT - morning", "HEAT - rising, on", "PAIN - pressing - evening - bed, in").
+     * Lines that are physically INDENTED under a Level-1 rubric (e.g., "evening - bed, in:", "sitting, while:", "morning:").
+     * Append these indented qualifiers sequentially to the parent Level-1 rubric path (e.g. "PAIN - pressing - evening - bed, in", "COLDNESS - Forehead - morning").
 
    CRITICAL (QUALIFIERS ARE MANDATORY):
-   - Under a heading like "HEAT", lines starting with "morning:", "rising, on:", "waking, on:", "forenoon:", "noon:", "afternoon:", "evening:" MUST be extracted as separate sub-rubric entries ("HEAT - morning", "HEAT - rising, on", "HEAT - afternoon", etc.).
+   - Under a heading like "PAIN, pressing, evening.", a line starting with "downward, outward, etc.: Agar, aloe..." MUST include "downward, outward, etc." as a sub-rubric! Target path: "PAIN - pressing - evening - downward, outward, etc.".
+   - NEVER drop "downward, outward, etc." and attach remedies directly to "PAIN - pressing - evening"!
 
-4. SUB-RUBRICS WITH PARENTHETICAL NOTES & COMPARISONS:
+3. SUB-RUBRICS WITH PARENTHETICAL NOTES & COMPARISONS:
    - Whenever a line includes parenthetical notes or comparisons like 'smarting (compare "burning"):', e.g.:
      "smarting (compare 'burning'): Æsc., æth., aloe..."
    - You MUST extract "smarting" as a RUBRIC / SUB-RUBRIC under the parent rubric! (Target path: "PAIN - smarting").
+   - NEVER drop the rubric title "smarting" and dump remedies into a previous header like "PAIN - shooting"!
 
-5. QUALIFIERS BEFORE COLONS, SUB-MODIFIERS (amel., agg.) & SUB-RUBRICS ENDING IN ETC.:
+4. QUALIFIERS BEFORE COLONS, SUB-MODIFIERS (amel., agg.) & SUB-RUBRICS ENDING IN ETC.:
    - Whenever an indented line starts with a word/phrase followed by a colon (e.g. "aged people:", "downward, outward, etc.:", "smarting:", "women:", "air, in cold:"), the text BEFORE the colon is a SUB-RUBRIC QUALIFIER.
    - MANDATORY SUB-MODIFIER INCLUSION: When a line under a rubric (like "AIR, open, in:") is indented and starts with "amel.:" or "agg.:", you MUST append "- amel." or "- agg." to the active rubric path (e.g. "AIR - open, in - amel."). NEVER drop "amel." or "agg."!
+   - You MUST append that qualifier to the parent rubric path!
+   - Examples under "PAIN, pressing, evening.":
+     - Line "bed, in: Iod." -> "PAIN - pressing - evening - bed, in"
+     - Line "sitting, while: Calc., chin-s." -> "PAIN - pressing - evening - sitting, while"
+     - Line "downward, outward, etc.: Agar, aloe..." -> "PAIN - pressing - evening - downward, outward, etc."
+   - Examples under "AIR, open, in:":
+     - Line indented "amel.: Æth., am-m., caust..." -> "AIR - open, in - amel."
+   - Examples under "PAIN":
+     - Line "smarting (compare 'burning'): Æsc., æth..." -> "PAIN - smarting"
+     - Line "soreness: Æsc., agn..." -> "PAIN - soreness"
+     - Line "soreness:" followed by indented "morning: Thuj." -> "PAIN - soreness - morning"
+   - NEVER drop qualifiers like "amel.", "agg.", "downward, outward, etc.", "bed, in", "sitting, while", "smarting"!
 
-6. FULL RUBRIC PATH SYNTAX (DO NOT INCLUDE CHAPTER NAME IN RUBRIC_EN):
+5. FULL RUBRIC PATH SYNTAX (DO NOT INCLUDE CHAPTER NAME IN RUBRIC_EN):
    Format: "MAIN RUBRIC - subrubric - subsubrubric" (DO NOT prefix with Chapter Name! Chapter is stored separately in chapter_en.)
 
-7. COLUMN CONTINUATION HEADERS & GENERALIZED MARGIN RESET:
+6. COLUMN CONTINUATION HEADERS & GENERALIZED MARGIN RESET (PREVENT CONTINUATION CONTAMINATION):
    - At the top of a column, a header like "PAIN, shooting." or "PAIN, pressing, evening." is a continuation header from the previous column/page.
-   - UNIVERSAL MARGIN RESET RULE: As soon as any line appears whose text starts FLUSH WITH THE LEFT MARGIN of the column, it is a NEW SIBLING RUBRIC at Level 1 under the main section.
+   - Continuation headers ONLY apply to items physically INDENTED beneath them (e.g. "evening: Sulph.", "itching: Sulph.", "extending to penis: Carl.").
+   - UNIVERSAL MARGIN RESET RULE: As soon as any line appears whose text starts FLUSH WITH THE LEFT MARGIN of the column (e.g., "smarting", "soreness", "rasping", "rawness", "scraping"), it is a NEW SIBLING RUBRIC at Level 1 under the main section (e.g., "PAIN - smarting", "PAIN - soreness").
+   - Immediately reset the active path to "MAIN_RUBRIC - <flush_left_rubric_name>"! NEVER nest a flush-left rubric as a sub-item of a continuation header!
+   - Example output when "soreness:" appears flush left:
+     - Line "soreness: Æsc..." -> "PAIN - soreness"
+     - Line indented "morning: Thuj." -> "PAIN - soreness - morning" (NOT "PAIN - shooting - soreness - morning"!)
+     - Line indented "sitting, while: Mag-c." -> "PAIN - soreness - sitting, while"
 
-8. MEDICINES & STRICT 3-TIER CLINICAL TYPOGRAPHY GRADING (CRITICAL):
+7. MEDICINES & STRICT 3-TIER CLINICAL TYPOGRAPHY GRADING (CRITICAL):
    - DO NOT DEFAULT THE FIRST REMEDY ON A LINE TO GRADE 3! Capitalization at the beginning of a line or after a colon does NOT equal Bold.
    - Inspect the visual font weight of EVERY remedy abbreviation carefully:
-     * GRADE 3 = HEAVY BOLD TEXT ONLY. The letters are visibly THICKER and DARKER than surrounding text (e.g. "Sulph", "Calc", "Lyc", "Mag-c", "Crot-t", "Podo", "Caust", "Graph", "Nat-m", "Nux-v", "Puls", "Tabac", "Thuj", "Mez", "Phos", "Aur", "Lach", "Bor", "Bry", "Camph", "Verat", "Acon", "Apis").
-     * GRADE 2 = ITALIC TEXT. The letters are SLANTED/OBLIQUE. Capitalized italics (e.g., "Alum.", "Am-c.", "Aloe.", "Kali-i.", "Fl-ac.", "Nit-ac.", "Glon.", "Nit-ac.") AND lowercase italics (e.g., "ambr.", "calc.", "chel.", "phos.", "psor.", "secale.", "sulph.", "graph.") MUST BE GRADED AS 2.
-       --> ALL SLANTED/ITALIC TEXT MUST BE GRADED AS 2. NEVER GRADE ITALICS AS 1 OR 3!
-     * GRADE 1 = PLAIN ROMAN UPRIGHT LOWERCASE. Upright, non-italic, non-bold, smaller font (e.g. "bad", "chel", "kali-c", "phos", "secale", "sars", "staph", "tabac", "tep", "ust", "vesp", "zinc").
+     * GRADE 3 = HEAVY BOLD TEXT ONLY. The letters are visibly THICKER and DARKER than surrounding text. Example bold remedies in Kent: "Sulph", "Calc", "Lyc", "Mag-c", "Crot-t", "Podo", "Caust", "Graph", "Nat-m", "Nux-v", "Puls", "Tabac". If unsure whether a remedy is Bold or Italic, prefer Grade 2 over Grade 3.
+     * GRADE 2 = ITALIC TEXT. The letters are SLANTED/OBLIQUE. Italics can be CAPITALIZED ("Agar", "Glon", "Ambr", "Nit-ac", "Cimic", "Aur", "Thuj", "Camph", "Grat", "Eug", "Ol-an", "Apis", "Lac-ac", "Aloe", "Ign", "Kali-c", "Bar-c", "Lach", "Ox-ac", "Absin", "Chel") OR lowercase-italic ("agar", "apis", "arn", "ars", "calc", "carb-v", "dios", "hep", "kali-bi", "lil-t", "mur-ac", "phos", "rhus-t", "sep", "sul-ac", "thuj").
+       --> CRITICAL MANDATE: ALL SLANTED/ITALIC TEXT — WHETHER CAPITALIZED OR NOT — MUST BE GRADED AS 2. NEVER GRADE ITALICS AS 1!
+       --> IMPORTANT: The FIRST remedy printed after a rubric colon (:) is very commonly in ITALIC (Grade 2) — do NOT assume it is Grade 1 just because it is first!
+     * GRADE 1 = PLAIN ROMAN UPRIGHT LOWERCASE. Upright, non-italic, non-bold, smaller font. e.g. "chin-s", "ferr", "cob", "grat", "nat-m", "verat", "aloe", "berb", "bry", "calc-p", "cimic".
    - TOKEN-EFFICIENT GROUPED OUTPUT: for each rubric, group remedies of the same grading into a SINGLE object, with remedy names joined by commas:
      "medicines": [
        {"name": "Æsc,Aloe,Graph", "grading": 3},
@@ -415,7 +409,7 @@ ${contextInstruction}
        {"name": "bar-c,nux-v,sulph", "grading": 1}
      ]
 
-9. STANDALONE CROSS-REFERENCES:
+8. STANDALONE CROSS-REFERENCES:
    - Skip ONLY lines that contain NO remedies and ONLY a cross reference. If a line contains medicines, extract the sub-rubric with all its remedies!
 
 --- OUTPUT FORMAT ---
@@ -643,34 +637,61 @@ const parseImageToStructuredJson = async (imagePath) => {
   };
 
   try {
-    const { cropPaths, cleanup } = await splitImageForAi(imagePath);
+    // 4-Quadrant Pass Pipeline (TL -> BL -> TR -> BR)
+    const quadrantsToRun = quadrants && quadrants.length === 4
+      ? quadrants
+      : [
+          { path: leftCropPath, hint: 'left' },
+          { path: rightCropPath, hint: 'right' }
+        ];
 
     let lastRubricContext = '';
 
-    for (let i = 0; i < cropPaths.length; i++) {
-      const cropPath = cropPaths[i];
-      const cropLabel = `Crop ${i + 1}/${cropPaths.length}`;
-      console.log(`[Kent AI Parser] Extracting ${cropLabel}...`);
+    for (let i = 0; i < quadrantsToRun.length; i++) {
+      const q = quadrantsToRun[i];
+      console.log(`[Kent AI Parser] Pass ${i + 1}/${quadrantsToRun.length}: Extracting ${q.hint.toUpperCase()} crop...`);
+      if (lastRubricContext) {
+        console.log(`[Kent AI Parser] Context carried from previous quadrant: "${lastRubricContext}"`);
+      }
 
       try {
-        const { text, finishReason } = await extractColumnPass(cropPath, cropLabel, lastRubricContext);
-        const { data: parsed } = repairAndParseJson(text);
-        const { data: cropData, chapter } = extractDataArray(parsed);
+        const { text: responseText, finishReason } = await extractColumnPass(q.path, q.hint, lastRubricContext);
+        console.log(`[Kent AI Parser] ${q.hint.toUpperCase()} response: ${responseText.length} chars, finishReason=${finishReason}`);
 
-        addResults(cropData, chapter);
-        console.log(`[Kent AI Parser] ${cropLabel} extracted ${cropData.length} groups. Total unique rows so far: ${allResults.length}`);
+        const { data: parsed, wasRepaired } = repairAndParseJson(responseText);
+        const { data: qData, chapter: qChapter } = extractDataArray(parsed);
 
+        console.log(`[Kent AI Parser] ${q.hint.toUpperCase()} parsed: ${qData.length} groups, chapter="${qChapter}", repaired=${wasRepaired}`);
+        addResults(qData, qChapter);
+
+        // Update lastRubricContext for the next quadrant
         if (allResults.length > 0) {
           const fullPath = allResults[allResults.length - 1].rubric_en || '';
           const parts = fullPath.split(' - ');
           lastRubricContext = parts.slice(0, Math.min(3, parts.length)).join(' - ');
         }
       } catch (e) {
-        console.error(`[Kent AI Parser] ${cropLabel} failed:`, e.message);
+        console.error(`[Kent AI Parser] ${q.hint.toUpperCase()} pass failed:`, e.message);
       }
 
-      if (i < cropPaths.length - 1) {
+      // Small delay between quadrant passes to respect rate limits
+      if (i < quadrantsToRun.length - 1) {
         await new Promise(r => setTimeout(r, 1500));
+      }
+    }
+
+    // Fallback: If 0 rows extracted, try full page pass
+    if (allResults.length === 0) {
+      console.warn('[Kent AI Parser] ⚠️ Quadrant extraction produced 0 rows. Trying FULL PAGE fallback...');
+      await new Promise(r => setTimeout(r, 1500));
+      try {
+        const { text: fullResponse, finishReason: fullFinishReason } = await extractColumnPass(imagePath, 'all', lastRubricContext);
+        console.log(`[Kent AI Parser] Full page response: ${fullResponse.length} chars, finishReason=${fullFinishReason}`);
+        const { data: fullParsed } = repairAndParseJson(fullResponse);
+        const { data: fullData, chapter: fullChapter } = extractDataArray(fullParsed);
+        addResults(fullData, fullChapter);
+      } catch (e) {
+        console.error('[Kent AI Parser] Full page fallback failed:', e.message);
       }
     }
 
@@ -729,19 +750,9 @@ const KENT_TERM_TRANSLATIONS = {
   // --- Main Rubrics ---
   'PAIN': 'दर्द', 'CONGESTION': 'जमाव', 'CONSTRICTION': 'जकड़न', 'COLDNESS': 'ठंडापन',
   'TENSION': 'तनाव', 'CONSTRICTION, tension': 'जकड़न, तनाव',
-  'FULLNESS': 'परिपूर्णता', 'EMPTINESS': 'खालीपन', 'HEAVINESS': 'भारीपन',
-  'ERUPTIONS': 'दाने / चकत्ते', 'ERUPTION': 'दाने', 'HEAT': 'गर्मी', 'SWEAT': 'पसीना',
-  'INFLAMMATION': 'सूजन', 'ITCHING': 'खुजली', 'NUMBNESS': 'सुन्नपन',
-  'PULSATION': 'धड़कन', 'RUSH OF BLOOD': 'रक्त की तेज़ी', 'SENSITIVE': 'संवेदनशील',
-  'SHOCKS': 'झटके', 'SORE': 'दुखन', 'SORENESS': 'पीड़ा', 'SPASMS': 'ऐंठन',
-  'STIFFNESS': 'अकड़न', 'SWELLING': 'सूजन', 'TEARING': 'चीरने जैसा दर्द',
-  'THROBBING': 'धड़कता दर्द', 'TINGLING': 'झुनझुनी', 'TWITCHING': 'फड़कना',
-  'ULCERS': 'छाले', 'WEAKNESS': 'कमज़ोरी', 'WEARINESS': 'थकान',
-  'HAIR': 'बाल', 'FUNGUS': 'फफूंद', 'GURGLING': 'गड़गड़ाहट',
   // --- Time / Condition modifiers ---
   'pressing': 'दबाव', 'evening': 'शाम', 'morning': 'सुबह', 'night': 'रात', 'afternoon': 'दोपहर',
-  'forenoon': 'पूर्वाह्न', 'noon': 'दोपहर', 'midnight': 'आधी रात',
-  'tension': 'तनाव', 'amel.': 'घटता है', 'agg.': 'बढ़ता है',
+  'tension': 'तनाव', 'amel.': 'अमेल।', 'agg.': 'बिगड़ना',
   // --- Circumstance modifiers (page 117 specific) ---
   'mental exertion, from': 'मानसिक परिश्रम, से',
   'motion, from': 'गति, से',
@@ -750,17 +761,17 @@ const KENT_TERM_TRANSLATIONS = {
   'pains, when, suddenly cease': 'दर्द, जब, अचानक बंद हो जाता है',
   'parturition, in': 'प्रसव, में',
   'perspiration, during': 'पसीना, दौरान',
-  'pressure amel.': 'दबाव घटता है',
+  'pressure amel.': 'दबाव अमेल।',
   'riding, from': 'सवारी, से',
   'rising, on': 'बढ़ना, चालू होना',
-  'rising, on - amel.': 'उठना, पर - घटता है',
+  'rising, on - amel.': 'उठना, पर - अमेल।',
   'room, on entering': 'कमरा, प्रवेश करने पर',
   'room, on entering - in a hot': 'कमरा, प्रवेश करने पर - गर्मी में',
-  'room, on entering - sitting in, amel.': 'कमरा, प्रवेश करने पर - अंदर बैठना, घटता है',
+  'room, on entering - sitting in, amel.': 'कमरा, प्रवेश करने पर - अंदर बैठना, अमेल।',
   'sitting, while': 'बैठना, जबकि',
   'sitting, while - must sit up': 'बैठना, जबकि - उठना चाहिए',
   'sleep, during': 'नींद, दौरान',
-  'sleep, during - amel., after': 'नींद, दौरान - घटता है, बाद में',
+  'sleep, during - amel., after': 'नींद, दौरान - अमेल।, बाद में',
   'smoking, from': 'धूम्रपान, से',
   'speaking, when': 'बोलना, कब',
   'speaking, when - when spoken to harshly': 'बोलना, कब - कब कठोरता से बोला जाए',
@@ -775,7 +786,7 @@ const KENT_TERM_TRANSLATIONS = {
   'waking, on': 'जागने पर',
   'walking, while': 'चलना, जबकि',
   'walking, while - in open air': 'चलना, जबकि - खुली हवा में',
-  'walking, while - amel.': 'चलना, जबकि - घटता है',
+  'walking, while - amel.': 'चलना, जबकि - अमेल।',
   'wet, from getting the feet': 'गीला होना, पैरों से',
   'wine, after': 'शराब, बाद में',
   'working, while': 'काम करना, जबकि',
@@ -785,33 +796,10 @@ const KENT_TERM_TRANSLATIONS = {
   'extending to, from back': 'फैलाव, पीठ से',
   // --- Anatomical locations ---
   'Forehead, in': 'माथे में', 'Forehead': 'माथा',
-  'Occiput': 'पश्चकपाल', 'Temples': 'कनपटी', 'Temple': 'मंदिर / कनपटी', 'Vertex': 'शीर्ष',
-  'Side of head': 'सिर का किनारा', 'Brain': 'मस्तिष्क', 'Scalp': 'खोपड़ी',
+  'Occiput': 'पश्चकपाल', 'Temples': 'कनपटी', 'Vertex': 'शीर्ष',
   // --- General modifiers ---
   'standing, while': 'खड़े रहना, जबकि', 'lying, while': 'लेटते समय',
-  'walking': 'चलना', 'flatus, during': 'पेट फूलना, दौरान', 'rest amel.': 'आराम घटता है',
-  'reading, while': 'पढ़ना, जबकि', 'writing, while': 'लिखते समय',
-  'talking, after, agg.': 'बात करना, बाद में, बढ़ता है',
-  'sewing agg.': 'सिलाई बढ़ता है', 'siesta, after': 'नींद, बाद में',
-  'sneezing, on': 'छींक, पर', 'sleep, agg. after': 'नींद, बढ़ता है बाद',
-  'vertigo, during': 'चक्कर, दौरान', 'wine, after': 'शराब, बाद में',
-  'motion agg.': 'गति बढ़ता है', 'pressure of hat agg.': 'टोपी का दबाव बढ़ता है',
-  'room enough, as if there were not; a forcing out, washing and eating amel.': 'पर्याप्त जगह, जैसे कि थी ही नहीं; ज़बरदस्ती बाहर निकालना, धोना और खाना।',
-  'stool amel.': 'मल घटता है', 'stooping, on': 'झुका हुआ, पर',
-  'walking, while': 'चलना, जबकि', 'eyes, over': 'आंखें, ऊपर',
-  'eyes, over - with vertigo': 'आँखें, ऊपर - चक्कर के साथ',
-  'nose, over, evening': 'नाक, ऊपर, शाम',
-  'sitting, while - up agg.': 'बैठना, जबकि - ऊपर की ओर।',
-  'stool, when straining at': 'मल, जब तनाव हो',
-  'stool, when straining at - amel. after': 'मल, जब तनाव हो - घटता है बाद',
-  'Occiput - evening, in': 'पश्च भाग - शाम, अंदर',
-  'Occiput - walking in open air': 'पश्च भाग - खुली हवा में चलना',
-  'Occiput - coughing, on': 'पश्चकपाल - खाँसना, पर',
-  'Vertex - evening': 'शिखर - संध्या', 'Vertex - reading, while': 'शीर्ष - पढ़ना, जबकि',
-  'Vertex - sitting up agg.': 'शीर्ष - ऊपर बैठना बढ़ता है', 'Vertex - stooping': 'शीर्ष - झुका हुआ',
-  'closing eyes amel.': 'आंखें बंद करना घटता है',
-  'baldness': 'गंजापन', 'patches': 'धब्बे', 'young people': 'युवा लोग',
-  'bristling': 'खड़े होना', 'brittleness': 'भुरभुरापन',
+  'walking': 'चलना', 'flatus, during': 'पेट फूलना, दौरान', 'rest amel.': 'आराम अमेल।',
   'smarting': 'टीसदार जलन', 'smarting (compare "burning")': 'टीसदार जलन (जलन से तुलना करें)',
   'soreness': 'दुखन / पीड़ा', 'shooting': 'चुभने जैसा दर्द', 'rawness': 'कच्चापन',
   'rasping': 'कर्कशता / छीलने जैसा', 'scraping': 'खुरचना', 'stool, hard, during': 'मल, कठोर, दौरान',
@@ -821,27 +809,16 @@ const KENT_TERM_TRANSLATIONS = {
 };
 
 const ensureHindiTranslation = (enText, currentHi) => {
-  // Accept existing Hindi ONLY if it contains Devanagari AND has no leftover ASCII letters
-  // (avoids accepting half-translated strings like "सिर - परिपूर्णता - motion agg.")
-  if (
-    currentHi &&
-    /[\u0900-\u097F]/.test(currentHi) &&
-    !/[a-zA-Z]/.test(currentHi)
-  ) {
+  if (currentHi && /[\u0900-\u097F]/.test(currentHi) && !/RECTUM - PAIN/.test(currentHi)) {
     return currentHi;
   }
   if (!enText) return '';
   const parts = enText.split(/\s*-\s*/);
   const hiParts = parts.map(part => {
     const trimmed = part.trim();
-    // Direct dictionary lookup (case-sensitive first, then case-insensitive)
     if (KENT_TERM_TRANSLATIONS[trimmed]) return KENT_TERM_TRANSLATIONS[trimmed];
     const lower = trimmed.toLowerCase();
     if (KENT_TERM_TRANSLATIONS[lower]) return KENT_TERM_TRANSLATIONS[lower];
-    // Try suffix matching for compound modifiers like "motion agg."
-    for (const [key, val] of Object.entries(KENT_TERM_TRANSLATIONS)) {
-      if (key.toLowerCase() === lower) return val;
-    }
     return trimmed;
   });
   return hiParts.join(' - ');
@@ -877,40 +854,18 @@ const translateRubricsToHindi = async (structuredData) => {
   let chapterResults = {};
   let rubricResults = {};
 
-  // Step 1: Try Free Google Translate API first (per-item so one failure doesn't drop the batch)
+  // Step 1: Try Free Google Translate API first
   try {
-    // Use allSettled so a single item failure doesn't abort the whole batch
-    const chapterSettled = await Promise.allSettled(
-      chaptersArray.map(ch => googleTranslateSingle(ch).then(res => [ch, res]))
-    );
-    const rubricSettled = await Promise.allSettled(
-      rubricsArray.map(rub => googleTranslateSingle(rub).then(res => [rub, res]))
-    );
+    const chapterPromises = chaptersArray.map(ch => googleTranslateSingle(ch).then(res => [ch, res]));
+    const rubricPromises = rubricsArray.map(rub => googleTranslateSingle(rub).then(res => [rub, res]));
 
-    for (const result of chapterSettled) {
-      if (result.status === 'fulfilled') {
-        const [key, val] = result.value;
-        chapterResults[key] = val;
-      }
-    }
-    for (const result of rubricSettled) {
-      if (result.status === 'fulfilled') {
-        const [key, val] = result.value;
-        // Only accept result if it's fully in Hindi (no leftover ASCII letters)
-        if (val && !/[a-zA-Z]/.test(val)) {
-          rubricResults[key] = val;
-        } else if (val && /[\u0900-\u097F]/.test(val)) {
-          // Partial Hindi — still better than nothing, keep it for now
-          rubricResults[key] = val;
-        }
-      }
-    }
+    chapterResults = Object.fromEntries(await Promise.all(chapterPromises));
+    rubricResults = Object.fromEntries(await Promise.all(rubricPromises));
 
     const duration = Date.now() - startTime;
-    const gtSuccessCount = Object.keys(chapterResults).length + Object.keys(rubricResults).length;
-    console.log(`[Hindi Translation] ✅ Google Translate completed ${gtSuccessCount}/${chaptersArray.length + rubricsArray.length} items in ${duration}ms!`);
+    console.log(`[Hindi Translation] ✅ Google Translate completed ${chaptersArray.length + rubricsArray.length} items in ${duration}ms!`);
   } catch (err) {
-    console.warn('[Hindi Translation] Google Translate batch error, will use Groq fallback:', err.message);
+    console.warn('[Hindi Translation] Google Translate failed, falling back to Groq AI:', err.message);
   }
 
   // Step 2: Fallback to Groq AI if needed
