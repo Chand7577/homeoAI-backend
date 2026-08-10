@@ -132,7 +132,37 @@ const REMEDY_SPELL_CORRECTIONS = {
   'chain': 'cham',      // 'm' misread as 'in' in 'cham'
   'iudg': 'indg',       // 'n' misread as 'u' in 'indg'
   'anl-t': 'anl-t',    // passthrough identity (already correct)
-  'hyos': 'hyos'        // passthrough identity
+  'hyos': 'hyos',       // passthrough identity
+  // Page 126 confirmed OCR typos and ligatures
+  's-ac': 'fl-ac',
+  'sccalc': 'secale',
+  'abies-u': 'abies-n',
+  'asc': 'æsc',
+  'ath': 'æth',
+  'corti': 'corn',
+  'browm': 'brom',
+  'cale-n': 'calc-a',
+  'campli': 'camph',
+  'cami-s': 'cann-s',
+  'cantli': 'canth',
+  'cofl': 'coff',
+  'crol-t': 'crot-t',
+  'lura': 'hura',
+  'kali-chil': 'kali-chl',
+  'kali-un': 'kali-n',
+  'vine': 'vinc',
+  'vera': 'verat',
+  'am-in': 'am-m',
+  'zines': 'zinc',
+  'dulce': 'dulc',
+  'silly': 'sil',
+  'aruui-t': 'arum-t',
+  'nag-s': 'mag-s',
+  'phios': 'phos',
+  'dell': 'bell',
+  'alam': 'alum',
+  'mun': 'alum',
+  'osn': 'osm'
 };
 
 /**
@@ -177,8 +207,8 @@ const splitImageForAi = async (imagePath) => {
     const leftCropPath = path.join(dir, `${base}_ai_left${ext}`);
     const rightCropPath = path.join(dir, `${base}_ai_right${ext}`);
 
-    const halfWidth = Math.floor(width * 0.55);
-    const rightStart = Math.floor(width * 0.45);
+    const halfWidth = Math.floor(width * 0.60);
+    const rightStart = Math.floor(width * 0.40);
 
     await sharp(imagePath)
       .extract({ left: 0, top: 0, width: halfWidth, height })
@@ -319,66 +349,49 @@ ${contextInstruction}
 --- REPERTORY LAYOUT & HIERARCHY STACK RULES ---
 1. EXHAUSTIVE LINE-BY-LINE EXTRACTION (CRITICAL):
    Extract EVERY SINGLE rubric and EVERY SINGLE remedy listed from top to bottom of this column image.
-   Do NOT skip small sub-rubrics (e.g. "downward, outward, etc.:", "smarting:", "difficult stool", "after:", "during menses:", "walking, while:", "extending to:", "tenesmus:").
+   Do NOT skip small or short sub-rubrics (e.g. "Occiput on:", "ends at:", "lustreless:", "tangles easily:", "rising, on:", "waking, on:", "forenoon:", "noon:", "afternoon:", "evening:", "downward, outward, etc.:", "smarting:", "after:", "during menses:", "walking, while:").
    Do NOT combine sub-rubrics into their parent. Every line with a colon or qualifier MUST generate its own distinct sub-rubric entry!
 
-2. SPATIAL VISUAL INDENTATION & HIERARCHY STACK (GENERALIZED FOR ALL PAGES):
-   - LEVEL 0: MAIN CHAPTER & MAIN RUBRICS (ALL CAPS / BOLD CAPS): Headings starting at top/flush-left (e.g. "RECTUM", "PAIN", "STOOL", "COLDNESS", "ERUPTION"). Resets all sub-hierarchies. ALL MAIN RUBRICS ARE ALWAYS PRINTED IN ALL CAPS!
+2. ABSOLUTE LITERAL FIDELITY (NO HALLUCINATIONS):
+   - Extract ONLY remedies that are physically printed on the page image under that exact rubric line.
+   - NEVER hallucinate, guess, or add unlisted remedies (e.g. do NOT insert "cupr" or "nux-v" under "HAIR, falling" if they are not printed on that line).
+
+3. SPATIAL VISUAL INDENTATION & HIERARCHY STACK (GENERALIZED FOR ALL PAGES):
+   - LEVEL 0: MAIN CHAPTER & MAIN RUBRICS (ALL CAPS / BOLD CAPS): Headings starting at top/flush-left (e.g. "RECTUM", "PAIN", "STOOL", "COLDNESS", "ERUPTION", "HAIR", "HEAT"). Resets all sub-hierarchies. ALL MAIN RUBRICS ARE ALWAYS PRINTED IN ALL CAPS!
    - LEVEL 1: PRIMARY SUB-RUBRICS / SIBLING RUBRICS (FLUSH LEFT TO COLUMN MARGIN):
-     * ANY heading or term whose text starts AT THE LEFT MARGIN of the column (not indented under a previous item) is a Level-1 Primary Sub-Rubric under the active main rubric (e.g. "PAIN - smarting", "PAIN - soreness", "PAIN - pressing", "COLDNESS - air, as from cold").
-     * ANATOMICAL LOCATION SUB-RUBRICS UNDER SENSATIONS: Anatomical locations in Title-case (e.g. "Forehead:", "Occiput:", "Temples:", "Vertex:", "Sides:", "Brain:", "Scalp:") printed under a main rubric (like COLDNESS, PAIN, ERUPTION, EMPTY, ENLARGED) are SUB-RUBRICS of that active Main Rubric! (Target path: "COLDNESS - Forehead", and sub-items under it: "COLDNESS - Forehead - morning", "COLDNESS - Forehead - air, as from a draft"). NEVER treat Title-case "Forehead:" as a top-level Main Rubric!
+     * ANY heading or term whose text starts AT THE LEFT MARGIN of the column (not indented under a previous item) is a Level-1 Primary Sub-Rubric under the active main rubric (e.g. "HAIR - color changes", "HAIR - falling", "HAIR - Occiput on", "PAIN - smarting", "PAIN - soreness").
+     * ANATOMICAL LOCATION SUB-RUBRICS UNDER SENSATIONS / MAIN HEADINGS: Anatomical locations in Title-case (e.g. "Forehead:", "Occiput on:", "Temples:", "Vertex:", "Sides:", "Brain:", "Scalp:") printed under a main rubric (like HAIR, COLDNESS, PAIN, ERUPTION) are SUB-RUBRICS of that active Main Rubric! (Target path: "HAIR - Occiput on", "COLDNESS - Forehead"). NEVER skip or treat Title-case "Occiput on:" as a top-level Main Rubric!
      * GENERALIZED MARGIN RESET RULE: Any term printed at the column's left margin IMMEDIATELY RESETS the sub-rubric stack to Level 1 under the active ALL-CAPS Main Rubric.
    - LEVEL 2+: INDENTED QUALIFIERS & SUB-MODIFIERS:
-     * Lines that are physically INDENTED under a Level-1 rubric (e.g., "evening - bed, in:", "sitting, while:", "morning:").
-     * Append these indented qualifiers sequentially to the parent Level-1 rubric path (e.g. "PAIN - pressing - evening - bed, in", "COLDNESS - Forehead - morning").
+     * Lines that are physically INDENTED under a Level-1 rubric (e.g., "evening - bed, in:", "sitting, while:", "morning:", "rising, on:", "waking, on:").
+     * Append these indented qualifiers sequentially to the parent Level-1 rubric path (e.g. "HEAT - morning", "HEAT - rising, on", "PAIN - pressing - evening - bed, in").
 
    CRITICAL (QUALIFIERS ARE MANDATORY):
-   - Under a heading like "PAIN, pressing, evening.", a line starting with "downward, outward, etc.: Agar, aloe..." MUST include "downward, outward, etc." as a sub-rubric! Target path: "PAIN - pressing - evening - downward, outward, etc.".
-   - NEVER drop "downward, outward, etc." and attach remedies directly to "PAIN - pressing - evening"!
+   - Under a heading like "HEAT", lines starting with "morning:", "rising, on:", "waking, on:", "forenoon:", "noon:", "afternoon:", "evening:" MUST be extracted as separate sub-rubric entries ("HEAT - morning", "HEAT - rising, on", "HEAT - afternoon", etc.).
 
-3. SUB-RUBRICS WITH PARENTHETICAL NOTES & COMPARISONS:
+4. SUB-RUBRICS WITH PARENTHETICAL NOTES & COMPARISONS:
    - Whenever a line includes parenthetical notes or comparisons like 'smarting (compare "burning"):', e.g.:
      "smarting (compare 'burning'): Æsc., æth., aloe..."
    - You MUST extract "smarting" as a RUBRIC / SUB-RUBRIC under the parent rubric! (Target path: "PAIN - smarting").
-   - NEVER drop the rubric title "smarting" and dump remedies into a previous header like "PAIN - shooting"!
 
-4. QUALIFIERS BEFORE COLONS, SUB-MODIFIERS (amel., agg.) & SUB-RUBRICS ENDING IN ETC.:
+5. QUALIFIERS BEFORE COLONS, SUB-MODIFIERS (amel., agg.) & SUB-RUBRICS ENDING IN ETC.:
    - Whenever an indented line starts with a word/phrase followed by a colon (e.g. "aged people:", "downward, outward, etc.:", "smarting:", "women:", "air, in cold:"), the text BEFORE the colon is a SUB-RUBRIC QUALIFIER.
    - MANDATORY SUB-MODIFIER INCLUSION: When a line under a rubric (like "AIR, open, in:") is indented and starts with "amel.:" or "agg.:", you MUST append "- amel." or "- agg." to the active rubric path (e.g. "AIR - open, in - amel."). NEVER drop "amel." or "agg."!
-   - You MUST append that qualifier to the parent rubric path!
-   - Examples under "PAIN, pressing, evening.":
-     - Line "bed, in: Iod." -> "PAIN - pressing - evening - bed, in"
-     - Line "sitting, while: Calc., chin-s." -> "PAIN - pressing - evening - sitting, while"
-     - Line "downward, outward, etc.: Agar, aloe..." -> "PAIN - pressing - evening - downward, outward, etc."
-   - Examples under "AIR, open, in:":
-     - Line indented "amel.: Æth., am-m., caust..." -> "AIR - open, in - amel."
-   - Examples under "PAIN":
-     - Line "smarting (compare 'burning'): Æsc., æth..." -> "PAIN - smarting"
-     - Line "soreness: Æsc., agn..." -> "PAIN - soreness"
-     - Line "soreness:" followed by indented "morning: Thuj." -> "PAIN - soreness - morning"
-   - NEVER drop qualifiers like "amel.", "agg.", "downward, outward, etc.", "bed, in", "sitting, while", "smarting"!
 
-5. FULL RUBRIC PATH SYNTAX (DO NOT INCLUDE CHAPTER NAME IN RUBRIC_EN):
+6. FULL RUBRIC PATH SYNTAX (DO NOT INCLUDE CHAPTER NAME IN RUBRIC_EN):
    Format: "MAIN RUBRIC - subrubric - subsubrubric" (DO NOT prefix with Chapter Name! Chapter is stored separately in chapter_en.)
 
-6. COLUMN CONTINUATION HEADERS & GENERALIZED MARGIN RESET (PREVENT CONTINUATION CONTAMINATION):
+7. COLUMN CONTINUATION HEADERS & GENERALIZED MARGIN RESET:
    - At the top of a column, a header like "PAIN, shooting." or "PAIN, pressing, evening." is a continuation header from the previous column/page.
-   - Continuation headers ONLY apply to items physically INDENTED beneath them (e.g. "evening: Sulph.", "itching: Sulph.", "extending to penis: Carl.").
-   - UNIVERSAL MARGIN RESET RULE: As soon as any line appears whose text starts FLUSH WITH THE LEFT MARGIN of the column (e.g., "smarting", "soreness", "rasping", "rawness", "scraping"), it is a NEW SIBLING RUBRIC at Level 1 under the main section (e.g., "PAIN - smarting", "PAIN - soreness").
-   - Immediately reset the active path to "MAIN_RUBRIC - <flush_left_rubric_name>"! NEVER nest a flush-left rubric as a sub-item of a continuation header!
-   - Example output when "soreness:" appears flush left:
-     - Line "soreness: Æsc..." -> "PAIN - soreness"
-     - Line indented "morning: Thuj." -> "PAIN - soreness - morning" (NOT "PAIN - shooting - soreness - morning"!)
-     - Line indented "sitting, while: Mag-c." -> "PAIN - soreness - sitting, while"
+   - UNIVERSAL MARGIN RESET RULE: As soon as any line appears whose text starts FLUSH WITH THE LEFT MARGIN of the column, it is a NEW SIBLING RUBRIC at Level 1 under the main section.
 
-7. MEDICINES & STRICT 3-TIER CLINICAL TYPOGRAPHY GRADING (CRITICAL):
+8. MEDICINES & STRICT 3-TIER CLINICAL TYPOGRAPHY GRADING (CRITICAL):
    - DO NOT DEFAULT THE FIRST REMEDY ON A LINE TO GRADE 3! Capitalization at the beginning of a line or after a colon does NOT equal Bold.
    - Inspect the visual font weight of EVERY remedy abbreviation carefully:
-     * GRADE 3 = HEAVY BOLD TEXT ONLY. The letters are visibly THICKER and DARKER than surrounding text. Example bold remedies in Kent: "Sulph", "Calc", "Lyc", "Mag-c", "Crot-t", "Podo", "Caust", "Graph", "Nat-m", "Nux-v", "Puls", "Tabac". If unsure whether a remedy is Bold or Italic, prefer Grade 2 over Grade 3.
-     * GRADE 2 = ITALIC TEXT. The letters are SLANTED/OBLIQUE. Italics can be CAPITALIZED ("Agar", "Glon", "Ambr", "Nit-ac", "Cimic", "Aur", "Thuj", "Camph", "Grat", "Eug", "Ol-an", "Apis", "Lac-ac", "Aloe", "Ign", "Kali-c", "Bar-c", "Lach", "Ox-ac", "Absin", "Chel") OR lowercase-italic ("agar", "apis", "arn", "ars", "calc", "carb-v", "dios", "hep", "kali-bi", "lil-t", "mur-ac", "phos", "rhus-t", "sep", "sul-ac", "thuj").
-       --> CRITICAL MANDATE: ALL SLANTED/ITALIC TEXT — WHETHER CAPITALIZED OR NOT — MUST BE GRADED AS 2. NEVER GRADE ITALICS AS 1!
-       --> IMPORTANT: The FIRST remedy printed after a rubric colon (:) is very commonly in ITALIC (Grade 2) — do NOT assume it is Grade 1 just because it is first!
-     * GRADE 1 = PLAIN ROMAN UPRIGHT LOWERCASE. Upright, non-italic, non-bold, smaller font. e.g. "chin-s", "ferr", "cob", "grat", "nat-m", "verat", "aloe", "berb", "bry", "calc-p", "cimic".
+     * GRADE 3 = HEAVY BOLD TEXT ONLY. The letters are visibly THICKER and DARKER than surrounding text (e.g. "Sulph", "Calc", "Lyc", "Mag-c", "Crot-t", "Podo", "Caust", "Graph", "Nat-m", "Nux-v", "Puls", "Tabac", "Thuj", "Mez", "Phos", "Aur", "Lach", "Bor", "Bry", "Camph", "Verat", "Acon", "Apis").
+     * GRADE 2 = ITALIC TEXT. The letters are SLANTED/OBLIQUE. Capitalized italics (e.g., "Alum.", "Am-c.", "Aloe.", "Kali-i.", "Fl-ac.", "Nit-ac.", "Glon.", "Nit-ac.") AND lowercase italics (e.g., "ambr.", "calc.", "chel.", "phos.", "psor.", "secale.", "sulph.", "graph.") MUST BE GRADED AS 2.
+       --> ALL SLANTED/ITALIC TEXT MUST BE GRADED AS 2. NEVER GRADE ITALICS AS 1 OR 3!
+     * GRADE 1 = PLAIN ROMAN UPRIGHT LOWERCASE. Upright, non-italic, non-bold, smaller font (e.g. "bad", "chel", "kali-c", "phos", "secale", "sars", "staph", "tabac", "tep", "ust", "vesp", "zinc").
    - TOKEN-EFFICIENT GROUPED OUTPUT: for each rubric, group remedies of the same grading into a SINGLE object, with remedy names joined by commas:
      "medicines": [
        {"name": "Æsc,Aloe,Graph", "grading": 3},
@@ -386,7 +399,7 @@ ${contextInstruction}
        {"name": "bar-c,nux-v,sulph", "grading": 1}
      ]
 
-8. STANDALONE CROSS-REFERENCES:
+9. STANDALONE CROSS-REFERENCES:
    - Skip ONLY lines that contain NO remedies and ONLY a cross reference. If a line contains medicines, extract the sub-rubric with all its remedies!
 
 --- OUTPUT FORMAT ---
