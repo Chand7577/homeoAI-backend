@@ -590,7 +590,7 @@ const MEDICINE_CORRECTIONS = {
   'caleph': 'Calc-p', 'Caleph': 'Calc-p',
   // Murx
   'Murx': 'Murx',
-  // New OCR Typos from RECTUM
+  // New OCR Typos from RECTUM & HEAD
   'ann-m': 'Am-m', 'Ann-m': 'Am-m',
   'nice': 'Nicc', 'Nice': 'Nicc',
   'coc-t': 'Coc-c', 'Coc-t': 'Coc-c',
@@ -602,7 +602,18 @@ const MEDICINE_CORRECTIONS = {
   'poïo': 'Podo', 'poio': 'Podo', 'Poïo': 'Podo',
   'muac': 'Manc', 'Muac': 'Manc',
   'acou': 'Acon', 'Acou': 'Acon',
-  'alumnu': 'Alumn', 'Alumnu': 'Alumn'
+  'alumnu': 'Alumn', 'Alumnu': 'Alumn',
+  // Audited Kent Repertory OCR spell corrections
+  'ziuc': 'Zinc', 'ziinc': 'Zinc', 'Ziuc': 'Zinc', 'Ziinc': 'Zinc',
+  'curl': 'Carl', 'Curl': 'Carl',
+  'chain': 'Chin', 'Chain': 'Chin',
+  'kalin': 'Kalm', 'Kalin': 'Kalm',
+  'iudg': 'Indg', 'Iudg': 'Indg',
+  'oslin': 'Osm', 'Oslin': 'Osm',
+  'ann-c': 'Am-c', 'Ann-c': 'Am-c',
+  'arumd': 'Arum-t', 'Arumd': 'Arum-t',
+  'nal-m': 'Nat-m', 'Nal-m': 'Nat-m',
+  'lyos': 'Hyos', 'Lyos': 'Hyos'
 };
 
 /**
@@ -907,89 +918,71 @@ const parsePageWithOpenAIVision = async (imagePath) => {
   const directory = path.dirname(imagePath);
   const extension = path.extname(imagePath) || '.jpg';
   const baseName = path.basename(imagePath, extension);
-  const cropId = `${baseName}_vision_columns_${Date.now()}`;
-  const leftPath = path.join(directory, `${cropId}_left${extension}`);
-  const rightPath = path.join(directory, `${cropId}_right${extension}`);
+  const cropId = `${baseName}_vision_quads_${Date.now()}`;
+  const tlPath = path.join(directory, `${cropId}_tl${extension}`);
+  const blPath = path.join(directory, `${cropId}_bl${extension}`);
+  const trPath = path.join(directory, `${cropId}_tr${extension}`);
+  const brPath = path.join(directory, `${cropId}_br${extension}`);
 
   try {
-    const leftWidth = Math.floor(width * 0.55);
+    const halfWidth = Math.floor(width * 0.55);
     const rightStart = Math.floor(width * 0.45);
+    const halfHeight = Math.floor(height * 0.55);
+    const bottomStart = Math.floor(height * 0.45);
 
     await sharp(imagePath)
-      .extract({ left: 0, top: 0, width: leftWidth, height })
+      .extract({ left: 0, top: 0, width: halfWidth, height: halfHeight })
       .jpeg({ quality: 95 })
-      .toFile(leftPath);
+      .toFile(tlPath);
+
     await sharp(imagePath)
-      .extract({ left: rightStart, top: 0, width: width - rightStart, height })
+      .extract({ left: 0, top: bottomStart, width: halfWidth, height: height - bottomStart })
       .jpeg({ quality: 95 })
-      .toFile(rightPath);
+      .toFile(blPath);
 
-    // Layout manifest via Tesseract has been removed.
-    // The Vision model reads indentation and bold/italic typography directly
-    // from the image — Tesseract OCR in this path added latency and the
-    // 'tessedit_ocr_engine_mode' init-only warnings without improving accuracy.
-    const leftManifest = {};
-    const rightManifest = {};
-    const rightBeginsWithRoot = false;
+    await sharp(imagePath)
+      .extract({ left: rightStart, top: 0, width: width - rightStart, height: halfHeight })
+      .jpeg({ quality: 95 })
+      .toFile(trPath);
 
-    console.log('[Kent Parser] Vision pass 1/2: LEFT column (55% crop with gutter overlap)...');
-    let leftRows = await parseImageWithOpenAIVision(leftPath, 'left', '', leftManifest);
-    const lastLeftRubric = leftRows.length ? leftRows[leftRows.length - 1].rubric_en : '';
+    await sharp(imagePath)
+      .extract({ left: rightStart, top: bottomStart, width: width - rightStart, height: height - bottomStart })
+      .jpeg({ quality: 95 })
+      .toFile(brPath);
 
-    console.log('[Kent Parser] Vision pass 2/2: RIGHT column (55% crop with gutter overlap)...');
-    // Only inherit the left path when the right crop begins mid-list. A root
-    // heading at the top of the right column starts a separate Kent tree.
-    const rightContext = rightBeginsWithRoot ? '' : lastLeftRubric;
-    let rightRows = await parseImageWithOpenAIVision(rightPath, 'right', rightContext, rightManifest);
+    console.log('[Kent Parser] Vision 4-Quadrant Pass 1/4: TOP-LEFT quadrant...');
+    let tlRows = await parseImageWithOpenAIVision(tlPath, 'top-left', '', {});
+    const lastTlRubric = tlRows.length ? tlRows[tlRows.length - 1].rubric_en : '';
 
-    const normalisePath = (value) => (value || '')
-      .toLowerCase()
-      .replace(/^[a-zæœ]+\s*-\s*/, '') // strip chapter prefix
-      .replace(/[.\s,;:>\-]+/g, '');
-    const recoverMissingPaths = async (rows, manifest, cropPath, side, context) => {
-      const expected = [...new Set(manifest.expectedPaths || [])];
-      if (!expected.length) return rows;
+    console.log('[Kent Parser] Vision 4-Quadrant Pass 2/4: BOTTOM-LEFT quadrant...');
+    let blRows = await parseImageWithOpenAIVision(blPath, 'bottom-left', lastTlRubric, {});
+    const lastBlRubric = blRows.length ? blRows[blRows.length - 1].rubric_en : lastTlRubric;
 
-      const actual = rows.map(row => normalisePath(row.rubric_en));
-      const missing = expected.filter(path => {
-        const wanted = normalisePath(path);
-        return !actual.some(found => found.endsWith(wanted));
-      });
-      if (!missing.length) return rows;
+    console.log('[Kent Parser] Vision 4-Quadrant Pass 3/4: TOP-RIGHT quadrant...');
+    let trRows = await parseImageWithOpenAIVision(trPath, 'top-right', lastBlRubric, {});
+    const lastTrRubric = trRows.length ? trRows[trRows.length - 1].rubric_en : lastBlRubric;
 
-      console.warn(`[Kent Parser] ${side} column is missing ${missing.length}/${expected.length} detected rubric paths. Running targeted recovery.`);
-      const recoveryManifest = {
-        transcript: `LOCAL HIERARCHY MANIFEST — RECOVER ONLY THESE PATHS:\n${missing.map((path, index) => `[REQUIRED ${index + 1}] ${path}`).join('\n')}`,
-        expectedPaths: missing,
-      };
-      const recoveredRows = await parseImageWithOpenAIVision(cropPath, side, context, recoveryManifest, true);
-      const seen = new Set(rows.map(row => `${row.rubric_en}|||${row.medicine}`.toLowerCase()));
-      for (const row of recoveredRows) {
-        const key = `${row.rubric_en}|||${row.medicine}`.toLowerCase();
-        if (!seen.has(key)) {
-          seen.add(key);
-          rows.push(row);
-        }
-      }
-      return rows;
-    };
-
-    leftRows = await recoverMissingPaths(leftRows, leftManifest, leftPath, 'left', '');
-    rightRows = await recoverMissingPaths(rightRows, rightManifest, rightPath, 'right', rightContext);
+    console.log('[Kent Parser] Vision 4-Quadrant Pass 4/4: BOTTOM-RIGHT quadrant...');
+    let brRows = await parseImageWithOpenAIVision(brPath, 'bottom-right', lastTrRubric, {});
 
     const uniqueRows = [];
     const seen = new Set();
-    for (const row of [...leftRows, ...rightRows]) {
+    for (const row of [...tlRows, ...blRows, ...trRows, ...brRows]) {
       const key = `${row.rubric_en}|||${row.medicine}`.toLowerCase();
       if (!seen.has(key)) {
         seen.add(key);
         uniqueRows.push(row);
       }
     }
-    console.log(`[Kent Parser] Vision columns complete: left=${leftRows.length}, right=${rightRows.length}, unique=${uniqueRows.length}`);
+    console.log(`[Kent Parser] 4-Quadrant Vision complete: TL=${tlRows.length}, BL=${blRows.length}, TR=${trRows.length}, BR=${brRows.length}, total=${uniqueRows.length}`);
     return uniqueRows;
   } finally {
-    await Promise.all([fs.remove(leftPath), fs.remove(rightPath)]);
+    await Promise.all([
+      fs.remove(tlPath).catch(() => {}),
+      fs.remove(blPath).catch(() => {}),
+      fs.remove(trPath).catch(() => {}),
+      fs.remove(brPath).catch(() => {})
+    ]);
   }
 };
 
