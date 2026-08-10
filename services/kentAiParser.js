@@ -117,13 +117,20 @@ const REMEDY_SPELL_CORRECTIONS = {
   'acou': 'acon',
   'alumnu': 'alumn',
   'alumu': 'alumn',
-  // Page 117 confirmed OCR typos
+  // Page 117 & 126 confirmed OCR typos
   'lacl': 'lach',       // l/h character confusion in 'lach'
   'anil': 'anl-t',      // 'anl-t' misread as 'anil'
   'lyos': 'hyos',       // 'h' misread as 'l' in 'hyos'
   'plal': 'plat',       // 't' misread as 'l' in 'plat'
   'sulpli-ac': 'sulph-ac', // 'ph' misread as 'li' in 'sulph-ac'
   'sulpli': 'sulph',    // same ligature error without '-ac'
+  'ann-c': 'am-c',      // 'm' misread as 'nn' in 'am-c'
+  'viinc': 'vinc',      // double 'i' OCR typo in 'vinc'
+  'strout': 'stront',   // 'n' misread as 'u' in 'stront'
+  'ziuc': 'zinc',       // 'n' misread as 'u' in 'zinc'
+  'rain-sc': 'ran-sc',  // 'an' misread as 'ain' in 'ran-sc'
+  'chain': 'cham',      // 'm' misread as 'in' in 'cham'
+  'iudg': 'indg',       // 'n' misread as 'u' in 'indg'
   'anl-t': 'anl-t',    // passthrough identity (already correct)
   'hyos': 'hyos'        // passthrough identity
 };
