@@ -129,7 +129,20 @@ const REMEDY_SPELL_CORRECTIONS = {
   'sulpli-ac': 'sulph-ac', // 'ph' misread as 'li' in 'sulph-ac'
   'sulpli': 'sulph',    // same ligature error without '-ac'
   'anl-t': 'anl-t',    // passthrough identity (already correct)
-  'hyos': 'hyos'        // passthrough identity
+  'hyos': 'hyos',       // passthrough identity
+  // Page 126 additional OCR artifacts identified in audit
+  'ziuc': 'zinc',       // 'n' misread as 'u', 'c' appended wrongly
+  'curl': 'carl',       // 'Carl' (Carlsbad) misread as 'Curl'
+  'chain': 'chin',      // 'chin' misread as 'chain'
+  'kalin': 'kalm',      // 'Kalmia' OCR artifact
+  'iudg': 'indg',       // 'indg' misread as 'iudg'
+  'pectin': 'pectin',   // passthrough — valid if truly 'pectin'
+  'arumd': 'arum-t',   // 'arum-t' without hyphen
+  'ferr-m': 'ferr-m',  // passthrough — already correct
+  'nuph': 'nuph',       // passthrough — Nuphar luteum
+  'nal-m': 'nat-m',     // 'nat-m' misread as 'nal-m'
+  'ann-c': 'am-c',      // 'am-c' misread as 'ann-c'
+  'ann-c': 'am-c'
 };
 
 /**
@@ -473,10 +486,14 @@ Return ONLY valid JSON matching this structure (no markdown, no preamble). Remem
  */
 const parseImageToStructuredJson = async (imagePath) => {
   initKentAI();
-  console.log(`[Kent AI Parser] Starting two-pass column crop extraction: ${path.basename(imagePath)}`);
+  console.log(`[Kent AI Parser] Starting four-quadrant column crop extraction: ${path.basename(imagePath)}`);
 
-  // Split image into high-res physical column crops
-  const { leftCropPath, rightCropPath, cleanup } = await splitImageForAi(imagePath);
+  // Split image into high-res physical quadrant crops (TL, BL, TR, BR)
+  // IMPORTANT: destructure `quadrants` so the 4-pass pipeline below actually runs.
+  // Previously only leftCropPath/rightCropPath were destructured, causing quadrants
+  // to be undefined — silently falling back to 2-pass and dropping the bottom-left
+  // content (e.g. HANDS, HEADLESS rubrics on page 126).
+  const { quadrants, leftCropPath, rightCropPath, cleanup } = await splitImageForAi(imagePath);
 
   const seenKeys = new Set();
   const allResults = [];
@@ -491,10 +508,15 @@ const parseImageToStructuredJson = async (imagePath) => {
     }
     clean = clean.replace(/^(?:\[CHAPTER\]|CHAPTER|[A-Z]{3,})\s*-\s*/i, (match) => {
       const prefix = match.replace(/\s*-\s*$/, '').trim().toUpperCase();
+      // KNOWN_CHAPTERS: these are chapter-level headings whose prefix should be
+      // stripped from rubric_en (chapter is stored separately in chapter_en).
+      // DO NOT include valid Main Rubrics like HANDS, HEADLESS, HAIR here —
+      // those must be preserved as the first segment of rubric_en.
       const KNOWN_CHAPTERS = ['RECTUM', 'MIND', 'HEAD', 'EYE', 'EAR', 'NOSE', 'FACE', 'MOUTH', 'THROAT', 'STOMACH', 'ABDOMEN', 'STOOL', 'URINARY', 'GENITALIA', 'RESPIRATION', 'COUGH', 'CHEST', 'BACK', 'EXTREMITIES', 'SLEEP', 'FEVER', 'SKIN', 'GENERALITIES', 'CHAPTER', '[CHAPTER]'];
       if (KNOWN_CHAPTERS.includes(prefix)) {
         return '';
       }
+      // Rubrics like HANDS, HEADLESS, HAIR are valid main rubrics — do not strip!
       return match;
     });
     return clean.trim();
@@ -638,6 +660,10 @@ const parseImageToStructuredJson = async (imagePath) => {
 
   try {
     // 4-Quadrant Pass Pipeline (TL -> BL -> TR -> BR)
+    // `quadrants` is now correctly destructured from splitImageForAi above.
+    // Order: top-left → bottom-left → top-right → bottom-right ensures left column
+    // is fully processed (including bottom-left content like HANDS / HEADLESS)
+    // before moving to the right column.
     const quadrantsToRun = quadrants && quadrants.length === 4
       ? quadrants
       : [
