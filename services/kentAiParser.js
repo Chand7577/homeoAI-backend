@@ -13,6 +13,12 @@ const REMEDY_SPELL_CORRECTIONS = {
   // Common OCR character substitution errors (n/m, l/i/1, c/e)
   'ann-m': 'am-m',
   'an-m': 'am-m',
+  'ann-c': 'am-c',
+  // Page 156 additional OCR artifacts identified in audit
+  'calc-a': 'calc-ac',
+  'nuv': 'nux-v',
+  'plhos-ac': 'phos-ac',
+  'rhod': 'rhodo',
   'ani-c': 'am-c',
   'an-c': 'am-c',
   'anbr': 'ambr',
