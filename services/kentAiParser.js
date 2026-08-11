@@ -778,8 +778,8 @@ const KENT_TERM_TRANSLATIONS = {
   'TENSION': 'तनाव', 'CONSTRICTION, tension': 'जकड़न, तनाव',
   // --- Time / Condition modifiers ---
   'pressing': 'दबाव', 'evening': 'शाम', 'morning': 'सुबह', 'night': 'रात', 'afternoon': 'दोपहर',
-  'tension': 'तनाव', 'amel.': 'अमेल।', 'agg.': 'बिगड़ना',
-  // --- Circumstance modifiers (page 117 specific) ---
+  'tension': 'तनाव', 'amel.': 'घटता है', 'agg.': 'बढ़ता है', 'amel': 'घटता है', 'agg': 'बढ़ता है',
+  // --- Circumstance modifiers ---
   'mental exertion, from': 'मानसिक परिश्रम, से',
   'motion, from': 'गति, से',
   'music, from': 'संगीत, से',
@@ -787,17 +787,17 @@ const KENT_TERM_TRANSLATIONS = {
   'pains, when, suddenly cease': 'दर्द, जब, अचानक बंद हो जाता है',
   'parturition, in': 'प्रसव, में',
   'perspiration, during': 'पसीना, दौरान',
-  'pressure amel.': 'दबाव अमेल।',
+  'pressure amel.': 'दबाव घटता है',
   'riding, from': 'सवारी, से',
   'rising, on': 'बढ़ना, चालू होना',
-  'rising, on - amel.': 'उठना, पर - अमेल।',
+  'rising, on - amel.': 'उठना, पर - घटता है',
   'room, on entering': 'कमरा, प्रवेश करने पर',
   'room, on entering - in a hot': 'कमरा, प्रवेश करने पर - गर्मी में',
-  'room, on entering - sitting in, amel.': 'कमरा, प्रवेश करने पर - अंदर बैठना, अमेल।',
+  'room, on entering - sitting in, amel.': 'कमरा, प्रवेश करने पर - अंदर बैठना, घटता है',
   'sitting, while': 'बैठना, जबकि',
   'sitting, while - must sit up': 'बैठना, जबकि - उठना चाहिए',
   'sleep, during': 'नींद, दौरान',
-  'sleep, during - amel., after': 'नींद, दौरान - अमेल।, बाद में',
+  'sleep, during - amel., after': 'नींद, दौरान - घटता है, बाद में',
   'smoking, from': 'धूम्रपान, से',
   'speaking, when': 'बोलना, कब',
   'speaking, when - when spoken to harshly': 'बोलना, कब - कब कठोरता से बोला जाए',
@@ -812,7 +812,7 @@ const KENT_TERM_TRANSLATIONS = {
   'waking, on': 'जागने पर',
   'walking, while': 'चलना, जबकि',
   'walking, while - in open air': 'चलना, जबकि - खुली हवा में',
-  'walking, while - amel.': 'चलना, जबकि - अमेल।',
+  'walking, while - amel.': 'चलना, जबकि - घटता है',
   'wet, from getting the feet': 'गीला होना, पैरों से',
   'wine, after': 'शराब, बाद में',
   'working, while': 'काम करना, जबकि',
@@ -825,7 +825,7 @@ const KENT_TERM_TRANSLATIONS = {
   'Occiput': 'पश्चकपाल', 'Temples': 'कनपटी', 'Vertex': 'शीर्ष',
   // --- General modifiers ---
   'standing, while': 'खड़े रहना, जबकि', 'lying, while': 'लेटते समय',
-  'walking': 'चलना', 'flatus, during': 'पेट फूलना, दौरान', 'rest amel.': 'आराम अमेल।',
+  'walking': 'चलना', 'flatus, during': 'पेट फूलना, दौरान', 'rest amel.': 'आराम घटता है',
   'smarting': 'टीसदार जलन', 'smarting (compare "burning")': 'टीसदार जलन (जलन से तुलना करें)',
   'soreness': 'दुखन / पीड़ा', 'shooting': 'चुभने जैसा दर्द', 'rawness': 'कच्चापन',
   'rasping': 'कर्कशता / छीलने जैसा', 'scraping': 'खुरचना', 'stool, hard, during': 'मल, कठोर, दौरान',
@@ -834,9 +834,21 @@ const KENT_TERM_TRANSLATIONS = {
   'menses, during': 'मासिक धर्म के दौरान', 'menses, before': 'मासिक धर्म, पहले'
 };
 
+const postProcessHindiMedicalTerms = (str) => {
+  if (!str || typeof str !== 'string') return str;
+  return str
+    .replace(/\bamel\./gi, 'घटता है')
+    .replace(/\bamel\b/gi, 'घटता है')
+    .replace(/\bअमेल।?/gi, 'घटता है')
+    .replace(/\bअमल।?/gi, 'घटता है')
+    .replace(/\bagg\./gi, 'बढ़ता है')
+    .replace(/\bagg\b/gi, 'बढ़ता है')
+    .replace(/\bएजीजी।?/gi, 'बढ़ता है');
+};
+
 const ensureHindiTranslation = (enText, currentHi) => {
   if (currentHi && /[\u0900-\u097F]/.test(currentHi) && !/RECTUM - PAIN/.test(currentHi)) {
-    return currentHi;
+    return postProcessHindiMedicalTerms(currentHi);
   }
   if (!enText) return '';
   const parts = enText.split(/\s*-\s*/);
@@ -847,7 +859,7 @@ const ensureHindiTranslation = (enText, currentHi) => {
     if (KENT_TERM_TRANSLATIONS[lower]) return KENT_TERM_TRANSLATIONS[lower];
     return trimmed;
   });
-  return hiParts.join(' - ');
+  return postProcessHindiMedicalTerms(hiParts.join(' - '));
 };
 
 /**
@@ -939,7 +951,7 @@ Return JSON: {"chapters":{"EN":"HI"}, "rubrics":{"EN":"HI"}}`;
     const rawRubHi = row.rubric_hi || rubricResults[row.rubric_en?.trim()] || '';
 
     const finalChapHi = ensureHindiTranslation(row.chapter_en, rawChapHi);
-    const finalRubHi = ensureHindiTranslation(row.rubric_en, rawRubHi);
+    const finalRubHi = postProcessHindiMedicalTerms(ensureHindiTranslation(row.rubric_en, rawRubHi));
 
     return {
       ...row,
