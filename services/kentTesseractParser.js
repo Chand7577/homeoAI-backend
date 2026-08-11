@@ -594,6 +594,29 @@ const validateAndFixKentPaths = (data, chapter) => {
         fixedCount++;
       }
       
+      // Fix 1b: Nested weather sub-rubrics missing "weather, from changes of" parent
+      // Pattern: "HEAD - cloudy|cold" alone → Should be "HEAD - PAIN - weather, from changes of - cloudy|cold"
+      if (/^HEAD\s*-\s*(cloudy)$/i.test(fixedPath)) {
+        fixedPath = fixedPath.replace(/^HEAD\s*-\s*cloudy$/i, 'HEAD - PAIN - weather, from changes of - cloudy');
+        console.log(`[Path Fix] Cloudy weather: "${originalPath}" → "${fixedPath}"`);
+        fixedCount++;
+      }
+      if (/^HEAD\s*-\s*cold$/i.test(fixedPath)) {
+        fixedPath = fixedPath.replace(/^HEAD\s*-\s*cold$/i, 'HEAD - PAIN - weather, from changes of - cold');
+        console.log(`[Path Fix] Cold weather: "${originalPath}" → "${fixedPath}"`);
+        fixedCount++;
+      }
+      if (/^HEAD\s*-\s*damp,\s*cold$/i.test(fixedPath)) {
+        fixedPath = fixedPath.replace(/^HEAD\s*-\s*damp,\s*cold$/i, 'HEAD - PAIN - weather, from changes of - cold - damp, cold');
+        console.log(`[Path Fix] Damp cold weather: "${originalPath}" → "${fixedPath}"`);
+        fixedCount++;
+      }
+      if (/^HEAD\s*-\s*dry,\s*cold$/i.test(fixedPath)) {
+        fixedPath = fixedPath.replace(/^HEAD\s*-\s*dry,\s*cold$/i, 'HEAD - PAIN - weather, from changes of - cold - dry, cold');
+        console.log(`[Path Fix] Dry cold weather: "${originalPath}" → "${fixedPath}"`);
+        fixedCount++;
+      }
+      
       // Fix 2: Motion/position modalities missing PAIN
       // Pattern: "HEAD - stooping|walking|turning|lying|sitting|standing|rising" → Add "PAIN -"
       if (/^HEAD\s*-\s*(stooping|walking|turning|lying|sitting|standing|rising|bending|moving)/i.test(fixedPath) &&
