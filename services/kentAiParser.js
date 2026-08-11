@@ -446,16 +446,15 @@ Return ONLY valid JSON matching this structure (no markdown, no preamble). Remem
   ]
 }`;
 
-  // NOTE: raised from 16000 -> 32000. Even with the token-efficient grouped
-  // medicines format above, dense columns (e.g. a "difficult stool" rubric
-  // with 80+ remedies plus a dozen more rubrics below it) can still be long.
-  // Check your model's actual max output token ceiling and raise this to that
-  // ceiling if 32000 is not high enough / not supported.
+  // Token budget:
+  // - GPT-4o (OpenAI): max output = 16,384 tokens → use 16000
+  // - Gemini 2.0 Flash: max output = 8,192 tokens → would need 32000 cap only if Gemini-Pro
+  // Since we are now using GPT-4o as primary, set to 16000.
   const result = await model.generateContent({
     contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { data: base64Data, mimeType } }] }],
     generationConfig: {
       temperature: 0.1,
-      maxOutputTokens: 32000,
+      maxOutputTokens: 16000,
       responseMimeType: 'application/json'
     }
   });

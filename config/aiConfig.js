@@ -209,7 +209,9 @@ const initAI = () => {
     const openaiKey = process.env.OPENAI_API_KEY;
     if (openaiKey) {
       const aiClient = new OpenAI({ apiKey: openaiKey });
-      const openaiModel = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+      // KENT_VISION_MODEL controls which GPT-4 variant is used for Kent OCR.
+      // Falls back to OPENAI_MODEL, then gpt-4o.
+      const openaiModel = process.env.KENT_VISION_MODEL || process.env.OPENAI_MODEL || 'gpt-4o';
       openaiAdapter = new UnifiedModelAdapter(aiClient, openaiModel, 'openai');
       defaultAdapter = defaultAdapter || openaiAdapter;
       isReady = true;
@@ -228,11 +230,11 @@ const initAI = () => {
 };
 
 const getModel = () => defaultAdapter;
-// IMPORTANT: Groq is primary because current Gemini key doesn't work
-// Groq (llama-3.3-70b) responds in ~800ms vs Gemini 8-10s
-// To use Gemini: Get valid key + set ENABLE_GEMINI=true
+// Analysis (text-only): Groq (Llama 3.3 70B) is primary — fast & free quota.
 const getAnalysisModel = () => groqAdapter || geminiAdapter || openaiAdapter || defaultAdapter;
-const getVisionModel = () => geminiAdapter || openaiAdapter || defaultAdapter; // Prefer Gemini for Vision
+// Vision (Kent OCR): GPT-4o is primary — better typography/grading accuracy.
+// Falls back to Gemini if OpenAI is unavailable.
+const getVisionModel = () => openaiAdapter || geminiAdapter || defaultAdapter;
 const isAIReady = () => isReady;
 const getProvider = () => defaultAdapter?.provider;
 
