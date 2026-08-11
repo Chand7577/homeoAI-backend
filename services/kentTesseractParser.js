@@ -250,8 +250,66 @@ const parseColumnTextWithGroq = async (rawText, columnSide = 'left', lastRubricC
       ? `\n\n⚠️ CRITICAL CHAPTER ENFORCEMENT:\nThe page header indicates this is the "${detectedChapter}" chapter.\nYou MUST prefix ALL rubric paths with "${detectedChapter} - " at the beginning.\nExample: If you see "PAIN, pressing - evening", output: "${detectedChapter} - PAIN, pressing - evening"\n`
       : `\n\n⚠️ CHAPTER AUTO-DETECT REQUIRED:\nThe chapter header could not be read from the page scan. You MUST infer the chapter name from the rubric content (e.g. ABSCESS, CHOLERA, CONSTIPATION → "RECTUM"; PAIN, NOISES, DISCHARGE → context-dependent).\nSet chapter_en to the correct Kent's Repertory chapter name (e.g. "RECTUM", "ABDOMEN", "EAR", etc.).\nPrefix ALL rubric_en paths with that detected chapter name + " - ".\nNEVER output "UNKNOWN" as the chapter.\n`;
 
+    // Kent Structure Knowledge Base - Common patterns to guide AI
+    const kentStructureKnowledge = detectedChapter === 'HEAD' 
+      ? `\n\n🧠 KENT HEAD CHAPTER STRUCTURE KNOWLEDGE:
+The HEAD chapter has specific main rubrics that are ALWAYS present in the hierarchy:
+
+CRITICAL: "PAIN" is the LARGEST and MOST COMMON main rubric in HEAD chapter.
+Almost ALL modality sub-rubrics (weather, cold, damp, heat, touch, pressure, motion, etc.) belong under "HEAD - PAIN".
+
+Common HEAD - PAIN sub-rubrics you WILL encounter:
+- HEAD - PAIN - sudden (with nested: go/decreasing/micturition/summer/sun/swallowing/talking/tea)
+- HEAD - PAIN - weather, from changes of (with nested: cloudy/cold/damp, cold/dry, cold/warm/wet)
+- HEAD - PAIN - touch agg. (with nested: on vertex/amel.)
+- HEAD - PAIN - walking (with nested: in open air/rapidly/while/after)
+- HEAD - PAIN - temperature (with nested: changes of)
+- HEAD - PAIN - stooping
+- HEAD - PAIN - turning body/eyes/head
+- HEAD - PAIN - twilight
+- HEAD - PAIN - twitching
+
+⚠️ IF YOU SEE RUBRICS LIKE:
+- "weather, from changes of" / "cloudy" / "cold" / "damp" / "dry" / "warm"
+- "touch" / "pressure" / "stooping" / "walking" / "turning"
+- "temperature" / "twilight" / "twitching"
+
+WITHOUT a clear parent rubric, they are ALWAYS sub-rubrics of "PAIN"!
+
+CORRECT PATH CONSTRUCTION:
+❌ Wrong: "HEAD - weather, from changes of"
+✅ Right: "HEAD - PAIN - weather, from changes of"
+
+❌ Wrong: "HEAD - cloudy"  
+✅ Right: "HEAD - PAIN - weather, from changes of - cloudy"
+
+❌ Wrong: "HEAD - cold"
+✅ Right: "HEAD - PAIN - weather, from changes of - cold"
+
+❌ Wrong: "HEAD - touch"
+✅ Right: "HEAD - PAIN - touch agg."
+
+Other HEAD main rubrics (less common): HEAVINESS, HEAT, ITCHING, CONGESTION, ERUPTIONS, PULSATING, SWELLING
+`
+      : detectedChapter === 'ABDOMEN'
+      ? `\n\n🧠 KENT ABDOMEN CHAPTER STRUCTURE KNOWLEDGE:
+Main rubrics in ABDOMEN: PAIN (most common), DISTENTION, FLATULENCE, FULLNESS, RUMBLING, TENSION
+If you see modality rubrics (motion, pressure, eating, etc.) without a parent, they belong under "PAIN".
+`
+      : detectedChapter === 'CHEST'
+      ? `\n\n🧠 KENT CHEST CHAPTER STRUCTURE KNOWLEDGE:
+Main rubrics in CHEST: PAIN (most common), OPPRESSION, PALPITATION, CONSTRICTION, ANXIETY
+Modality sub-rubrics (coughing, breathing, motion, etc.) belong under appropriate main rubric.
+`
+      : detectedChapter === 'EXTREMITIES'
+      ? `\n\n🧠 KENT EXTREMITIES CHAPTER STRUCTURE KNOWLEDGE:
+Main rubrics in EXTREMITIES: PAIN (most common), COLDNESS, HEAT, HEAVINESS, NUMBNESS, STIFFNESS, WEAKNESS
+Location sub-rubrics specify body parts (fingers, knee, ankle, etc.) under the main rubric.
+`
+      : ''; // No special knowledge for other chapters
+
     const prompt = `You are a medical data extraction & spell-correction expert structuring raw Kent's Repertory OCR text from the ${columnSide.toUpperCase()} column.
-${contextInstruction}${chapterInstruction}
+${contextInstruction}${chapterInstruction}${kentStructureKnowledge}
 
 --- CRITICAL REPERTORY TYPOGRAPHY & GRADING RULES ---
 1. RUBRIC vs MEDICINE SEPARATION (CRITICAL):
@@ -384,7 +442,8 @@ ${rawText}`;
         
         if (openAIResp.choices?.[0]?.message?.content) {
           console.log(`[Groq Structurer] ✅ OpenAI gpt-4o succeeded.`);
-          return JSON.parse(openAIResp.choices[0].message.content);
+          const parsedData = JSON.parse(openAIResp.choices[0].message.content);
+          return validateAndFixKentPaths(parsedData, detectedChapter);
         } else if (openAIResp.error) {
           console.warn(`[OpenAI] Failed: ${openAIResp.error.message}`);
         }
@@ -463,8 +522,8 @@ ${rawText}`;
           });
           if (cerebrasResp.choices?.[0]?.message?.content) {
             console.log(`[Groq Structurer] ✅ Cerebras ${cModel} succeeded.`);
-            const text = completion?.choices?.[0]?.message?.content || cerebrasResp.choices[0].message.content;
-            return JSON.parse(cerebrasResp.choices[0].message.content);
+            const parsedData = JSON.parse(cerebrasResp.choices[0].message.content);
+            return validateAndFixKentPaths(parsedData, detectedChapter);
           }
         } catch (ce) {
           const isRetryable = ce.message.includes('429') || ce.message.includes('rate_limit');
@@ -476,11 +535,146 @@ ${rawText}`;
 
     if (!completion) throw lastErr || new Error('All AI providers exhausted (OpenAI + Groq + Cerebras)');
     const text = completion.choices[0]?.message?.content || '{}';
-    return JSON.parse(text);
+    const parsedData = JSON.parse(text);
+    
+    // Post-validation: Fix common path errors
+    return validateAndFixKentPaths(parsedData, detectedChapter);
   } catch (err) {
     console.warn(`[Groq Structurer] Column pass (${columnSide}) error:`, err.message);
     return null;
   }
+};
+
+/**
+ * Post-validation: Automatically fix common Kent path construction errors
+ * This catches issues where AI drops intermediate sections like "PAIN"
+ */
+const validateAndFixKentPaths = (data, chapter) => {
+  if (!data || !data.data || !Array.isArray(data.data)) {
+    return data;
+  }
+
+  // Valid Kent chapters - any chapter not in this list is suspicious
+  const VALID_KENT_CHAPTERS = new Set([
+    'MIND', 'VERTIGO', 'HEAD', 'EYE', 'VISION', 'EAR', 'HEARING', 'NOSE', 'FACE',
+    'MOUTH', 'TEETH', 'THROAT', 'EXTERNAL THROAT', 'STOMACH', 'ABDOMEN', 'RECTUM',
+    'STOOL', 'BLADDER', 'KIDNEY', 'PROSTATE GLAND', 'URETHRA', 'URINE',
+    'MALE GENITALIA', 'FEMALE GENITALIA', 'LARYNX AND TRACHEA', 'RESPIRATION',
+    'COUGH', 'EXPECTORATION', 'CHEST', 'BACK', 'EXTREMITIES', 'SLEEP', 'CHILL',
+    'FEVER', 'PERSPIRATION', 'SKIN', 'GENERALITIES'
+  ]);
+
+  // Validate chapter
+  if (data.chapter_en && !VALID_KENT_CHAPTERS.has(data.chapter_en.toUpperCase())) {
+    console.warn(`[Path Validation] ⚠️ Invalid chapter detected: "${data.chapter_en}" (not in Kent's 37 chapters)`);
+    
+    // If we have a detected chapter from page header, use it
+    if (chapter && VALID_KENT_CHAPTERS.has(chapter.toUpperCase())) {
+      console.log(`[Path Validation] Correcting chapter from "${data.chapter_en}" to "${chapter}"`);
+      data.chapter_en = chapter;
+    }
+  }
+
+  let fixedCount = 0;
+  
+  data.data.forEach(entry => {
+    if (!entry.rubric_en) return;
+    
+    const originalPath = entry.rubric_en;
+    let fixedPath = originalPath;
+    
+    // ═══ HEAD CHAPTER VALIDATION ═══
+    if (chapter === 'HEAD') {
+      // Fix 1: Weather modalities missing PAIN
+      // Pattern: "HEAD - weather|cloudy|cold|damp|dry|warm|heat" → Add "PAIN -"
+      if (/^HEAD\s*-\s*(weather|cloudy|cold|damp|dry|warm|heat|sun|shade|temperature)/i.test(fixedPath) &&
+          !/PAIN/i.test(fixedPath)) {
+        fixedPath = fixedPath.replace(/^(HEAD\s*-\s*)/, '$1PAIN - ');
+        console.log(`[Path Fix] Weather modality: "${originalPath}" → "${fixedPath}"`);
+        fixedCount++;
+      }
+      
+      // Fix 2: Motion/position modalities missing PAIN
+      // Pattern: "HEAD - stooping|walking|turning|lying|sitting|standing|rising" → Add "PAIN -"
+      if (/^HEAD\s*-\s*(stooping|walking|turning|lying|sitting|standing|rising|bending|moving)/i.test(fixedPath) &&
+          !/PAIN/i.test(fixedPath)) {
+        fixedPath = fixedPath.replace(/^(HEAD\s*-\s*)/, '$1PAIN - ');
+        console.log(`[Path Fix] Motion modality: "${originalPath}" → "${fixedPath}"`);
+        fixedCount++;
+      }
+      
+      // Fix 3: Touch/pressure modalities missing PAIN
+      // Pattern: "HEAD - touch|pressure|rubbing|scratching" → Add "PAIN -"
+      if (/^HEAD\s*-\s*(touch|pressure|rubbing|scratching|binding|combing)/i.test(fixedPath) &&
+          !/PAIN/i.test(fixedPath)) {
+        fixedPath = fixedPath.replace(/^(HEAD\s*-\s*)/, '$1PAIN - ');
+        console.log(`[Path Fix] Touch modality: "${originalPath}" → "${fixedPath}"`);
+        fixedCount++;
+      }
+      
+      // Fix 4: Time modalities missing PAIN
+      // Pattern: "HEAD - morning|evening|night|afternoon|twilight" → Add "PAIN -"  
+      if (/^HEAD\s*-\s*(morning|evening|night|afternoon|twilight|midnight|noon)/i.test(fixedPath) &&
+          !/PAIN/i.test(fixedPath)) {
+        fixedPath = fixedPath.replace(/^(HEAD\s*-\s*)/, '$1PAIN - ');
+        console.log(`[Path Fix] Time modality: "${originalPath}" → "${fixedPath}"`);
+        fixedCount++;
+      }
+      
+      // Fix 5: "sudden" sub-rubrics missing PAIN
+      // Pattern: "HEAD - sudden" or "HEAD - talking|swallowing|thinking" alone → Add "PAIN -"
+      if (/^HEAD\s*-\s*(sudden|talking|swallowing|thinking|twitching)/i.test(fixedPath) &&
+          !/PAIN/i.test(fixedPath)) {
+        fixedPath = fixedPath.replace(/^(HEAD\s*-\s*)/, '$1PAIN - ');
+        console.log(`[Path Fix] Sudden/misc modality: "${originalPath}" → "${fixedPath}"`);
+        fixedCount++;
+      }
+    }
+    
+    // ═══ ABDOMEN CHAPTER VALIDATION ═══
+    if (chapter === 'ABDOMEN') {
+      // Fix: Modalities without PAIN parent
+      if (/^ABDOMEN\s*-\s*(motion|pressure|eating|drinking|stool|menses)/i.test(fixedPath) &&
+          !/PAIN/i.test(fixedPath)) {
+        fixedPath = fixedPath.replace(/^(ABDOMEN\s*-\s*)/, '$1PAIN - ');
+        console.log(`[Path Fix] Abdomen modality: "${originalPath}" → "${fixedPath}"`);
+        fixedCount++;
+      }
+    }
+    
+    // ═══ CHEST CHAPTER VALIDATION ═══
+    if (chapter === 'CHEST') {
+      // Fix: Modalities without PAIN parent
+      if (/^CHEST\s*-\s*(coughing|breathing|motion|inspiration|expiration)/i.test(fixedPath) &&
+          !/PAIN/i.test(fixedPath)) {
+        fixedPath = fixedPath.replace(/^(CHEST\s*-\s*)/, '$1PAIN - ');
+        console.log(`[Path Fix] Chest modality: "${originalPath}" → "${fixedPath}"`);
+        fixedCount++;
+      }
+    }
+    
+    // ═══ EXTREMITIES CHAPTER VALIDATION ═══
+    if (chapter === 'EXTREMITIES') {
+      // Fix: Modalities without PAIN parent
+      if (/^EXTREMITIES\s*-\s*(motion|touch|walking|ascending|descending)/i.test(fixedPath) &&
+          !/PAIN/i.test(fixedPath)) {
+        fixedPath = fixedPath.replace(/^(EXTREMITIES\s*-\s*)/, '$1PAIN - ');
+        console.log(`[Path Fix] Extremities modality: "${originalPath}" → "${fixedPath}"`);
+        fixedCount++;
+      }
+    }
+    
+    // Update the entry if path was fixed
+    if (fixedPath !== originalPath) {
+      entry.rubric_en = fixedPath;
+    }
+  });
+  
+  if (fixedCount > 0) {
+    console.log(`[Path Validation] ✅ Fixed ${fixedCount} path(s) automatically`);
+  }
+  
+  return data;
 };
 
 // Deterministic OCR spell correction map — applied as final safety net after Groq
