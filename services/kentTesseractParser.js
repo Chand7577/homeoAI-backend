@@ -312,9 +312,9 @@ ${contextInstruction}${chapterInstruction}
    - "CHAPTER - MAIN RUBRIC, qualifier - sub-rubric"
    - Strip everything after colon (:) from rubric name
    - Remove cross-references like "(See 'xyz')" from rubric name, but keep the base rubric
-   - Example raw: "bed, in: Tod." → rubric_en = "${detectedChapter || 'EAR'} - PAIN - bed, in"
-   - Example raw: "sitting, while: Cale, Chin." → rubric_en = "${detectedChapter || 'EAR'} - PAIN - sitting, while"
-   - Example raw: "difficult stool (see 'Inactivity'): Æsc., ..." → rubric_en = "${detectedChapter || 'RECTUM'} - CONSTIPATION - difficult stool"
+   - Example raw: "bed, in: Tod." → rubric_en = "${detectedChapter || 'HEAD'} - PAIN - bed, in"
+   - Example raw: "sitting, while: Cale, Chin." → rubric_en = "${detectedChapter || 'HEAD'} - PAIN - sitting, while"
+   - Example raw: "difficult stool (see 'Inactivity'): Æsc., ..." → rubric_en = "${detectedChapter || 'HEAD'} - CONSTIPATION - difficult stool"
 
 6. OUTPUT SCHEMA: Return ONLY valid JSON matching format:
 {
@@ -614,7 +614,14 @@ const MEDICINE_CORRECTIONS = {
   'ann-c': 'Am-c', 'Ann-c': 'Am-c',
   'arumd': 'Arum-t', 'Arumd': 'Arum-t',
   'nal-m': 'Nat-m', 'Nal-m': 'Nat-m',
-  'lyos': 'Hyos', 'Lyos': 'Hyos'
+  'lyos': 'Hyos', 'Lyos': 'Hyos',
+  'cami-i': 'Cann-i', 'Cami-i': 'Cann-i',
+  'stamn': 'Stann', 'Stamn': 'Stann',
+  'lach n': 'Lach', 'Lach n': 'Lach',
+  'calc-ac': 'Calc-a', 'Calc-ac': 'Calc-a',
+  'ipl': 'Ip', 'Ipl': 'Ip',
+  'kal-i': 'Kali-i', 'Kal-i': 'Kali-i',
+  'kal-c': 'Kali-c', 'Kal-c': 'Kali-c'
 };
 
 /**
@@ -638,16 +645,32 @@ const convertGroqJsonToRows = (parsedJson, fallbackChapter = '') => {
   const chapter = (parsedJson.chapter_en || fallbackChapter || 'UNKNOWN').toUpperCase();
   const data = Array.isArray(parsedJson.data) ? parsedJson.data : (Array.isArray(parsedJson) ? parsedJson : []);
 
+  const knownChapters = [
+    'FEMALE GENITALIA', 'MALE GENITALIA', 'PROSTATE GLAND', 'EXPECTORATION', 'PERSPIRATION',
+    'GENERALITIES', 'EXTREMITIES', 'CONSTIPATION', 'RESPIRATION', 'GENITALIA', 'DIARRHOEA',
+    'DIARRHEA', 'PROSTATE', 'HEARING', 'KIDNEYS', 'BLADDER', 'ABDOMEN', 'STOMACH', 'VERTIGO',
+    'LARYNX', 'URETHRA', 'THROAT', 'RECTUM', 'KIDNEY', 'VISION', 'CHEST', 'FEVER', 'SLEEP',
+    'STOOL', 'URINE', 'MOUTH', 'TEETH', 'CHILL', 'MIND', 'HEAD', 'EYES', 'EARS', 'NOSE',
+    'FACE', 'BACK', 'SKIN', 'COUGH'
+  ];
+
   for (const item of data) {
-    const rubric_en = item.rubric_en || item.rubric || '';
-    if (!rubric_en) continue;
+    let rawRubric = (item.rubric_en || item.rubric || '').trim();
+    if (!rawRubric) continue;
+
+    // Enforce chapter prefix integrity: strip any hallucinated chapter prefix and replace with active page chapter
+    if (chapter && chapter !== 'UNKNOWN') {
+      for (const ch of knownChapters) {
+        if (rawRubric.toUpperCase().startsWith(ch + ' - ')) {
+          rawRubric = rawRubric.substring(ch.length + 3).trim();
+          break;
+        }
+      }
+      rawRubric = `${chapter} - ${rawRubric}`;
+    }
 
     const medicines = item.medicines || [];
     for (const medObj of medicines) {
-      // Vision responses group remedies with the same grade into one
-      // comma-separated field.  Expanding that field here keeps responses
-      // compact enough to finish a dense left column without changing the
-      // flat row format used by the database and Excel export.
       const medName = typeof medObj === 'string' ? medObj : (medObj.name || '');
       const medicineNames = medName.split(',').map(name => name.trim()).filter(Boolean);
 
@@ -658,10 +681,9 @@ const convertGroqJsonToRows = (parsedJson, fallbackChapter = '') => {
         rows.push({
           chapter_en: chapter,
           chapter_hi: '',
-          rubric_en: rubric_en,
+          rubric_en: rawRubric,
           rubric_hi: '',
           medicine: cleanMed,
-          // Prefer AI Vision font weight detection if present, otherwise fallback to italic lookup.
           grading: inferKentGrading(medicineName, typeof medObj === 'object' ? medObj.grading : null)
         });
       }
@@ -795,33 +817,24 @@ ${layoutInstruction}
 ${recoveryInstruction}
 
 CRITICAL INSTRUCTIONS:
-1. CHAPTER IDENTIFICATION: Look at the very top of the page for the chapter name in large capitals (e.g., "RECTUM"). You must prefix ALL extracted rubrics with this chapter name.
+1. CHAPTER IDENTIFICATION: Look at the very top of the page for the chapter name in large capitals (e.g., "HEAD" or "ABDOMEN"). You must prefix ALL extracted rubrics with this chapter name.
 2. RIGID HIERARCHY TRACKING (VITAL): Kent's Repertory relies entirely on visual hanging indents. You MUST track the "current path" logically based on indentation depth.
-   - Level 0 (Absolute left margin): Main Rubric (e.g., "PAIN, tearing.", "CONSTIPATION.", "CONSTRICTION, contraction, closure, etc.:") -> Path: "RECTUM - CONSTRICTION, contraction, closure, etc."
-   - Level 1 (Slight indent): Sub-rubric (e.g., "difficult stool (see 'Inactivity'):", "morning:", "afternoon:", "evening:") -> Path: "RECTUM - CONSTRICTION, contraction, closure, etc. - morning"
-   - Level 2 (Deeper indent): Sub-sub-rubric (e.g., "rising, after:", "extending into abdomen:", "menses, before:") -> Path: "RECTUM - CONSTRICTION, contraction, closure, etc. - morning - rising, after"
-   - Level 3 (Deepest indent): e.g., "during:" under menses -> Path: "RECTUM - CONSTIPATION - menses, during"
+   - Level 0 (Absolute left margin): Main Rubric (e.g., "PAIN, tearing.", "CONSTIPATION.") -> Path: "[CHAPTER] - [MAIN RUBRIC]"
+   - Level 1 (Slight indent): Sub-rubric (e.g., "morning:", "afternoon:", "evening:") -> Path: "[CHAPTER] - [MAIN RUBRIC] - morning"
+   - Level 2 (Deeper indent): Sub-sub-rubric (e.g., "rising, after:", "menses, before:") -> Path: "[CHAPTER] - [MAIN RUBRIC] - morning - rising, after"
+   - Level 3 (Deepest indent): e.g., "during:" under menses -> Path: "[CHAPTER] - [MAIN RUBRIC] - menses, during"
 
     WARNING (CRITICAL FOR SEPARATE MAIN RUBRICS - DO NOT MERGE):
-    - "CONSTIPATION" and "CONSTRICTION, contraction, closure, etc." are TWO DIFFERENT INDEPENDENT MAIN RUBRICS.
-    - NEVER output "RECTUM - CONSTIPATION - CONSTRICTION, contraction, closure, etc."!
-    - When "CONSTRICTION, contraction, closure, etc." appears flush left, it RESETS the main rubric.
-    - Output path for CONSTRICTION remedies: "RECTUM - CONSTRICTION, contraction, closure, etc."
-    - All indented sub-rubrics beneath it MUST belong to "RECTUM - CONSTRICTION, contraction, closure, etc.":
-      - "morning: Nux-v." -> "RECTUM - CONSTRICTION, contraction, closure, etc. - morning"
-      - "rising, after: Nux-v." -> "RECTUM - CONSTRICTION, contraction, closure, etc. - morning - rising, after"
-      - "afternoon: Coloc." -> "RECTUM - CONSTRICTION, contraction, closure, etc. - afternoon"
-      - "evening: Ign." -> "RECTUM - CONSTRICTION, contraction, closure, etc. - evening"
-    - DO NOT attach "morning", "afternoon", "evening" to CONSTIPATION! They belong to CONSTRICTION.
+    - Independent main rubrics flush with the left margin MUST reset the path.
+    - When a new flush-left rubric appears, start a clean new rubric path.
 
    WARNING (CRITICAL FOR FIRST SUB-RUBRIC):
-   - Never skip the first indented sub-rubric under a main rubric! For example, directly under "CONSTIPATION.", the text "difficult stool (see 'Inactivity'): Æsc., agar..." is an indented SUB-RUBRIC.
-   - The output rubric MUST be "RECTUM - CONSTIPATION - difficult stool". Strip the "(see 'Inactivity')" parenthetical, but NEVER drop "difficult stool"!
-   - Never attach remedies following "difficult stool" directly to "RECTUM - CONSTIPATION"!
+   - Never skip the first indented sub-rubric under a main rubric!
+   - Strip parenthetical cross-references like "(see 'Inactivity')", but NEVER drop the sub-rubric name itself!
 
-   WARNING: Never skip a parent! If you see "after: Aloe" indented under "stitching, stool", the path MUST include "stitching, stool" (e.g., "RECTUM - PAIN, stitching, stool - after").
-   WARNING: Pay close attention to words like "extending to" or "extending into". The locations below them (e.g. "abdomen:", "back:", "bladder:") are subrubrics OF "extending to". E.g., "RECTUM - PAIN, stitching, stool - extending to - back".
-   WARNING: Never merge medicines from a child line into its main rubric. Every colon-bearing child line such as "walking, while:", "bladder:", "twitching:", "during stool:", or "tenesmus:" must produce its own rubric_en path.
+   WARNING: Never skip a parent! If you see "after:" indented under "stitching, stool", the path MUST include "stitching, stool".
+   WARNING: Pay close attention to words like "extending to" or "extending into". The locations below them are subrubrics OF "extending to".
+   WARNING: Never merge medicines from a child line into its main rubric. Every colon-bearing child line must produce its own rubric_en path.
 3. RUBRICS vs MEDICINES: A rubric ends with a colon (:). Everything AFTER the colon is a list of medicines. Do NOT put medicines in the rubric name.
 4. GRADING (CRITICAL - LOOK AT TYPOGRAPHY): Look very closely at the font style of EACH medicine abbreviation in the image. DO NOT rely on capitalization!
    - BOLD FONT = Grade 3 (e.g., thick, dark letters)
