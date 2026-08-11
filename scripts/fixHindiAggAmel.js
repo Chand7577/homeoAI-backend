@@ -21,15 +21,20 @@ if (!MONGO_URI) {
   process.exit(1);
 }
 
-// ─── replacement rules ────────────────────────────────────────────────────────
-// Order matters: longer patterns first to avoid partial-match issues.
 const REPLACEMENTS = [
-  // standalone suffix (e.g. "गति एजीजी।")
-  { from: /एजीजी।/g,  to: 'बढ़ता है' },
-  // standalone suffix (e.g. "अमेल।")
-  { from: /अमेल।/g,   to: 'घटता है' },
-  // OCR/typo variant without the dot-danda (e.g. "मल अमल।")
-  { from: /अमल।/g,    to: 'घटता है' },
+  // Chapter fixes
+  { from: /^प्रमुख\b/g, to: 'सिर' },
+  { from: /प्रमुख -/g, to: 'सिर -' },
+
+  // Aggravation variants (agg. / agg / एजीजी। / एजीजी. / एजीजी / एजी. / एजी)
+  { from: /\bएजीजी[।\.]?/gi, to: 'बढ़ता है' },
+  { from: /\bएजी[।\.]?/gi, to: 'बढ़ता है' },
+  { from: /\bagg[।\.]?/gi, to: 'बढ़ता है' },
+
+  // Amelioration variants (amel. / amel / अमेल। / अमेल. / अमेल / अमल। / अमल. / अमल)
+  { from: /\bअमेल[।\.]?/gi, to: 'घटता है' },
+  { from: /\bअमल[।\.]?/gi, to: 'घटता है' },
+  { from: /\bamel[।\.]?/gi, to: 'घटता है' },
 ];
 
 // ─── fields to patch in each Rubric document ─────────────────────────────────
@@ -53,7 +58,7 @@ const applyReplacements = (str) => {
   const Rubric = require('../models/Rubric');
 
   // Build a query that matches any document containing the old strings
-  const OLD_STRINGS = ['एजीजी।', 'अमेल।', 'अमल।'];
+  const OLD_STRINGS = ['एजीजी', 'एजी', 'अमेल', 'अमल', 'प्रमुख'];
   const orQuery = FIELDS.flatMap(field =>
     OLD_STRINGS.map(s => ({ [field]: { $regex: s } }))
   );
