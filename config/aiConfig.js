@@ -210,8 +210,8 @@ const initAI = () => {
     if (openaiKey) {
       const aiClient = new OpenAI({ apiKey: openaiKey });
       // KENT_VISION_MODEL controls which GPT-4 variant is used for Kent OCR.
-      // Falls back to OPENAI_MODEL, then gpt-4o.
-      const openaiModel = process.env.KENT_VISION_MODEL || process.env.OPENAI_MODEL || 'gpt-4o';
+      // Falls back to OPENAI_MODEL, then gpt-4o-2024-11-20 (the latest & best vision snapshot).
+      const openaiModel = process.env.KENT_VISION_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-2024-11-20';
       openaiAdapter = new UnifiedModelAdapter(aiClient, openaiModel, 'openai');
       defaultAdapter = defaultAdapter || openaiAdapter;
       isReady = true;
