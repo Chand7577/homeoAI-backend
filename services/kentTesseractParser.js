@@ -345,14 +345,15 @@ ${rawText}`;
     let completion = null;
     let lastErr = null;
 
-    // ── Phase 1: OpenAI Primary (gpt-4o) ─────────────────────────────────
+    // ── Phase 1: OpenAI Primary (gpt-4o-mini) ─────────────────────────────
     // Strong hierarchy reasoning needed for Kent Repertory extraction
     if (process.env.OPENAI_API_KEY) {
       try {
-        console.log('[Groq Structurer] Trying OpenAI gpt-4o as primary...');
+        const modelName = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+        console.log(`[Groq Structurer] Trying OpenAI ${modelName} as primary...`);
         const https = require('https');
         const body = JSON.stringify({
-          model: 'gpt-4o',
+          model: modelName,
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.1,
           max_tokens: 3500,
@@ -843,8 +844,9 @@ CRITICAL INSTRUCTIONS:
   ]
 }`;
 
+  const modelName = process.env.OPENAI_MODEL || 'gpt-4o-mini';
   const body = JSON.stringify({
-    model: 'gpt-4o',
+    model: modelName,
     messages: [
       {
         role: 'user',
