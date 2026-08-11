@@ -148,7 +148,9 @@ const REMEDY_SPELL_CORRECTIONS = {
   'nuph': 'nuph',       // passthrough — Nuphar luteum
   'nal-m': 'nat-m',     // 'nat-m' misread as 'nal-m'
   'ann-c': 'am-c',      // 'am-c' misread as 'ann-c'
-  'ann-c': 'am-c'
+  'lach n': 'lach',     // Page 156 OCR artifact for Lachesis
+  'lach-n': 'lach',     // Page 156 OCR artifact for Lachesis
+  'phyto': 'phyt'       // Phytolacca
 };
 
 /**
@@ -358,62 +360,57 @@ ${columnInstruction}
 ${chapterInstruction}
 ${contextInstruction}
 
---- REPERTORY LAYOUT & HIERARCHY STACK RULES ---
+--- REPERTORY LAYOUT & THREE-TIER HIERARCHY STACK RULES ---
 1. EXHAUSTIVE LINE-BY-LINE EXTRACTION (CRITICAL):
    Extract EVERY SINGLE rubric and EVERY SINGLE remedy listed from top to bottom of this column image.
    Do NOT skip small sub-rubrics (e.g. "downward, outward, etc.:", "smarting:", "difficult stool", "after:", "during menses:", "walking, while:", "extending to:", "tenesmus:").
    Do NOT combine sub-rubrics into their parent. Every line with a colon or qualifier MUST generate its own distinct sub-rubric entry!
 
-2. SPATIAL VISUAL INDENTATION & HIERARCHY STACK (GENERALIZED FOR ALL PAGES):
-   - LEVEL 0: MAIN CHAPTER & MAIN RUBRICS (ALL CAPS / BOLD CAPS): Headings starting at top/flush-left (e.g. "RECTUM", "PAIN", "STOOL", "COLDNESS", "ERUPTION"). Resets all sub-hierarchies. ALL MAIN RUBRICS ARE ALWAYS PRINTED IN ALL CAPS!
-   - LEVEL 1: PRIMARY SUB-RUBRICS / SIBLING RUBRICS (FLUSH LEFT TO COLUMN MARGIN):
-     * ANY heading or term whose text starts AT THE LEFT MARGIN of the column (not indented under a previous item) is a Level-1 Primary Sub-Rubric under the active main rubric (e.g. "PAIN - smarting", "PAIN - soreness", "PAIN - pressing", "COLDNESS - air, as from cold").
-     * ANATOMICAL LOCATION SUB-RUBRICS UNDER SENSATIONS: Anatomical locations in Title-case (e.g. "Forehead:", "Occiput:", "Temples:", "Vertex:", "Sides:", "Brain:", "Scalp:") printed under a main rubric (like COLDNESS, PAIN, ERUPTION, EMPTY, ENLARGED) are SUB-RUBRICS of that active Main Rubric! (Target path: "COLDNESS - Forehead", and sub-items under it: "COLDNESS - Forehead - morning", "COLDNESS - Forehead - air, as from a draft"). NEVER treat Title-case "Forehead:" as a top-level Main Rubric!
+2. SPATIAL VISUAL INDENTATION & HIERARCHY STACK (RUBRIC -> SUB-RUBRIC -> SUB-SUB-RUBRIC):
+   - LEVEL 0 [MAIN RUBRIC]: ALL-CAPS or BOLD-CAPS headings starting at left margin (e.g. "PAIN", "STOOL", "COLDNESS", "ERUPTION", "CONSTRICTION", "COUGH", "PAIN").
+     * ALL MAIN RUBRICS ARE ALWAYS PRINTED IN ALL CAPS!
+     * Resets the entire sub-rubric hierarchy stack for all following items.
+   - LEVEL 1 [SUB-RUBRIC / SUBRIC]: Primary sub-heading under Main Rubric (e.g. "pressing", "burning", "smarting", "soreness", "morning", "stool, during", "Forehead").
+     * ANY heading or term whose text starts AT THE LEFT MARGIN of the column (not indented under a previous item) is a Level-1 Primary Sub-Rubric under the active main rubric.
+     * ANATOMICAL LOCATION SUB-RUBRICS UNDER SENSATIONS: Anatomical locations in Title-case (e.g. "Forehead:", "Occiput:", "Temples:", "Vertex:", "Sides:", "Brain:", "Scalp:") printed under a main rubric (like COLDNESS, PAIN, ERUPTION, EMPTY, ENLARGED) are SUB-RUBRICS (Level 1) of that active Main Rubric! (Target path: "COLDNESS - Forehead", and sub-items under it: "COLDNESS - Forehead - morning"). NEVER treat Title-case "Forehead:" as a top-level Main Rubric!
      * GENERALIZED MARGIN RESET RULE: Any term printed at the column's left margin IMMEDIATELY RESETS the sub-rubric stack to Level 1 under the active ALL-CAPS Main Rubric.
-   - LEVEL 2+: INDENTED QUALIFIERS & SUB-MODIFIERS:
-     * Lines that are physically INDENTED under a Level-1 rubric (e.g., "evening - bed, in:", "sitting, while:", "morning:").
+   - LEVEL 2 [SUB-SUB-RUBRIC / SUBRUIC]: Indented qualifiers & sub-modifiers under a Level-1 Sub-Rubric (e.g., "evening", "bed, in", "sitting, while", "extending to", "downward, outward, etc.").
+     * Lines physically INDENTED under a Level-1 rubric.
      * Append these indented qualifiers sequentially to the parent Level-1 rubric path (e.g. "PAIN - pressing - evening - bed, in", "COLDNESS - Forehead - morning").
+   - LEVEL 3+ [SUB-SUB-SUB-RUBRIC]: Further indented modalities or sub-modifiers under Level 2 (e.g. "amel.", "agg.", "walking, in open air").
 
-   CRITICAL (QUALIFIERS ARE MANDATORY):
-   - Under a heading like "PAIN, pressing, evening.", a line starting with "downward, outward, etc.: Agar, aloe..." MUST include "downward, outward, etc." as a sub-rubric! Target path: "PAIN - pressing - evening - downward, outward, etc.".
-   - NEVER drop "downward, outward, etc." and attach remedies directly to "PAIN - pressing - evening"!
+3. MANDATORY FULL PATH CONSTRUCTION (MAIN RUBRIC - SUB-RUBRIC - SUB-SUB-RUBRIC):
+   - EVERY JSON entry's "rubric_en" MUST be the complete concatenated path from Level 0 to the deepest level:
+     Format: "MAIN RUBRIC - subrubric - subsubrubric - subsubsubrubric"
+   - Example 1: Under "PAIN", sub-rubric "pressing", sub-sub-rubric "evening", sub-sub-sub-rubric "bed, in:":
+     --> rubric_en: "PAIN - pressing - evening - bed, in"
+   - Example 2: Under "COLDNESS", sub-rubric "Forehead", sub-sub-rubric "morning:":
+     --> rubric_en: "COLDNESS - Forehead - morning"
+   - Example 3: Under "AIR, open, in:", sub-rubric "amel.:":
+     --> rubric_en: "AIR - open, in - amel."
+   - NEVER emit an orphaned sub-rubric like "pressing - evening" without its parent Main Rubric ("PAIN")!
 
-3. SUB-RUBRICS WITH PARENTHETICAL NOTES & COMPARISONS:
+4. QUALIFIERS BEFORE COLONS & SUB-MODIFIERS (amel., agg., etc.):
+   - Text before colon (:) is a sub-rubric/qualifier.
+   - MANDATORY SUB-MODIFIER INCLUSION: When a line under a rubric (like "AIR, open, in:") is indented and starts with "amel.:" or "agg.:", you MUST append "- amel." or "- agg." to the active rubric path (e.g. "AIR - open, in - amel.").
+   - NEVER drop qualifiers like "amel.", "agg.", "downward, outward, etc.", "bed, in", "sitting, while", "smarting", "soreness"!
+
+5. SUB-RUBRICS WITH PARENTHETICAL NOTES & COMPARISONS:
    - Whenever a line includes parenthetical notes or comparisons like 'smarting (compare "burning"):', e.g.:
      "smarting (compare 'burning'): Æsc., æth., aloe..."
    - You MUST extract "smarting" as a RUBRIC / SUB-RUBRIC under the parent rubric! (Target path: "PAIN - smarting").
    - NEVER drop the rubric title "smarting" and dump remedies into a previous header like "PAIN - shooting"!
 
-4. QUALIFIERS BEFORE COLONS, SUB-MODIFIERS (amel., agg.) & SUB-RUBRICS ENDING IN ETC.:
-   - Whenever an indented line starts with a word/phrase followed by a colon (e.g. "aged people:", "downward, outward, etc.:", "smarting:", "women:", "air, in cold:"), the text BEFORE the colon is a SUB-RUBRIC QUALIFIER.
-   - MANDATORY SUB-MODIFIER INCLUSION: When a line under a rubric (like "AIR, open, in:") is indented and starts with "amel.:" or "agg.:", you MUST append "- amel." or "- agg." to the active rubric path (e.g. "AIR - open, in - amel."). NEVER drop "amel." or "agg."!
-   - You MUST append that qualifier to the parent rubric path!
-   - Examples under "PAIN, pressing, evening.":
-     - Line "bed, in: Iod." -> "PAIN - pressing - evening - bed, in"
-     - Line "sitting, while: Calc., chin-s." -> "PAIN - pressing - evening - sitting, while"
-     - Line "downward, outward, etc.: Agar, aloe..." -> "PAIN - pressing - evening - downward, outward, etc."
-   - Examples under "AIR, open, in:":
-     - Line indented "amel.: Æth., am-m., caust..." -> "AIR - open, in - amel."
-   - Examples under "PAIN":
-     - Line "smarting (compare 'burning'): Æsc., æth..." -> "PAIN - smarting"
-     - Line "soreness: Æsc., agn..." -> "PAIN - soreness"
-     - Line "soreness:" followed by indented "morning: Thuj." -> "PAIN - soreness - morning"
-   - NEVER drop qualifiers like "amel.", "agg.", "downward, outward, etc.", "bed, in", "sitting, while", "smarting"!
-
-5. FULL RUBRIC PATH SYNTAX (DO NOT INCLUDE CHAPTER NAME IN RUBRIC_EN):
+6. FULL RUBRIC PATH SYNTAX (DO NOT INCLUDE CHAPTER NAME IN RUBRIC_EN):
    Format: "MAIN RUBRIC - subrubric - subsubrubric" (DO NOT prefix with Chapter Name! Chapter is stored separately in chapter_en.)
 
-6. COLUMN CONTINUATION HEADERS & GENERALIZED MARGIN RESET (PREVENT CONTINUATION CONTAMINATION):
+7. COLUMN CONTINUATION HEADERS & GENERALIZED MARGIN RESET (PREVENT CONTINUATION CONTAMINATION):
    - At the top of a column, a header like "PAIN, shooting." or "PAIN, pressing, evening." is a continuation header from the previous column/page.
    - Continuation headers ONLY apply to items physically INDENTED beneath them (e.g. "evening: Sulph.", "itching: Sulph.", "extending to penis: Carl.").
    - UNIVERSAL MARGIN RESET RULE: As soon as any line appears whose text starts FLUSH WITH THE LEFT MARGIN of the column (e.g., "smarting", "soreness", "rasping", "rawness", "scraping"), it is a NEW SIBLING RUBRIC at Level 1 under the main section (e.g., "PAIN - smarting", "PAIN - soreness").
    - Immediately reset the active path to "MAIN_RUBRIC - <flush_left_rubric_name>"! NEVER nest a flush-left rubric as a sub-item of a continuation header!
-   - Example output when "soreness:" appears flush left:
-     - Line "soreness: Æsc..." -> "PAIN - soreness"
-     - Line indented "morning: Thuj." -> "PAIN - soreness - morning" (NOT "PAIN - shooting - soreness - morning"!)
-     - Line indented "sitting, while: Mag-c." -> "PAIN - soreness - sitting, while"
 
-7. MEDICINES & STRICT 3-TIER CLINICAL TYPOGRAPHY GRADING (CRITICAL):
+8. MEDICINES & STRICT 3-TIER CLINICAL TYPOGRAPHY GRADING (CRITICAL):
    - DO NOT DEFAULT THE FIRST REMEDY ON A LINE TO GRADE 3! Capitalization at the beginning of a line or after a colon does NOT equal Bold.
    - Inspect the visual font weight of EVERY remedy abbreviation carefully:
      * GRADE 3 = HEAVY BOLD TEXT ONLY. The letters are visibly THICKER and DARKER than surrounding text. Example bold remedies in Kent: "Sulph", "Calc", "Lyc", "Mag-c", "Crot-t", "Podo", "Caust", "Graph", "Nat-m", "Nux-v", "Puls", "Tabac". If unsure whether a remedy is Bold or Italic, prefer Grade 2 over Grade 3.
@@ -428,7 +425,7 @@ ${contextInstruction}
        {"name": "bar-c,nux-v,sulph", "grading": 1}
      ]
 
-8. STANDALONE CROSS-REFERENCES:
+9. STANDALONE CROSS-REFERENCES:
    - Skip ONLY lines that contain NO remedies and ONLY a cross reference. If a line contains medicines, extract the sub-rubric with all its remedies!
 
 --- OUTPUT FORMAT ---
@@ -511,19 +508,8 @@ const parseImageToStructuredJson = async (imagePath) => {
       const chapRegex = new RegExp(`^${chapterName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*-\\s*`, 'i');
       clean = clean.replace(chapRegex, '');
     }
-    clean = clean.replace(/^(?:\[CHAPTER\]|CHAPTER|[A-Z]{3,})\s*-\s*/i, (match) => {
-      const prefix = match.replace(/\s*-\s*$/, '').trim().toUpperCase();
-      // KNOWN_CHAPTERS: these are chapter-level headings whose prefix should be
-      // stripped from rubric_en (chapter is stored separately in chapter_en).
-      // DO NOT include valid Main Rubrics like HANDS, HEADLESS, HAIR here —
-      // those must be preserved as the first segment of rubric_en.
-      const KNOWN_CHAPTERS = ['RECTUM', 'MIND', 'HEAD', 'EYE', 'EAR', 'NOSE', 'FACE', 'MOUTH', 'THROAT', 'STOMACH', 'ABDOMEN', 'STOOL', 'URINARY', 'GENITALIA', 'RESPIRATION', 'COUGH', 'CHEST', 'BACK', 'EXTREMITIES', 'SLEEP', 'FEVER', 'SKIN', 'GENERALITIES', 'CHAPTER', '[CHAPTER]'];
-      if (KNOWN_CHAPTERS.includes(prefix)) {
-        return '';
-      }
-      // Rubrics like HANDS, HEADLESS, HAIR are valid main rubrics — do not strip!
-      return match;
-    });
+    // Remove literal "[CHAPTER] -" or "CHAPTER -" prefixes hallucinated by AI
+    clean = clean.replace(/^(?:\[CHAPTER\]|CHAPTER)\s*-\s*/i, '');
     return clean.trim();
   };
 
@@ -534,7 +520,6 @@ const parseImageToStructuredJson = async (imagePath) => {
       const chapRegex = new RegExp(`^${chapterHindi.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*-\\s*`, 'i');
       clean = clean.replace(chapRegex, '');
     }
-    clean = clean.replace(/^(?:मलाशय|मन|सिर|आंख|कान|नाक|चेहरा|मुंह|गला|पेट|उदर|मल|मूत्र|जननांग|श्वसन|खांसी|छाती|पीठ|अंग|नींद|बुखार|त्वचा|सामान्यएं)\s*-\s*/i, '');
     return clean.trim();
   };
 
@@ -586,10 +571,13 @@ const parseImageToStructuredJson = async (imagePath) => {
         // Row contains a valid ALL-CAPS main rubric — update tracker
         activeMainRubric = detectedMainRubric;
       } else if (firstPart && activeMainRubric) {
-        // Row has NO ALL-CAPS prefix — check if it starts with an anatomical location
-        // (e.g. "Forehead", "Occiput") that should be attached to the active main rubric
-        const firstLower = firstPart.toLowerCase();
-        if (ANATOMICAL_KEYWORDS.some(k => firstLower.startsWith(k))) {
+        if (firstPart.toUpperCase() === activeMainRubric.toUpperCase()) {
+          // AI outputted main rubric in lowercase/titlecase (e.g. "pain - smarting")
+          // Replace lowercase firstPart with activeMainRubric (e.g. "PAIN - smarting")
+          parts[0] = activeMainRubric;
+          rubric_en = parts.join(' - ');
+        } else {
+          // Row has NO main rubric prefix — anchor sub-rubric/sub-sub-rubric under activeMainRubric
           rubric_en = `${activeMainRubric} - ${rubric_en}`;
         }
       }
@@ -672,9 +660,9 @@ const parseImageToStructuredJson = async (imagePath) => {
     const quadrantsToRun = quadrants && quadrants.length === 4
       ? quadrants
       : [
-          { path: leftCropPath, hint: 'left' },
-          { path: rightCropPath, hint: 'right' }
-        ];
+        { path: leftCropPath, hint: 'left' },
+        { path: rightCropPath, hint: 'right' }
+      ];
 
     let lastRubricContext = '';
 
