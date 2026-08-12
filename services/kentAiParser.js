@@ -554,6 +554,8 @@ const parseImageToStructuredJson = async (imagePath) => {
     }
     const currentChapter = mainChapter || detectedChapter || 'UNKNOWN';
 
+    const ALL_CHAPTERS = new Set(['MIND', 'HEAD', 'EYE', 'EAR', 'NOSE', 'FACE', 'MOUTH', 'THROAT', 'STOMACH', 'ABDOMEN', 'RECTUM', 'STOOL', 'URINARY', 'GENITALIA', 'RESPIRATION', 'COUGH', 'CHEST', 'BACK', 'EXTREMITIES', 'SLEEP', 'FEVER', 'SKIN', 'GENERALITIES']);
+
     for (const group of (rows || [])) {
       let rubric_en = cleanRubricPath(group.rubric_en || '', currentChapter);
       let rubric_hi = cleanHindiRubricPath(group.rubric_hi || '', '');
@@ -565,7 +567,15 @@ const parseImageToStructuredJson = async (imagePath) => {
       let detectedMainRubric = '';
       for (const seg of parts) {
         const word = extractMainRubricWord(seg);
-        if (word) { detectedMainRubric = word; break; }
+        if (word && !ALL_CHAPTERS.has(word)) { 
+          detectedMainRubric = word; 
+          break; 
+        }
+      }
+
+      // If the AI hallucinated the chapter as the only text on the line, skip processing this as a rubric entirely
+      if (parts.length === 1 && ALL_CHAPTERS.has(extractMainRubricWord(parts[0]))) {
+        continue;
       }
 
       if (detectedMainRubric) {
