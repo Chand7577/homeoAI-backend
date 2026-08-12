@@ -8,89 +8,101 @@ const { promisify } = require('util');
 const execFileAsync = promisify(execFile);
 
 /**
- * Get total page count of a PDF using pdftoppm -l trick (pdfinfo preferred).
- * Falls back to running pdftoppm on a dummy range and counting output files.
+ * Convert a single PDF page to a PNG image using pdftoppm.
+ * Converting one page at a time avoids SIGTERM on memory-constrained hosts (e.g. Render free tier).
  *
- * @param {string} pdfPath - Absolute path to the PDF file
- * @returns {Promise<number>} - Total number of pages
+ * @param {string} pdfPath   - Absolute path to the PDF
+ * @param {string} outputDir - Directory to save PNG files
+ * @param {number} pageNum   - Page number to convert (1-indexed)
+ * @param {number} dpi       - Resolution (default 150 — good balance of quality vs memory)
+ * @returns {Promise<string|null>} - Absolute path to generated PNG, or null on failure
  */
-const getPdfPageCount = async (pdfPath) => {
+const convertSinglePageToImage = async (pdfPath, outputDir, pageNum, dpi = 150) => {
+  await fs.ensureDir(outputDir);
+
+  // Use per-page prefix so files don't collide: page-0001-000001.png → rename to page-0001.png
+  const prefix = path.join(outputDir, `page-${String(pageNum).padStart(4, '0')}`);
+
+  const args = [
+    '-r', String(dpi),
+    '-png',
+    '-f', String(pageNum),
+    '-l', String(pageNum),
+    '-singlefile',          // Output one file without the page-number suffix
+    pdfPath,
+    prefix
+  ];
+
   try {
-    // Try pdfinfo first (fastest)
-    const { stdout } = await execFileAsync('pdfinfo', [pdfPath]);
-    const match = stdout.match(/Pages:\s+(\d+)/);
-    if (match) return parseInt(match[1], 10);
-  } catch (_) {
-    // pdfinfo not available — fall back to pdftoppm count
+    await execFileAsync('pdftoppm', args, {
+      timeout: 60 * 1000,       // 1 min per page is more than enough
+      maxBuffer: 30 * 1024 * 1024
+    });
+  } catch (err) {
+    const detail = (err.stderr || err.stdout || '').trim();
+    const reason = detail || err.message;
+    console.error(`[PDF→Image] Page ${pageNum} failed: ${reason}`);
+    return null; // Skip bad pages rather than crashing the whole job
   }
 
-  // Fallback: convert first page only and check if it works, then use pdftoppm -l 99999
-  try {
-    const { stdout } = await execFileAsync('pdftoppm', ['-l', '1', '-r', '1', '-png', pdfPath, '/dev/null'], {
-      timeout: 10000
-    });
-  } catch (_) {}
+  // pdftoppm -singlefile writes <prefix>.png
+  const expectedFile = `${prefix}.png`;
+  if (await fs.pathExists(expectedFile)) {
+    return expectedFile;
+  }
 
-  // Last resort: run pdfinfo via gs
-  throw new Error('Cannot determine PDF page count. Make sure pdfinfo (poppler) is installed.');
+  // Some builds of pdftoppm ignore -singlefile — fall back to scanning for the file
+  const dir = path.dirname(prefix);
+  const base = path.basename(prefix);
+  const files = await fs.readdir(dir);
+  const match = files.find(f => f.startsWith(base) && f.endsWith('.png'));
+  if (match) return path.join(dir, match);
+
+  console.warn(`[PDF→Image] Page ${pageNum}: no output file found.`);
+  return null;
 };
 
 /**
- * Convert a range of PDF pages to PNG images using pdftoppm.
- * pdftoppm outputs files named: <prefix>-000001.png, <prefix>-000002.png, etc.
+ * Convert a range of PDF pages to PNG images, one page at a time.
+ * This avoids SIGTERM kills caused by converting all pages in a single pdftoppm call.
  *
  * @param {string} pdfPath    - Absolute path to the PDF
  * @param {string} outputDir  - Directory to save PNG files
  * @param {number} firstPage  - First page to convert (1-indexed)
  * @param {number} lastPage   - Last page to convert (1-indexed, inclusive)
- * @param {number} dpi        - Resolution (default 200 dpi — good for Tesseract, low memory)
- * @returns {Promise<string[]>} - Sorted array of absolute paths to generated PNG files
+ * @param {number} dpi        - Resolution (default 150 dpi)
+ * @returns {Promise<string[]>} - Sorted array of absolute paths to successfully generated PNG files
  */
-const convertPdfPagesToImages = async (pdfPath, outputDir, firstPage = 1, lastPage = null, dpi = 200) => {
+const convertPdfPagesToImages = async (pdfPath, outputDir, firstPage = 1, lastPage = null, dpi = 150) => {
   await fs.ensureDir(outputDir);
 
-  const prefix = path.join(outputDir, 'page');
+  const endPage = lastPage || firstPage; // Caller should always pass both
+  console.log(`[PDF→Images] Converting pages ${firstPage}–${endPage} one-by-one at ${dpi} DPI...`);
 
-  const args = [
-    '-r', String(dpi),       // DPI / resolution
-    '-png',                   // Output format PNG (lossless, better for OCR)
-    '-f', String(firstPage),  // First page
-  ];
+  const pageImages = [];
+  let failedCount = 0;
 
-  if (lastPage) {
-    args.push('-l', String(lastPage));
+  for (let page = firstPage; page <= endPage; page++) {
+    const imgPath = await convertSinglePageToImage(pdfPath, outputDir, page, dpi);
+    if (imgPath) {
+      pageImages.push(imgPath);
+    } else {
+      failedCount++;
+    }
   }
 
-  args.push(pdfPath, prefix);
+  console.log(`[PDF→Images] Done. ${pageImages.length} pages converted, ${failedCount} failed/skipped.`);
 
-  console.log(`[PDF→Images] Running pdftoppm pages ${firstPage}–${lastPage || 'end'} at ${dpi} DPI...`);
-
-  try {
-    await execFileAsync('pdftoppm', args, {
-      timeout: 5 * 60 * 1000, // 5 min max for large batches
-      maxBuffer: 50 * 1024 * 1024
-    });
-  } catch (err) {
-    // Surface pdftoppm's own stderr so the real reason is visible in logs
-    const detail = (err.stderr || err.stdout || '').trim();
-    throw new Error(`pdftoppm failed (pages ${firstPage}–${lastPage || 'end'}): ${detail || err.message}`);
+  if (pageImages.length === 0) {
+    throw new Error(`All ${endPage - firstPage + 1} pages failed to convert. The PDF may be corrupt, encrypted, or unsupported.`);
   }
 
-  // Collect and sort all generated PNG files
-  const files = await fs.readdir(outputDir);
-  const pageImages = files
-    .filter(f => f.startsWith('page-') && f.endsWith('.png'))
-    .sort() // Alphabetical sort preserves page order (zero-padded numbers)
-    .map(f => path.join(outputDir, f));
-
-  console.log(`[PDF→Images] Generated ${pageImages.length} page images.`);
-  return pageImages;
+  return pageImages.sort(); // Ensure consistent order
 };
 
 /**
- * Get PDF page count using pdftoppm by probing (no pdfinfo needed).
- * Converts page 1 to get the output file naming, then runs full count via pdftoppm -l 9999
- * and checks how many files were actually created.
+ * Get PDF page count.
+ * Tries pdfinfo first (fast), falls back to pdftoppm probe (converts at 10 DPI page-by-page).
  *
  * @param {string} pdfPath - Path to PDF
  * @param {string} tempDir - Temp dir for probe images
@@ -110,7 +122,7 @@ const getPdfPageCountViaPdftoppm = async (pdfPath, tempDir) => {
     console.warn('[PDF] pdfinfo not available, falling back to pdftoppm probe...');
   }
 
-  // ── Fallback: convert at 1 DPI (tiny, fast) to count output files ──
+  // ── Fallback: convert at very low DPI to count pages ──
   const probeDir = path.join(tempDir, `probe_${Date.now()}`);
   await fs.ensureDir(probeDir);
   const prefix = path.join(probeDir, 'pg');
@@ -118,23 +130,27 @@ const getPdfPageCountViaPdftoppm = async (pdfPath, tempDir) => {
   try {
     await execFileAsync('pdftoppm', ['-r', '10', '-png', pdfPath, prefix], {
       timeout: 60000,
-      maxBuffer: 50 * 1024 * 1024
+      maxBuffer: 30 * 1024 * 1024
     });
   } catch (err) {
     const detail = (err.stderr || '').trim();
     console.warn(`[PDF] pdftoppm probe error (may be partial): ${detail || err.message}`);
-    // Fall through — check whatever files were created
+    // Fall through — count whatever files were created
   }
 
   const files = (await fs.readdir(probeDir)).filter(f => f.endsWith('.png'));
   await fs.remove(probeDir);
 
-  if (files.length === 0) throw new Error('pdftoppm probe produced no output — is the PDF valid and not password-protected?');
+  if (files.length === 0) {
+    throw new Error('pdftoppm probe produced no output — is the PDF valid and not password-protected?');
+  }
+
   console.log(`[PDF] pdftoppm probe counted ${files.length} pages.`);
   return files.length;
 };
 
 module.exports = {
+  convertSinglePageToImage,
   convertPdfPagesToImages,
   getPdfPageCountViaPdftoppm,
 };
