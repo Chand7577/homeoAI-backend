@@ -508,6 +508,18 @@ const parseImageToStructuredJson = async (imagePath) => {
       const chapRegex = new RegExp(`^${chapterName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*-\\s*`, 'i');
       clean = clean.replace(chapRegex, '');
     }
+    
+    // Aggressively strip any known chapter prefix, in case the AI hallucinated it
+    // and currentChapter was UNKNOWN or mismatched.
+    const ALL_CHAPTERS = ['MIND', 'HEAD', 'EYE', 'EAR', 'NOSE', 'FACE', 'MOUTH', 'THROAT', 'STOMACH', 'ABDOMEN', 'RECTUM', 'STOOL', 'URINARY', 'GENITALIA', 'RESPIRATION', 'COUGH', 'CHEST', 'BACK', 'EXTREMITIES', 'SLEEP', 'FEVER', 'SKIN', 'GENERALITIES'];
+    for (const chap of ALL_CHAPTERS) {
+      const chapRegex = new RegExp(`^${chap}\\s*-\\s*`, 'i');
+      if (chapRegex.test(clean)) {
+        clean = clean.replace(chapRegex, '');
+        break;
+      }
+    }
+
     // Remove literal "[CHAPTER] -" or "CHAPTER -" prefixes hallucinated by AI
     clean = clean.replace(/^(?:\[CHAPTER\]|CHAPTER)\s*-\s*/i, '');
     return clean.trim();
