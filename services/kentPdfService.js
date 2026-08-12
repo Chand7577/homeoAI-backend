@@ -65,10 +65,16 @@ const convertPdfPagesToImages = async (pdfPath, outputDir, firstPage = 1, lastPa
 
   console.log(`[PDF→Images] Running pdftoppm pages ${firstPage}–${lastPage || 'end'} at ${dpi} DPI...`);
 
-  await execFileAsync('pdftoppm', args, {
-    timeout: 5 * 60 * 1000, // 5 min max for large batches
-    maxBuffer: 50 * 1024 * 1024
-  });
+  try {
+    await execFileAsync('pdftoppm', args, {
+      timeout: 5 * 60 * 1000, // 5 min max for large batches
+      maxBuffer: 50 * 1024 * 1024
+    });
+  } catch (err) {
+    // Surface pdftoppm's own stderr so the real reason is visible in logs
+    const detail = (err.stderr || err.stdout || '').trim();
+    throw new Error(`pdftoppm failed (pages ${firstPage}–${lastPage || 'end'}): ${detail || err.message}`);
+  }
 
   // Collect and sort all generated PNG files
   const files = await fs.readdir(outputDir);
@@ -91,36 +97,40 @@ const convertPdfPagesToImages = async (pdfPath, outputDir, firstPage = 1, lastPa
  * @returns {Promise<number>}
  */
 const getPdfPageCountViaPdftoppm = async (pdfPath, tempDir) => {
-  const probeDir = path.join(tempDir, `probe_${Date.now()}`);
-  await fs.ensureDir(probeDir);
-
+  // ── Try pdfinfo first (fastest, most reliable) ──
   try {
-    // Try pdfinfo first (much faster)
-    const { stdout } = await execFileAsync('pdfinfo', [pdfPath]);
+    const { stdout } = await execFileAsync('pdfinfo', [pdfPath], { timeout: 10000 });
     const match = stdout.match(/Pages:\s+(\d+)/);
     if (match) {
-      await fs.remove(probeDir);
-      return parseInt(match[1], 10);
+      const count = parseInt(match[1], 10);
+      console.log(`[PDF] pdfinfo reports ${count} pages.`);
+      return count;
     }
   } catch (_) {
-    // pdfinfo not available
+    console.warn('[PDF] pdfinfo not available, falling back to pdftoppm probe...');
   }
 
-  // Fallback: convert with high -l limit and count actual files produced
+  // ── Fallback: convert at 1 DPI (tiny, fast) to count output files ──
+  const probeDir = path.join(tempDir, `probe_${Date.now()}`);
+  await fs.ensureDir(probeDir);
   const prefix = path.join(probeDir, 'pg');
+
   try {
-    await execFileAsync('pdftoppm', ['-r', '10', '-png', '-l', '9999', pdfPath, prefix], {
-      timeout: 30000,
+    await execFileAsync('pdftoppm', ['-r', '10', '-png', pdfPath, prefix], {
+      timeout: 60000,
       maxBuffer: 50 * 1024 * 1024
     });
-  } catch (_) {
-    // Ignore errors — some pages still converted
+  } catch (err) {
+    const detail = (err.stderr || '').trim();
+    console.warn(`[PDF] pdftoppm probe error (may be partial): ${detail || err.message}`);
+    // Fall through — check whatever files were created
   }
 
   const files = (await fs.readdir(probeDir)).filter(f => f.endsWith('.png'));
   await fs.remove(probeDir);
 
-  if (files.length === 0) throw new Error('pdftoppm produced no output — is the PDF valid?');
+  if (files.length === 0) throw new Error('pdftoppm probe produced no output — is the PDF valid and not password-protected?');
+  console.log(`[PDF] pdftoppm probe counted ${files.length} pages.`);
   return files.length;
 };
 
