@@ -550,12 +550,21 @@ const parseImageToStructuredJson = async (imagePath) => {
 
   const extractMainRubricWord = (segment) => {
     if (!segment) return '';
-    const bare = segment.split(/[,.(]/)[0].trim();
+    const bare = segment.split(/[,.(:]/)[0].trim();
     if (bare.length >= 3 && bare === bare.toUpperCase() && /^[A-Z]/.test(bare)) {
       return bare;
     }
     return '';
   };
+
+  const KNOWN_CHILD_MODIFIERS = new Set([
+    'amel.', 'agg.', 'lead, containing', 'sour', 'sulphurous',
+    'cold water, amel.', 'while sweating', 'feet, from wetting',
+    'head, from wetting', 'wind, from exposure to', 'cloudy',
+    'cold', 'damp, cold', 'dry, cold', 'warm, begins with the',
+    'windy, stormy, from', 'wet, from getting', 'riding in',
+    'east', 'rough', 'wct, from getting'
+  ]);
 
   const addResults = (rows, detectedChapter) => {
     // Lock chapter to page running header (ignore hallucinated chapters like TEETH)
@@ -570,9 +579,11 @@ const parseImageToStructuredJson = async (imagePath) => {
       let rubric_en = cleanRubricPath(group.rubric_en || '', currentChapter);
       let rubric_hi = cleanHindiRubricPath(group.rubric_hi || '', '');
 
-      // Guardrail: Reset active continuation sub-rubrics if an explicit main rubric or new Level 1 rubric is detected
+      // Normalize continuation headers like "PAIN, weather" -> "PAIN - weather"
+      rubric_en = rubric_en.replace(/^([A-Z]{3,})\s*,\s*([a-zA-Z0-9_,\s]+?)(?=\s*-\s*|$)/, '$1 - $2');
+
       const parts = rubric_en.split(/\s*-\s*/).map(p => p.trim()).filter(Boolean);
-      const firstPart = parts[0] || '';
+      if (parts.length === 0) continue;
 
       let detectedMainRubric = '';
       for (const seg of parts) {
@@ -583,19 +594,40 @@ const parseImageToStructuredJson = async (imagePath) => {
         }
       }
 
-      // If the AI hallucinated the chapter as the only text on the line, skip processing this as a rubric entirely
+      // If the AI hallucinated the chapter as the only text on the line, skip processing
       if (parts.length === 1 && ALL_CHAPTERS.has(extractMainRubricWord(parts[0]))) {
         continue;
       }
 
       if (detectedMainRubric) {
         activeMainRubric = detectedMainRubric;
-      } else if (firstPart && activeMainRubric) {
-        if (firstPart.toUpperCase() === activeMainRubric.toUpperCase()) {
+      } else if (activeMainRubric) {
+        if (parts[0] && parts[0].toUpperCase() === activeMainRubric.toUpperCase()) {
           parts[0] = activeMainRubric;
-          rubric_en = parts.join(' - ');
         } else {
-          rubric_en = `${activeMainRubric} - ${rubric_en}`;
+          parts.unshift(activeMainRubric);
+        }
+        rubric_en = parts.join(' - ');
+      } else if (!activeMainRubric && currentChapter === 'HEAD') {
+        // Default active main rubric for HEAD chapter PAIN section
+        activeMainRubric = 'PAIN';
+        parts.unshift(activeMainRubric);
+        rubric_en = parts.join(' - ');
+      }
+
+      // Re-anchor sub-rubrics and child modifiers under activeSubRubric
+      if (parts.length >= 2 && parts[0] === activeMainRubric) {
+        const level1 = parts[1];
+        const level1Clean = level1.replace(/[:.]/g, '').trim().toLowerCase();
+        const isKnownChild = KNOWN_CHILD_MODIFIERS.has(level1Clean) || level1Clean === 'amel.' || level1Clean === 'agg.';
+
+        if (isKnownChild && activeSubRubric && !rubric_en.toLowerCase().includes(activeSubRubric.toLowerCase())) {
+          parts.splice(1, 0, activeSubRubric);
+          rubric_en = parts.join(' - ');
+        } else if (!isKnownChild && parts.length === 2) {
+          activeSubRubric = level1;
+        } else if (parts.length >= 3) {
+          activeSubRubric = parts[1];
         }
       }
 
