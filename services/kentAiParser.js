@@ -829,11 +829,18 @@ const postProcessHindiMedicalTerms = (str) => {
   return str
     .replace(/\bamel\./gi, 'घटता है')
     .replace(/\bamel\b/gi, 'घटता है')
-    .replace(/\bअमेल।?/gi, 'घटता है')
-    .replace(/\bअमल।?/gi, 'घटता है')
+    .replace(/\bamcl\./gi, 'घटता है') // OCR typo for amel.
+    .replace(/\bamcl\b/gi, 'घटता है') // OCR typo for amel.
+    // Remove \b for Hindi words because \b only works for ASCII \w characters
+    .replace(/(?:^|\s)अमेल(?:।|\.|\b)?/gi, ' घटता है')
+    .replace(/(?:^|\s)आमेल(?:।|\.|\b)?/gi, ' घटता है')
+    .replace(/(?:^|\s)अमल(?:।|\.|\b)?/gi, ' घटता है')
+    .replace(/(?:^|\s)एएमसीएल(?:।|\.|\b)?/gi, ' घटता है') // OCR typo translation
     .replace(/\bagg\./gi, 'बढ़ता है')
     .replace(/\bagg\b/gi, 'बढ़ता है')
-    .replace(/\bएजीजी।?/gi, 'बढ़ता है');
+    .replace(/(?:^|\s)एजीजी(?:।|\.|\b)?/gi, ' बढ़ता है')
+    .replace(/\s+/g, ' ')
+    .trim();
 };
 
 const ensureHindiTranslation = (enText, currentHi) => {
