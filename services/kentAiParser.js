@@ -192,55 +192,41 @@ const splitImageForAi = async (imagePath) => {
     const ext = path.extname(imagePath) || '.jpg';
     const base = path.basename(imagePath, ext);
 
-    const tlCropPath = path.join(dir, `${base}_ai_tl${ext}`);
-    const blCropPath = path.join(dir, `${base}_ai_bl${ext}`);
-    const trCropPath = path.join(dir, `${base}_ai_tr${ext}`);
-    const brCropPath = path.join(dir, `${base}_ai_br${ext}`);
+    const leftCropPath = path.join(dir, `${base}_ai_left${ext}`);
+    const rightCropPath = path.join(dir, `${base}_ai_right${ext}`);
 
-    const halfWidth = Math.floor(width * 0.55);
-    const rightStart = Math.floor(width * 0.45);
-    const halfHeight = Math.floor(height * 0.55);
-    const bottomStart = Math.floor(height * 0.45);
+    // Left column takes 0%..53% width, full height (0..height)
+    // Right column takes 47%..100% width, full height (0..height)
+    const leftWidth = Math.floor(width * 0.53);
+    const rightStart = Math.floor(width * 0.47);
 
     await sharp(imagePath)
-      .extract({ left: 0, top: 0, width: halfWidth, height: halfHeight })
+      .extract({ left: 0, top: 0, width: leftWidth, height: height })
       .jpeg({ quality: 95 })
-      .toFile(tlCropPath);
+      .toFile(leftCropPath);
 
     await sharp(imagePath)
-      .extract({ left: 0, top: bottomStart, width: halfWidth, height: height - bottomStart })
+      .extract({ left: rightStart, top: 0, width: width - rightStart, height: height })
       .jpeg({ quality: 95 })
-      .toFile(blCropPath);
-
-    await sharp(imagePath)
-      .extract({ left: rightStart, top: 0, width: width - rightStart, height: halfHeight })
-      .jpeg({ quality: 95 })
-      .toFile(trCropPath);
-
-    await sharp(imagePath)
-      .extract({ left: rightStart, top: bottomStart, width: width - rightStart, height: height - bottomStart })
-      .jpeg({ quality: 95 })
-      .toFile(brCropPath);
+      .toFile(rightCropPath);
 
     return {
-      quadrants: [
-        { path: tlCropPath, hint: 'top-left' },
-        { path: blCropPath, hint: 'bottom-left' },
-        { path: trCropPath, hint: 'top-right' },
-        { path: brCropPath, hint: 'bottom-right' }
+      columns: [
+        { path: leftCropPath, hint: 'left' },
+        { path: rightCropPath, hint: 'right' }
       ],
-      leftCropPath: tlCropPath,
-      rightCropPath: trCropPath,
+      leftCropPath,
+      rightCropPath,
       cleanup: () => {
-        [tlCropPath, blCropPath, trCropPath, brCropPath].forEach(p => {
+        [leftCropPath, rightCropPath].forEach(p => {
           try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch (_) { }
         });
       }
     };
   } catch (err) {
-    console.warn(`[Kent AI Parser] Sharp quadrant crop warning: ${err.message}`);
+    console.warn(`[Kent AI Parser] Sharp column crop warning: ${err.message}`);
     return {
-      quadrants: [{ path: imagePath, hint: 'all' }],
+      columns: [{ path: imagePath, hint: 'all' }],
       leftCropPath: imagePath,
       rightCropPath: imagePath,
       cleanup: () => { }
@@ -390,34 +376,58 @@ ${contextInstruction}
      --> rubric_en: "AIR - open, in - amel."
    - NEVER emit an orphaned sub-rubric like "pressing - evening" without its parent Main Rubric ("PAIN")!
 
-4. QUALIFIERS BEFORE COLONS & SUB-MODIFIERS (amel., agg., etc.):
+4. INDENTED SUB-RUBRICS UNDER QUALIFIERS (CRITICAL PARENT RETENTION RULE):
+   - When a sub-rubric (e.g., "wine, from:", "work, from:", "slowly, while:", "washing, from:", "wet, from getting:", "wind, from exposure to:") has indented child sub-rubrics beneath it (such as "amel.:", "lead, containing:", "sour:", "sulphurous:", "cold water, amel.:", "while sweating:"), EVERY child entry MUST preserve its parent sub-rubric in the path!
+   - Example A (under PAIN -> wine, from:):
+     * "wine, from:" -> rubric_en: "PAIN - wine, from"
+     * "amel.:" -> rubric_en: "PAIN - wine, from - amel."
+     * "lead, containing:" -> rubric_en: "PAIN - wine, from - lead, containing"
+     * "sour:" -> rubric_en: "PAIN - wine, from - sour"
+     * "sulphurous:" -> rubric_en: "PAIN - wine, from - sulphurous"
+   - Example B (under PAIN -> work, from:):
+     * "work, from:" -> rubric_en: "PAIN - work, from"
+     * "amel.:" -> rubric_en: "PAIN - work, from - amel."
+   - Example C (under PAIN -> slowly, while:):
+     * "slowly, while:" -> rubric_en: "PAIN - slowly, while"
+     * "amel.:" -> rubric_en: "PAIN - slowly, while - amel."
+   - Example D (under PAIN -> washing, from:):
+     * "washing, from:" -> rubric_en: "PAIN - washing, from"
+     * "cold water, amel.:" -> rubric_en: "PAIN - washing, from - cold water, amel."
+   - NEVER drop "wine, from", "work, from", "slowly, while", or "washing, from" when building the rubric path for their indented sub-items!
+
+5. MULTILINE VISUAL WRAPPING (PREVENT SPLITTING):
+   - A single rubric description can wrap across multiple printed lines in the column.
+   - If line breaks occur WITHOUT a colon (:) at the end of the line, it is a single wrapped rubric description.
+   - Example: "mist before eyes; then fleeting pains, agg. at occipital protuberance, down neck and shoulders, amel. lying in a dark, quiet place, and from sleep: Podo." MUST be extracted as ONE single rubric entry ("PAIN - mist before eyes; then fleeting pains, agg. at occipital protuberance, down neck and shoulders, amel. lying in a dark, quiet place, and from sleep"). Do NOT split it into separate lines like "at occipital protuberance", "down neck and shoulders", etc.!
+
+6. QUALIFIERS BEFORE COLONS & SUB-MODIFIERS (amel., agg., etc.):
    - Text before colon (:) is a sub-rubric/qualifier.
    - MANDATORY SUB-MODIFIER INCLUSION: When a line under a rubric (like "AIR, open, in:") is indented and starts with "amel.:" or "agg.:", you MUST append "- amel." or "- agg." to the active rubric path (e.g. "AIR - open, in - amel.").
    - NEVER drop qualifiers like "amel.", "agg.", "downward, outward, etc.", "bed, in", "sitting, while", "smarting", "soreness"!
 
-5. SUB-RUBRICS WITH PARENTHETICAL NOTES & COMPARISONS:
+7. SUB-RUBRICS WITH PARENTHETICAL NOTES & COMPARISONS:
    - Whenever a line includes parenthetical notes or comparisons like 'smarting (compare "burning"):', e.g.:
      "smarting (compare 'burning'): Æsc., æth., aloe..."
    - You MUST extract "smarting" as a RUBRIC / SUB-RUBRIC under the parent rubric! (Target path: "PAIN - smarting").
    - NEVER drop the rubric title "smarting" and dump remedies into a previous header like "PAIN - shooting"!
 
-6. FULL RUBRIC PATH SYNTAX (DO NOT INCLUDE CHAPTER NAME IN RUBRIC_EN):
+8. FULL RUBRIC PATH SYNTAX (DO NOT INCLUDE CHAPTER NAME IN RUBRIC_EN):
    Format: "MAIN RUBRIC - subrubric - subsubrubric" (DO NOT prefix with Chapter Name! Chapter is stored separately in chapter_en.)
 
-7. COLUMN CONTINUATION HEADERS & GENERALIZED MARGIN RESET (PREVENT CONTINUATION CONTAMINATION):
-   - At the top of a column, a header like "PAIN, shooting." or "PAIN, pressing, evening." is a continuation header from the previous column/page.
-   - Continuation headers ONLY apply to items physically INDENTED beneath them (e.g. "evening: Sulph.", "itching: Sulph.", "extending to penis: Carl.").
-   - UNIVERSAL MARGIN RESET RULE: As soon as any line appears whose text starts FLUSH WITH THE LEFT MARGIN of the column (e.g., "smarting", "soreness", "rasping", "rawness", "scraping"), it is a NEW SIBLING RUBRIC at Level 1 under the main section (e.g., "PAIN - smarting", "PAIN - soreness").
+9. COLUMN CONTINUATION HEADERS & GENERALIZED MARGIN RESET (PREVENT CONTINUATION CONTAMINATION):
+   - At the top of a column, a header like "PAIN, weather." or "PAIN, shooting." is a continuation header from the previous column/page.
+   - Continuation headers ONLY apply to items physically INDENTED beneath them (e.g. "warm, begins with the: Glon., nat-s.", "windy, stormy, from: ...", "wet, from getting: ...").
+   - UNIVERSAL MARGIN RESET RULE: As soon as any line appears whose text starts FLUSH WITH THE LEFT MARGIN of the column (e.g., "wine, from:", "winking agg.:", "winter headaches:", "work, from:"), it is a NEW SIBLING SUB-RUBRIC at Level 1 under the main section (e.g., "PAIN - wine, from", "PAIN - winking agg.").
    - Immediately reset the active path to "MAIN_RUBRIC - <flush_left_rubric_name>"! NEVER nest a flush-left rubric as a sub-item of a continuation header!
 
-8. MEDICINES & STRICT 3-TIER CLINICAL TYPOGRAPHY GRADING (CRITICAL):
+10. MEDICINES & STRICT 3-TIER CLINICAL TYPOGRAPHY GRADING (CRITICAL):
    - DO NOT DEFAULT THE FIRST REMEDY ON A LINE TO GRADE 3! Capitalization at the beginning of a line or after a colon does NOT equal Bold.
    - Inspect the visual font weight of EVERY remedy abbreviation carefully:
-     * GRADE 3 = HEAVY BOLD TEXT ONLY. The letters are visibly THICKER and DARKER than surrounding text. Example bold remedies in Kent: "Sulph", "Calc", "Lyc", "Mag-c", "Crot-t", "Podo", "Caust", "Graph", "Nat-m", "Nux-v", "Puls", "Tabac". If unsure whether a remedy is Bold or Italic, prefer Grade 2 over Grade 3.
-     * GRADE 2 = ITALIC TEXT. The letters are SLANTED/OBLIQUE. Italics can be CAPITALIZED ("Agar", "Glon", "Ambr", "Nit-ac", "Cimic", "Aur", "Thuj", "Camph", "Grat", "Eug", "Ol-an", "Apis", "Lac-ac", "Aloe", "Ign", "Kali-c", "Bar-c", "Lach", "Ox-ac", "Absin", "Chel") OR lowercase-italic ("agar", "apis", "arn", "ars", "calc", "carb-v", "dios", "hep", "kali-bi", "lil-t", "mur-ac", "phos", "rhus-t", "sep", "sul-ac", "thuj").
+     * GRADE 3 = HEAVY BOLD TEXT ONLY. The letters are visibly THICKER and DARKER than surrounding text. Example bold remedies in Kent: "Sulph", "Calc", "Lyc", "Mag-c", "Crot-t", "Podo", "Caust", "Graph", "Nat-m", "Nux-v", "Puls", "Tabac", "Gels", "Sep", "Rhus-t", "Nux-m", "Dulc". If unsure whether a remedy is Bold or Italic, prefer Grade 2 over Grade 3.
+     * GRADE 2 = ITALIC TEXT. The letters are SLANTED/OBLIQUE. Italics can be CAPITALIZED ("Agar", "Glon", "Ambr", "Nit-ac", "Cimic", "Aur", "Thuj", "Camph", "Grat", "Eug", "Ol-an", "Apis", "Lac-ac", "Aloe", "Ign", "Kali-c", "Bar-c", "Lach", "Ox-ac", "Absin", "Chel", "Bell", "Chin", "Hipp", "Alum", "Podo") OR lowercase-italic ("agar", "apis", "arn", "ars", "calc", "carb-v", "dios", "hep", "kali-bi", "lil-t", "mur-ac", "phos", "rhus-t", "sep", "sul-ac", "thuj").
        --> CRITICAL MANDATE: ALL SLANTED/ITALIC TEXT — WHETHER CAPITALIZED OR NOT — MUST BE GRADED AS 2. NEVER GRADE ITALICS AS 1!
        --> IMPORTANT: The FIRST remedy printed after a rubric colon (:) is very commonly in ITALIC (Grade 2) — do NOT assume it is Grade 1 just because it is first!
-     * GRADE 1 = PLAIN ROMAN UPRIGHT LOWERCASE. Upright, non-italic, non-bold, smaller font. e.g. "chin-s", "ferr", "cob", "grat", "nat-m", "verat", "aloe", "berb", "bry", "calc-p", "cimic".
+     * GRADE 1 = PLAIN ROMAN UPRIGHT LOWERCASE. Upright, non-italic, non-bold, smaller font. e.g. "chin-s", "ferr", "cob", "grat", "nat-m", "verat", "aloe", "berb", "bry", "calc-p", "cimic", "am-c", "kali-b", "led", "lyc", "nat-s", "plant".
    - TOKEN-EFFICIENT GROUPED OUTPUT: for each rubric, group remedies of the same grading into a SINGLE object, with remedy names joined by commas:
      "medicines": [
        {"name": "Æsc,Aloe,Graph", "grading": 3},
@@ -425,7 +435,7 @@ ${contextInstruction}
        {"name": "bar-c,nux-v,sulph", "grading": 1}
      ]
 
-9. STANDALONE CROSS-REFERENCES:
+11. STANDALONE CROSS-REFERENCES:
    - Skip ONLY lines that contain NO remedies and ONLY a cross reference. If a line contains medicines, extract the sub-rubric with all its remedies!
 
 --- OUTPUT FORMAT ---
@@ -495,7 +505,7 @@ const parseImageToStructuredJson = async (imagePath) => {
   // Previously only leftCropPath/rightCropPath were destructured, causing quadrants
   // to be undefined — silently falling back to 2-pass and dropping the bottom-left
   // content (e.g. HANDS, HEADLESS rubrics on page 126).
-  const { quadrants, leftCropPath, rightCropPath, cleanup } = await splitImageForAi(imagePath);
+  const { columns, leftCropPath, rightCropPath, cleanup } = await splitImageForAi(imagePath);
 
   const seenKeys = new Set();
   const allResults = [];
@@ -659,13 +669,11 @@ const parseImageToStructuredJson = async (imagePath) => {
   };
 
   try {
-    // 4-Quadrant Pass Pipeline (TL -> BL -> TR -> BR)
-    // `quadrants` is now correctly destructured from splitImageForAi above.
-    // Order: top-left → bottom-left → top-right → bottom-right ensures left column
-    // is fully processed (including bottom-left content like HANDS / HEADLESS)
-    // before moving to the right column.
-    const quadrantsToRun = quadrants && quadrants.length === 4
-      ? quadrants
+    // 2-Pass Column Extraction Pipeline (Left Column -> Right Column)
+    // Full-height column crops preserve complete top-to-bottom visual hierarchy,
+    // prevent horizontal line slicing, and cleanly carry continuation context from Left to Right column.
+    const columnsToRun = columns && columns.length === 2
+      ? columns
       : [
         { path: leftCropPath, hint: 'left' },
         { path: rightCropPath, hint: 'right' }
@@ -673,35 +681,35 @@ const parseImageToStructuredJson = async (imagePath) => {
 
     let lastRubricContext = '';
 
-    for (let i = 0; i < quadrantsToRun.length; i++) {
-      const q = quadrantsToRun[i];
-      console.log(`[Kent AI Parser] Pass ${i + 1}/${quadrantsToRun.length}: Extracting ${q.hint.toUpperCase()} crop...`);
+    for (let i = 0; i < columnsToRun.length; i++) {
+      const col = columnsToRun[i];
+      console.log(`[Kent AI Parser] Pass ${i + 1}/${columnsToRun.length}: Extracting ${col.hint.toUpperCase()} column...`);
       if (lastRubricContext) {
-        console.log(`[Kent AI Parser] Context carried from previous quadrant: "${lastRubricContext}"`);
+        console.log(`[Kent AI Parser] Context carried from previous column: "${lastRubricContext}"`);
       }
 
       try {
-        const { text: responseText, finishReason } = await extractColumnPass(q.path, q.hint, lastRubricContext);
-        console.log(`[Kent AI Parser] ${q.hint.toUpperCase()} response: ${responseText.length} chars, finishReason=${finishReason}`);
+        const { text: responseText, finishReason } = await extractColumnPass(col.path, col.hint, lastRubricContext);
+        console.log(`[Kent AI Parser] ${col.hint.toUpperCase()} response: ${responseText.length} chars, finishReason=${finishReason}`);
 
         const { data: parsed, wasRepaired } = repairAndParseJson(responseText);
-        const { data: qData, chapter: qChapter } = extractDataArray(parsed);
+        const { data: colData, chapter: colChapter } = extractDataArray(parsed);
 
-        console.log(`[Kent AI Parser] ${q.hint.toUpperCase()} parsed: ${qData.length} groups, chapter="${qChapter}", repaired=${wasRepaired}`);
-        addResults(qData, qChapter);
+        console.log(`[Kent AI Parser] ${col.hint.toUpperCase()} parsed: ${colData.length} groups, chapter="${colChapter}", repaired=${wasRepaired}`);
+        addResults(colData, colChapter);
 
-        // Update lastRubricContext for the next quadrant
+        // Update lastRubricContext for the next column
         if (allResults.length > 0) {
           const fullPath = allResults[allResults.length - 1].rubric_en || '';
           const parts = fullPath.split(' - ');
           lastRubricContext = parts.slice(0, Math.min(3, parts.length)).join(' - ');
         }
       } catch (e) {
-        console.error(`[Kent AI Parser] ${q.hint.toUpperCase()} pass failed:`, e.message);
+        console.error(`[Kent AI Parser] ${col.hint.toUpperCase()} column pass failed:`, e.message);
       }
 
-      // Small delay between quadrant passes to respect rate limits
-      if (i < quadrantsToRun.length - 1) {
+      // Small delay between column passes to respect rate limits
+      if (i < columnsToRun.length - 1) {
         await new Promise(r => setTimeout(r, 1500));
       }
     }
