@@ -154,23 +154,31 @@ router.post('/upload-pdf', authenticate, requireClinicalUser, pdfTimeoutMiddlewa
       throw new Error('PDF appears to have 0 pages or could not be read.');
     }
 
-    // Step 2: Convert all pages to PNG images
+    const startPage = Math.max(1, parseInt(req.body.startPage || req.query.startPage, 10) || 1);
+    const endPage = Math.min(totalPages, parseInt(req.body.endPage || req.query.endPage, 10) || totalPages);
+
+    console.log(`[Kent PDF] Processing page range: ${startPage} to ${endPage}...`);
+
+    // Step 2: Convert specified page range to PNG images
     const pageImages = await convertPdfPagesToImages(
       req.file.path,
       pageImagesDir,
-      1,
-      totalPages,
-      200 // 200 DPI — good quality + manageable memory
+      startPage,
+      endPage,
+      200 // 200 DPI — optimal for Vision & OCR quality
     );
 
     if (pageImages.length === 0) {
-      throw new Error('PDF conversion produced no images.');
+      throw new Error(`PDF conversion produced no images for page range ${startPage}–${endPage}.`);
     }
 
-    console.log(`[Kent PDF] Converted ${pageImages.length} pages. Starting OCR pipeline...`);
+    console.log(`[Kent PDF] Converted ${pageImages.length} pages (${startPage}–${endPage}). Starting extraction pipeline...`);
 
-    // Step 3: Run existing Tesseract + Groq pipeline on each page
+    // Step 3: Run AI Vision (or Tesseract) pipeline on each page in range
+    const useAiVision = req.body.useAiVision !== 'false' && req.query.useAiVision !== 'false';
+    const { parseImageToStructuredJson } = require('../services/kentAiParser');
     const { parseImageWithTesseract } = require('../services/kentTesseractParser');
+
     const allRows = [];
     const seenKeys = new Set();
     let successPages = 0;
@@ -178,11 +186,13 @@ router.post('/upload-pdf', authenticate, requireClinicalUser, pdfTimeoutMiddlewa
 
     for (let i = 0; i < pageImages.length; i++) {
       const imagePath = pageImages[i];
-      const pageNum = i + 1;
+      const pageNum = startPage + i;
 
       try {
-        console.log(`[Kent PDF] OCR page ${pageNum}/${pageImages.length}...`);
-        const rows = await parseImageWithTesseract(imagePath);
+        console.log(`[Kent PDF] Extracting page ${pageNum} (${i + 1}/${pageImages.length}) [mode=${useAiVision ? 'AI Vision' : 'Tesseract'}]...`);
+        const rows = useAiVision 
+          ? await parseImageToStructuredJson(imagePath)
+          : await parseImageWithTesseract(imagePath);
 
         for (const row of rows) {
           const key = `${row.rubric_en}|||${row.medicine}`.toLowerCase();
