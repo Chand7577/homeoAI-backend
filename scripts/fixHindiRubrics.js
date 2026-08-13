@@ -34,6 +34,19 @@ const googleTranslateSingle = (text, targetLang = 'hi') => {
   });
 };
 
+// Memory translation cache to avoid repetitive network requests
+const translationCache = new Map();
+
+const fastTranslateSingle = async (text) => {
+  if (!text || !text.trim()) return text;
+  const key = text.trim().toLowerCase();
+  if (translationCache.has(key)) return translationCache.get(key);
+
+  const res = await googleTranslateSingle(text);
+  translationCache.set(key, res);
+  return res;
+};
+
 async function fixTsvFile(filePath) {
   console.log(`📄 Processing TSV File: ${filePath}`);
   const rawContent = fs.readFileSync(filePath, 'utf8');
@@ -52,10 +65,18 @@ async function fixTsvFile(filePath) {
   const startIndex = hasHeader ? 1 : 0;
   const fixedLines = hasHeader ? [lines[0]] : [];
   let fixedCount = 0;
+  const totalRows = lines.length - startIndex;
+
+  console.log(`📊 Processing ${totalRows} rows...`);
 
   for (let i = startIndex; i < lines.length; i++) {
     const line = lines[i];
     if (!line.trim()) continue;
+
+    if (i % 1000 === 0 || i === lines.length - 1) {
+      const progress = (((i - startIndex + 1) / totalRows) * 100).toFixed(0);
+      console.log(`  ⏳ Progress: ${progress}% (${i - startIndex + 1}/${totalRows} rows)`);
+    }
 
     const cols = line.split('\t');
     if (cols.length >= 4) {
@@ -65,9 +86,9 @@ async function fixTsvFile(filePath) {
       // Check if Hindi rubric contains English letters ([a-zA-Z]{2,})
       if (/[a-zA-Z]{2,}/.test(hiRubric)) {
         let cleanHi = ensureHindiTranslation(enRubric, hiRubric);
-        // If English words still remain after dictionary, run Google Translate on remaining English parts
+        // If English words still remain after dictionary, use fast cached translation
         if (/[a-zA-Z]{2,}/.test(cleanHi)) {
-          cleanHi = await googleTranslateSingle(cleanHi);
+          cleanHi = await fastTranslateSingle(cleanHi);
         }
         cols[3] = postProcessHindiMedicalTerms(cleanHi);
         fixedCount++;
@@ -78,7 +99,7 @@ async function fixTsvFile(filePath) {
 
   const outputPath = filePath.replace(/\.tsv$/, '_fixed.tsv');
   fs.writeFileSync(outputPath, fixedLines.join('\n'), 'utf8');
-  console.log(`✅ Processed ${lines.length - (hasHeader ? 1 : 0)} rows. Fixed ${fixedCount} rows! Saved to: ${outputPath}`);
+  console.log(`\n✅ Finished! Processed ${totalRows} rows. Fixed ${fixedCount} rows! Saved to:\n   ${outputPath}`);
 }
 
 async function fixDatabase() {
