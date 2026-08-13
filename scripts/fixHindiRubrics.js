@@ -36,15 +36,24 @@ const googleTranslateSingle = (text, targetLang = 'hi') => {
 
 async function fixTsvFile(filePath) {
   console.log(`📄 Processing TSV File: ${filePath}`);
-  const content = fs.readFileSync(filePath, 'utf8');
-  const lines = content.split('\n');
+  const rawContent = fs.readFileSync(filePath, 'utf8');
+  if (!rawContent || !rawContent.trim()) {
+    console.log(`⚠️ File is empty (0 bytes).`);
+    return;
+  }
+
+  const lines = rawContent.replace(/\r\n/g, '\n').split('\n').filter(l => l.trim());
   if (lines.length === 0) return;
 
-  const header = lines[0];
-  const fixedLines = [header];
+  // Auto-detect header row (check if first cell contains 'chapter' case-insensitively)
+  const firstLineCols = lines[0].split('\t');
+  const hasHeader = /chapter/i.test(firstLineCols[0]);
+
+  const startIndex = hasHeader ? 1 : 0;
+  const fixedLines = hasHeader ? [lines[0]] : [];
   let fixedCount = 0;
 
-  for (let i = 1; i < lines.length; i++) {
+  for (let i = startIndex; i < lines.length; i++) {
     const line = lines[i];
     if (!line.trim()) continue;
 
@@ -69,7 +78,7 @@ async function fixTsvFile(filePath) {
 
   const outputPath = filePath.replace(/\.tsv$/, '_fixed.tsv');
   fs.writeFileSync(outputPath, fixedLines.join('\n'), 'utf8');
-  console.log(`✅ Fixed ${fixedCount} rows! Saved to: ${outputPath}`);
+  console.log(`✅ Processed ${lines.length - (hasHeader ? 1 : 0)} rows. Fixed ${fixedCount} rows! Saved to: ${outputPath}`);
 }
 
 async function fixDatabase() {
