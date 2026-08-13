@@ -863,15 +863,16 @@ const KENT_TERM_TRANSLATIONS = {
   // --- Anatomical locations ---
   'Forehead, in': 'माथे में', 'Forehead': 'माथा',
   'Occiput': 'पश्चकपाल', 'Temples': 'कनपटी', 'Vertex': 'शीर्ष',
-  // --- General modifiers ---
-  'standing, while': 'खड़े रहना, जबकि', 'lying, while': 'लेटते समय',
-  'walking': 'चलना', 'flatus, during': 'पेट फूलना, दौरान', 'rest amel.': 'आराम घटता है',
-  'smarting': 'टीसदार जलन', 'smarting (compare "burning")': 'टीसदार जलन (जलन से तुलना करें)',
-  'soreness': 'दुखन / पीड़ा', 'shooting': 'चुभने जैसा दर्द', 'rawness': 'कच्चापन',
-  'rasping': 'कर्कशता / छीलने जैसा', 'scraping': 'खुरचना', 'stool, hard, during': 'मल, कठोर, दौरान',
-  'diarrhœa, during': 'दस्त, दौरान', 'bed, in': 'बिस्तर, अंदर', 'as in a': 'जैसे कि', 'not for': 'मल, के लिए नहीं',
-  'moving, after': 'हिलना, बाद में',
-  'menses, during': 'मासिक धर्म के दौरान', 'menses, before': 'मासिक धर्म, पहले'
+  // Additional clinical terms for common rubrics
+  'INFLAMMATION': 'सूजन', 'DRYNESS': 'सूखापन', 'DULLNESS': 'मंदता', 'ECCHYMOSIS': 'रक्तस्रावी धब्बे',
+  'ENLARGEMENT': 'बढ़े होने का अहसास', 'ENLARGED': 'बड़ा हुआ', 'ERUPTIONS': 'फुंसियां', 'FULLNESS': 'भरे होने का अहसास',
+  'GLASSY': 'कांच जैसा', 'GLAZED': 'चमकदार', 'GRANULAR': 'दानेदार', 'HARDNESS': 'कठोरता', 'HEAT': 'गर्मी', 'HEAVINESS': 'भारीपन',
+  'HORDEOLA': 'स्टाई', 'HYPERTROPHY': 'हाइपरट्रॉफी', 'INFILTRATION': 'घुसपैठ', 'INFANTS': 'शिशुओं',
+  'scrofulous': 'गंडमाला संबंधी', 'syphilitic': 'उपदंशीय', 'summer, in': 'गर्मी में', 'vaccination, after': 'टीकाकरण के बाद',
+  'worse after 1 a.m.': 'रात 1 बजे के बाद बढ़ता है', 'suggilation after injuries': 'चोटों के बाद थक्का जमाव',
+  'wind, dry cold': 'हवा, सूखी ठंडी', 'wounds from': 'घावों से', 'reading': 'पढ़ते समय', 'room, in': 'कमरे में',
+  'waking, on': 'जागने पर', 'sensation of': 'अहसास', 'in canthi': 'कोनों में', 'canthi': 'कोनों का',
+  'iris': 'आइरिस', 'lids': 'पलकों', 'lids, on': 'पलकों पर', 'about the eyes': 'आंखों के आसपास'
 };
 
 const postProcessHindiMedicalTerms = (str) => {
@@ -893,20 +894,43 @@ const postProcessHindiMedicalTerms = (str) => {
     .trim();
 };
 
+const translateSingleSegment = (part) => {
+  if (!part) return '';
+  const trimmed = part.trim();
+  if (KENT_TERM_TRANSLATIONS[trimmed]) return KENT_TERM_TRANSLATIONS[trimmed];
+  const lower = trimmed.toLowerCase();
+  if (KENT_TERM_TRANSLATIONS[lower]) return KENT_TERM_TRANSLATIONS[lower];
+
+  let result = trimmed;
+  for (const [enKey, hiValue] of Object.entries(KENT_TERM_TRANSLATIONS)) {
+    if (enKey.length >= 3) {
+      const regex = new RegExp(`\\b${enKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
+      result = result.replace(regex, hiValue);
+    }
+  }
+  return result;
+};
+
 const ensureHindiTranslation = (enText, currentHi) => {
-  if (currentHi && /[\u0900-\u097F]/.test(currentHi) && !/RECTUM - PAIN/.test(currentHi)) {
+  // If currentHi exists, has Devanagari, AND has NO remaining English words, keep it
+  if (currentHi && /[\u0900-\u097F]/.test(currentHi) && !/[a-zA-Z]{2,}/.test(currentHi) && !/RECTUM - PAIN/.test(currentHi)) {
     return postProcessHindiMedicalTerms(currentHi);
   }
-  if (!enText) return '';
-  const parts = enText.split(/\s*-\s*/);
-  const hiParts = parts.map(part => {
-    const trimmed = part.trim();
-    if (KENT_TERM_TRANSLATIONS[trimmed]) return KENT_TERM_TRANSLATIONS[trimmed];
-    const lower = trimmed.toLowerCase();
-    if (KENT_TERM_TRANSLATIONS[lower]) return KENT_TERM_TRANSLATIONS[lower];
-    return trimmed;
+
+  // Otherwise, decompose by hyphen segments and translate any segment containing English
+  const enParts = (enText || '').split(/\s*-\s*/);
+  const hiParts = (currentHi || '').split(/\s*-\s*/);
+
+  const finalParts = enParts.map((enPart, idx) => {
+    const existingHiPart = hiParts[idx] ? hiParts[idx].trim() : '';
+    if (existingHiPart && /[\u0900-\u097F]/.test(existingHiPart) && !/[a-zA-Z]{2,}/.test(existingHiPart)) {
+      return existingHiPart;
+    }
+    const sourcePart = (existingHiPart && /[a-zA-Z]{2,}/.test(existingHiPart)) ? existingHiPart : enPart;
+    return translateSingleSegment(sourcePart);
   });
-  return postProcessHindiMedicalTerms(hiParts.join(' - '));
+
+  return postProcessHindiMedicalTerms(finalParts.join(' - '));
 };
 
 /**
@@ -1031,5 +1055,7 @@ module.exports = {
   generateKentContent,
   parseImageToStructuredJson,
   parseOcrToStructuredJson: parseImageToStructuredJson,
-  translateRubricsToHindi
+  translateRubricsToHindi,
+  ensureHindiTranslation,
+  postProcessHindiMedicalTerms
 };
