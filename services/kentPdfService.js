@@ -81,17 +81,21 @@ const convertPdfPagesToImages = async (pdfPath, outputDir, firstPage = 1, lastPa
 
   const pageImages = [];
   let failedCount = 0;
+  const totalToConvert = endPage - firstPage + 1;
 
   for (let page = firstPage; page <= endPage; page++) {
     const imgPath = await convertSinglePageToImage(pdfPath, outputDir, page, dpi);
+    const pagesDone = page - firstPage + 1;
     if (imgPath) {
       pageImages.push(imgPath);
+      console.log(`[PDF→Images] ✅ Page ${page}/${endPage} converted (${pagesDone}/${totalToConvert} done)`);
     } else {
       failedCount++;
+      console.warn(`[PDF→Images] ⚠️  Page ${page}/${endPage} failed/skipped (${pagesDone}/${totalToConvert} done)`);
     }
   }
 
-  console.log(`[PDF→Images] Done. ${pageImages.length} pages converted, ${failedCount} failed/skipped.`);
+  console.log(`[PDF→Images] Done. ${pageImages.length}/${totalToConvert} pages converted, ${failedCount} failed/skipped.`);
 
   if (pageImages.length === 0) {
     throw new Error(`All ${endPage - firstPage + 1} pages failed to convert. The PDF may be corrupt, encrypted, or unsupported.`);

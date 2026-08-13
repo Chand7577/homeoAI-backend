@@ -165,7 +165,7 @@ router.post('/upload-pdf', authenticate, requireClinicalUser, pdfTimeoutMiddlewa
       pageImagesDir,
       startPage,
       endPage,
-      200 // 200 DPI — optimal for Vision & OCR quality
+      150 // 150 DPI — sufficient for Vision OCR, faster than 200
     );
 
     if (pageImages.length === 0) {
