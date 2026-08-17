@@ -203,7 +203,7 @@ const uploadPDFFile = async (req, res) => {
     const { uploadPDFToSupabase, uploadPDFToCloudinary } = require('../services/uploadService');
     const fileSizeInMB = req.file.size / (1024 * 1024);
 
-    if (process.env.SUPABASE_URL && (process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY)) {
+    if (process.env.SUPABASE_URL && (process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY)) {
       try {
         console.log(`⚡ Attempting Supabase Storage upload for ${fileSizeInMB.toFixed(2)} MB PDF...`);
         uploadResult = await uploadPDFToSupabase(req.file.path, req.file.originalname);
@@ -213,6 +213,8 @@ const uploadPDFFile = async (req, res) => {
       } catch (supabaseErr) {
         console.error('⚠️ Supabase upload failed:', supabaseErr.message);
       }
+    } else {
+      console.warn('⚠️ Supabase env vars missing (SUPABASE_URL or SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY missing on server).');
     }
 
     if (!isCloudStorage) {
@@ -229,9 +231,9 @@ const uploadPDFFile = async (req, res) => {
       }
     }
 
-    // 3. Delete old Cloudinary file if exists and we successfully moved to a new Cloudinary upload
+    // 3. Delete old file if exists and we successfully moved to a new cloud upload
     const { deleteFromCloudinary } = require('../services/uploadService');
-    if (repertory.cloudinaryPdfPublicId && isCloudinary) {
+    if (repertory.cloudinaryPdfPublicId && isCloudStorage) {
       console.log('🗑️ Deleting old PDF from Cloudinary...');
       try {
         await deleteFromCloudinary(repertory.cloudinaryPdfPublicId);
