@@ -756,12 +756,12 @@ const extractChaptersFromPdf = async (filePath, fileName) => {
   }
 
   // ── STRATEGY 2: AI text-based extraction (requires text-based PDF, uses more memory) ──
-  // Skip if PDF is too large to avoid OOM on restricted servers
+  // Skip if PDF is larger than 10MB to avoid OOM on memory-restricted servers like Render free tier
   try {
     const stats = fs.statSync(filePath);
     const sizeInMB = stats.size / (1024 * 1024);
-    if (sizeInMB > 15) {
-      console.warn(`⚠️ PDF is large (${sizeInMB.toFixed(2)} MB). No bookmarks found and AI text parsing skipped to prevent memory crash.`);
+    if (sizeInMB > 10) {
+      console.warn(`⚠️ PDF is large (${sizeInMB.toFixed(2)} MB). AI text parsing skipped to prevent server memory crash.`);
       console.log('💡 Doctors can manually map medicine names using the UI.');
       return {};
     }
@@ -769,77 +769,75 @@ const extractChaptersFromPdf = async (filePath, fileName) => {
     console.warn('⚠️ Could not check PDF file size:', err.message);
   }
 
+  try {
+    console.log('📄 Parsing PDF text for AI extraction...');
+    const pdfParse = require('pdf-parse');
+    const pdfBuffer = fs.readFileSync(filePath);
+    const pdfData = await pdfParse(pdfBuffer, { max: 0 });
+    const totalPages = pdfData.numpages;
+    const fullText = pdfData.text;
 
-  console.log('📄 Parsing PDF text for AI extraction...');
-  const pdfParse = require('pdf-parse');
-  const pdfBuffer = fs.readFileSync(filePath);
-  const pdfData = await pdfParse(pdfBuffer, { max: 0 });
-  const totalPages = pdfData.numpages;
-  const fullText = pdfData.text;
+    console.log(`📚 PDF has ${totalPages} pages, ${fullText.length} characters`);
 
-  console.log(`📚 PDF has ${totalPages} pages, ${fullText.length} characters`);
+    if (fullText.length < 10000) {
+      console.warn('⚠️ PDF text extraction yielded very little text. PDF may be image-based or encrypted.');
+      console.log('💡 Manual mapping recommended for accuracy.');
+      return {};
+    }
 
-  if (fullText.length < 10000) {
-    console.warn('⚠️ PDF text extraction yielded very little text. PDF may be image-based or encrypted.');
-    console.log('💡 Manual mapping recommended for accuracy.');
-    return {};
-  }
+    const lines = fullText.split('\n');
 
-  const lines = fullText.split('\n');
-
-  // Build a simplified representation: find medicine names (ALL CAPS lines) and their approximate positions
-  const medicineMatches = [];
-  const medicinePattern = /^[A-Z][A-Z\s\-\.]{3,50}$/; // Match ALL CAPS words 4-50 chars
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
+    // Build a simplified representation: find medicine names (ALL CAPS lines) and their approximate positions
+    const medicineMatches = [];
+    const medicinePattern = /^[A-Z][A-Z\s\-\.]{3,50}$/; // Match ALL CAPS words 4-50 chars
     
-    // Skip empty lines and page headers/footers
-    if (!line || line.length < 4) continue;
-    
-    // Check if this looks like a medicine name (ALL CAPS, reasonable length)
-    if (medicinePattern.test(line)) {
-      // Look at surrounding context to confirm it's a medicine heading
-      const nextLines = lines.slice(i + 1, i + 5).join(' ').toLowerCase();
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
       
-      // Medicine headings are typically followed by descriptive text or sections like "mind", "head"
-      const hasMedicalContext = nextLines.includes('mind') || nextLines.includes('head') || 
-                                 nextLines.includes('dose') || nextLines.includes('fever') ||
-                                 nextLines.includes('common') || nextLines.includes('syno');
+      // Skip empty lines and page headers/footers
+      if (!line || line.length < 4) continue;
       
-      // Skip if it's likely a section heading we want to filter out
-      const isRepertorySection = ['MIND', 'HEAD', 'EYES', 'EARS', 'NOSE', 'FACE', 'MOUTH', 
-                                   'THROAT', 'STOMACH', 'ABDOMEN', 'CHEST', 'BACK', 
-                                   'EXTREMITIES', 'SKIN', 'SLEEP', 'FEVER'].includes(line);
-      
-      if (!isRepertorySection && (hasMedicalContext || line.length > 10)) {
-        medicineMatches.push({
-          name: line,
-          lineNumber: i,
-          context: nextLines.substring(0, 100)
-        });
+      // Check if this looks like a medicine name (ALL CAPS, reasonable length)
+      if (medicinePattern.test(line)) {
+        // Look at surrounding context to confirm it's a medicine heading
+        const nextLines = lines.slice(i + 1, i + 5).join(' ').toLowerCase();
+        
+        // Medicine headings are typically followed by descriptive text or sections like "mind", "head"
+        const hasMedicalContext = nextLines.includes('mind') || nextLines.includes('head') || 
+                                   nextLines.includes('dose') || nextLines.includes('fever') ||
+                                   nextLines.includes('common') || nextLines.includes('syno');
+        
+        // Skip if it's likely a section heading we want to filter out
+        const isRepertorySection = ['MIND', 'HEAD', 'EYES', 'EARS', 'NOSE', 'FACE', 'MOUTH', 
+                                     'THROAT', 'STOMACH', 'ABDOMEN', 'CHEST', 'BACK', 
+                                     'EXTREMITIES', 'SKIN', 'SLEEP', 'FEVER'].includes(line);
+        
+        if (!isRepertorySection && (hasMedicalContext || line.length > 10)) {
+          medicineMatches.push({
+            name: line,
+            lineNumber: i,
+            context: nextLines.substring(0, 100)
+          });
+        }
       }
     }
-  }
-  
-  console.log(`🔍 Found ${medicineMatches.length} potential medicine headings`);
-  
-  if (medicineMatches.length === 0) {
-    console.warn('⚠️ No medicine names detected in PDF text');
-    return {};
-  }
-  
-  // For Vertex AI, we upload to Google Cloud Storage or use inline data
-  // Vertex AI doesn't have a separate file manager - we'll use inline base64
-  const model = getAnalysisModel();
-  
-  // Convert PDF to base64
-  const base64Data = pdfBuffer.toString('base64');
-  
-  // Give AI the list of medicine names we found, ask it to find their EXACT page numbers
-  const medicineNames = medicineMatches.map(m => m.name);
-  
-  const prompt = `
+    
+    console.log(`🔍 Found ${medicineMatches.length} potential medicine headings`);
+    
+    if (medicineMatches.length === 0) {
+      console.warn('⚠️ No medicine names detected in PDF text');
+      return {};
+    }
+    
+    const model = getAnalysisModel();
+    
+    // Convert PDF to base64
+    const base64Data = pdfBuffer.toString('base64');
+    
+    // Give AI the list of medicine names we found, ask it to find their EXACT page numbers
+    const medicineNames = medicineMatches.map(m => m.name);
+    
+    const prompt = `
 You are analyzing a Homeopathic Materia Medica PDF to find EXACT page numbers for medicine names.
 
 I have identified ${medicineNames.length} medicine names in this PDF:
@@ -876,7 +874,6 @@ Rules:
 Return the JSON now:
 `;
 
-  try {
     console.log("🤖 Running Vertex AI Gemini to find exact page numbers...");
     const result = await model.generateContent({
       contents: [{
@@ -915,8 +912,8 @@ Return the JSON now:
 
     return mappings;
   } catch (err) {
-    console.error('❌ AI extraction failed:', err.message);
-    throw err;
+    console.warn('⚠️ AI text extraction failed or skipped due to memory limit:', err.message);
+    return {};
   }
 };
 
