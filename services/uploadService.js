@@ -30,7 +30,12 @@ const uploadPDFToCloudinary = async (filePath, originalName) => {
     if (fileSizeInMB > 10) {
       console.log(`⚡ Using chunked upload_large for large file (${fileSizeInMB.toFixed(2)} MB)`);
       uploadOptions.chunk_size = 6000000; // 6MB chunks
-      result = await cloudinary.uploader.upload_large(filePath, uploadOptions);
+      result = await new Promise((resolve, reject) => {
+        cloudinary.uploader.upload_large(filePath, uploadOptions, (error, res) => {
+          if (error) return reject(error);
+          resolve(res);
+        });
+      });
     } else {
       result = await cloudinary.uploader.upload(filePath, uploadOptions);
     }
@@ -45,10 +50,10 @@ const uploadPDFToCloudinary = async (filePath, originalName) => {
 
     return {
       success: true,
-      url: result.secure_url,
-      publicId: result.public_id,
-      bytes: result.bytes,
-      format: result.format,
+      url: result ? (result.secure_url || result.url) : '',
+      publicId: result ? result.public_id : '',
+      bytes: result ? result.bytes : 0,
+      format: result ? result.format : 'pdf',
     };
   } catch (error) {
     console.error('Cloudinary upload error:', error);
