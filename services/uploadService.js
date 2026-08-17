@@ -70,12 +70,12 @@ const uploadPDFToSupabase = async (filePath, originalName) => {
     const sanitizedName = originalName.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9-_]/g, '_');
     const fileName = `${timestamp}-${sanitizedName}.pdf`;
     
-    const fileBuffer = fs.readFileSync(filePath);
-    let bucketName = process.env.SUPABASE_STORAGE_BUCKET || 'repertory-pdfs';
-
+    let bucketName = process.env.SUPABASE_STORAGE_BUCKET || 'repertory-pdfs.';
+    
+    console.log(`⚡ Uploading to Supabase bucket: ${bucketName}...`);
     let { data, error } = await supabase.storage
       .from(bucketName)
-      .upload(fileName, fileBuffer, {
+      .upload(fileName, fs.readFileSync(filePath), {
         contentType: 'application/pdf',
         upsert: true
       });
@@ -84,16 +84,22 @@ const uploadPDFToSupabase = async (filePath, originalName) => {
     if (error && (error.code === 'NoSuchBucket' || error.message?.includes('Bucket not found'))) {
       const altBucket = bucketName.endsWith('.') ? bucketName.slice(0, -1) : bucketName + '.';
       console.log(`⚠️ Bucket "${bucketName}" not found. Trying alternative bucket "${altBucket}"...`);
-      const retry = await supabase.storage
-        .from(altBucket)
-        .upload(fileName, fileBuffer, {
-          contentType: 'application/pdf',
-          upsert: true
-        });
-      if (!retry.error) {
-        data = retry.data;
-        error = null;
-        bucketName = altBucket;
+      try {
+        const retry = await supabase.storage
+          .from(altBucket)
+          .upload(fileName, fs.readFileSync(filePath), {
+            contentType: 'application/pdf',
+            upsert: true
+          });
+        if (!retry.error) {
+          data = retry.data;
+          error = null;
+          bucketName = altBucket;
+        } else {
+          error = retry.error;
+        }
+      } catch (retryErr) {
+        console.error('Retry upload error:', retryErr.message);
       }
     }
 
