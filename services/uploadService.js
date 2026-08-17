@@ -58,69 +58,82 @@ const uploadPDFToCloudinary = async (filePath, originalName) => {
 const supabase = require('../config/supabase');
 
 /**
- * Upload PDF to Supabase Storage (supports up to 50MB per file on free tier)
+ * Upload PDF to Supabase Storage (supports up to 50MB per file)
  * @param {string} filePath - Local file path
  * @param {string} originalName - Original file name
  * @returns {Promise<object>} Upload result with public URL and file path
  */
 const uploadPDFToSupabase = async (filePath, originalName) => {
   console.log(`⚡ uploadPDFToSupabase start: filePath=${filePath}, exists=${fs.existsSync(filePath)}`);
-  try {
-    const timestamp = Date.now();
-    const sanitizedName = originalName.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9-_]/g, '_');
-    const fileName = `${timestamp}-${sanitizedName}.pdf`;
+  
+  const https = require('https');
+  const timestamp = Date.now();
+  const sanitizedName = originalName.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9-_]/g, '_');
+  const fileName = `${timestamp}-${sanitizedName}.pdf`;
+
+  const rawBucket = process.env.SUPABASE_STORAGE_BUCKET || 'repertory-pdfs.';
+  const supabaseUrl = (process.env.SUPABASE_URL || 'https://xbkobdejfnagmimptuih.supabase.co').replace(/\/$/, '');
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
+
+  const fileData = fs.readFileSync(filePath);
+  const hostname = supabaseUrl.replace(/^https?:\/\//, '');
+
+  // Helper to attempt HTTPS upload for a given bucket path
+  const tryUpload = (bucketStr) => {
+    const encodedBucket = bucketStr.endsWith('.') ? bucketStr.slice(0, -1) + '%2E' : bucketStr;
+    const reqPath = `/storage/v1/object/${encodedBucket}/${fileName}`;
     
-    let bucketName = process.env.SUPABASE_STORAGE_BUCKET || 'repertory-pdfs.';
-    
-    console.log(`⚡ Uploading to Supabase bucket: ${bucketName}...`);
-    let { data, error } = await supabase.storage
-      .from(bucketName)
-      .upload(fileName, fs.readFileSync(filePath), {
-        contentType: 'application/pdf',
-        upsert: true
+    return new Promise((resolve, reject) => {
+      console.log(`⚡ Direct HTTPS POST to Supabase (${reqPath}) size=${(fileData.length / 1024 / 1024).toFixed(2)} MB...`);
+      
+      const req = https.request({
+        hostname: hostname,
+        port: 443,
+        path: reqPath,
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + key,
+          'apikey': key,
+          'Content-Type': 'application/pdf',
+          'Content-Length': fileData.length,
+          'x-upsert': 'true'
+        }
+      }, (res) => {
+        let body = '';
+        res.on('data', chunk => body += chunk);
+        res.on('end', () => {
+          console.log(`Supabase response status: ${res.statusCode}`);
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            const publicUrl = `${supabaseUrl}/storage/v1/object/public/${encodedBucket}/${fileName}`;
+            resolve({ success: true, url: publicUrl, publicId: fileName, bytes: fileData.length });
+          } else {
+            reject(new Error(`Status ${res.statusCode}: ${body}`));
+          }
+        });
       });
 
-    // Smart fallback if user created bucket with or without trailing period
-    if (error && (error.code === 'NoSuchBucket' || error.message?.includes('Bucket not found'))) {
-      const altBucket = bucketName.endsWith('.') ? bucketName.slice(0, -1) : bucketName + '.';
-      console.log(`⚠️ Bucket "${bucketName}" not found. Trying alternative bucket "${altBucket}"...`);
-      try {
-        const retry = await supabase.storage
-          .from(altBucket)
-          .upload(fileName, fs.readFileSync(filePath), {
-            contentType: 'application/pdf',
-            upsert: true
-          });
-        if (!retry.error) {
-          data = retry.data;
-          error = null;
-          bucketName = altBucket;
-        } else {
-          error = retry.error;
-        }
-      } catch (retryErr) {
-        console.error('Retry upload error:', retryErr.message);
+      req.on('error', (err) => reject(err));
+      req.write(fileData);
+      req.end();
+    });
+  };
+
+  try {
+    let result;
+    try {
+      result = await tryUpload(rawBucket);
+    } catch (firstErr) {
+      if (firstErr.message.includes('NoSuchBucket') || firstErr.message.includes('404')) {
+        const alt = rawBucket.endsWith('.') ? rawBucket.slice(0, -1) : rawBucket + '.';
+        console.log(`⚠️ Primary bucket "${rawBucket}" failed. Retrying alt bucket "${alt}"...`);
+        result = await tryUpload(alt);
+      } else {
+        throw firstErr;
       }
     }
 
-    if (error) {
-      console.error('Supabase Storage upload error:', error);
-      if (error.code === 'NoSuchBucket' || error.message?.includes('Bucket not found')) {
-        throw new Error(`Supabase bucket "${bucketName}" does not exist. Please create a public bucket named "${bucketName}" in Supabase Storage Dashboard.`);
-      }
-      if (error.statusCode === '403' || error.message?.includes('security policy')) {
-        throw new Error(`Supabase Storage RLS policy error. Please set bucket "${bucketName}" to Public or add an insert policy in Supabase Dashboard.`);
-      }
-      throw error;
-    }
+    console.log(`✅ Supabase upload success! URL: ${result.url}`);
 
-    const { data: publicUrlData } = supabase.storage
-      .from(bucketName)
-      .getPublicUrl(fileName);
-
-    console.log(`✅ Supabase upload success! URL: ${publicUrlData.publicUrl}`);
-
-    // Delete local file after successful upload
     if (fs.existsSync(filePath)) {
       console.log(`🗑️ Cleaning up local temporary file: ${filePath}`);
       try { fs.unlinkSync(filePath); } catch (_) {}
@@ -128,9 +141,9 @@ const uploadPDFToSupabase = async (filePath, originalName) => {
 
     return {
       success: true,
-      url: publicUrlData.publicUrl,
+      url: result.url,
       publicId: fileName,
-      bytes: fileBuffer.length,
+      bytes: fileData.length,
       format: 'pdf',
     };
   } catch (error) {
