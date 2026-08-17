@@ -71,14 +71,31 @@ const uploadPDFToSupabase = async (filePath, originalName) => {
     const fileName = `${timestamp}-${sanitizedName}.pdf`;
     
     const fileBuffer = fs.readFileSync(filePath);
-    const bucketName = process.env.SUPABASE_STORAGE_BUCKET || 'repertory-pdfs';
+    let bucketName = process.env.SUPABASE_STORAGE_BUCKET || 'repertory-pdfs';
 
-    const { data, error } = await supabase.storage
+    let { data, error } = await supabase.storage
       .from(bucketName)
       .upload(fileName, fileBuffer, {
         contentType: 'application/pdf',
         upsert: true
       });
+
+    // Smart fallback if user created bucket with or without trailing period
+    if (error && (error.code === 'NoSuchBucket' || error.message?.includes('Bucket not found'))) {
+      const altBucket = bucketName.endsWith('.') ? bucketName.slice(0, -1) : bucketName + '.';
+      console.log(`⚠️ Bucket "${bucketName}" not found. Trying alternative bucket "${altBucket}"...`);
+      const retry = await supabase.storage
+        .from(altBucket)
+        .upload(fileName, fileBuffer, {
+          contentType: 'application/pdf',
+          upsert: true
+        });
+      if (!retry.error) {
+        data = retry.data;
+        error = null;
+        bucketName = altBucket;
+      }
+    }
 
     if (error) {
       console.error('Supabase Storage upload error:', error);
