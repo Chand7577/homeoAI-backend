@@ -200,6 +200,8 @@ const uploadPDFFile = async (req, res) => {
     let isCloudStorage = false;
     let uploadResult = null;
 
+    console.log(`🔑 Env status: SUPABASE_URL=${!!process.env.SUPABASE_URL}, SUPABASE_ANON_KEY=${!!process.env.SUPABASE_ANON_KEY}, BUCKET=${process.env.SUPABASE_STORAGE_BUCKET || 'default'}`);
+
     const { uploadPDFToSupabase, uploadPDFToCloudinary } = require('../services/uploadService');
     const fileSizeInMB = req.file.size / (1024 * 1024);
 
