@@ -26,13 +26,14 @@ const uploadPDFToCloudinary = async (filePath, originalName) => {
       timeout: 600000, // 10 minute timeout for large files
     };
     
-    // For files > 10MB, use chunked upload
+    let result;
     if (fileSizeInMB > 10) {
-      console.log(`⚡ Using chunked upload for large file (${fileSizeInMB.toFixed(2)} MB)`);
+      console.log(`⚡ Using chunked upload_large for large file (${fileSizeInMB.toFixed(2)} MB)`);
       uploadOptions.chunk_size = 6000000; // 6MB chunks
+      result = await cloudinary.uploader.upload_large(filePath, uploadOptions);
+    } else {
+      result = await cloudinary.uploader.upload(filePath, uploadOptions);
     }
-    
-    const result = await cloudinary.uploader.upload(filePath, uploadOptions);
 
     console.log(`☁️ Cloudinary upload success. URL: ${result.secure_url}`);
 
