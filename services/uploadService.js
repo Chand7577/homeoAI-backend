@@ -55,9 +55,76 @@ const uploadPDFToCloudinary = async (filePath, originalName) => {
       bytes: result ? result.bytes : 0,
       format: result ? result.format : 'pdf',
     };
+const supabase = require('../config/supabase');
+
+/**
+ * Upload PDF to Supabase Storage (supports up to 50MB per file on free tier)
+ * @param {string} filePath - Local file path
+ * @param {string} originalName - Original file name
+ * @returns {Promise<object>} Upload result with public URL and file path
+ */
+const uploadPDFToSupabase = async (filePath, originalName) => {
+  console.log(`⚡ uploadPDFToSupabase start: filePath=${filePath}, exists=${fs.existsSync(filePath)}`);
+  try {
+    const timestamp = Date.now();
+    const sanitizedName = originalName.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9-_]/g, '_');
+    const fileName = `${timestamp}-${sanitizedName}.pdf`;
+    
+    const fileBuffer = fs.readFileSync(filePath);
+    const bucketName = process.env.SUPABASE_STORAGE_BUCKET || 'repertory-pdfs';
+
+    const { data, error } = await supabase.storage
+      .from(bucketName)
+      .upload(fileName, fileBuffer, {
+        contentType: 'application/pdf',
+        upsert: true
+      });
+
+    if (error) {
+      console.error('Supabase Storage upload error:', error);
+      throw error;
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from(bucketName)
+      .getPublicUrl(fileName);
+
+    console.log(`✅ Supabase upload success! URL: ${publicUrlData.publicUrl}`);
+
+    // Delete local file after successful upload
+    if (fs.existsSync(filePath)) {
+      console.log(`🗑️ Cleaning up local temporary file: ${filePath}`);
+      try { fs.unlinkSync(filePath); } catch (_) {}
+    }
+
+    return {
+      success: true,
+      url: publicUrlData.publicUrl,
+      publicId: fileName,
+      bytes: fileBuffer.length,
+      format: 'pdf',
+    };
   } catch (error) {
-    console.error('Cloudinary upload error:', error);
-    throw new Error(`PDF upload failed: ${error.message}`);
+    console.error('Supabase upload error:', error.message);
+    throw new Error(`Supabase PDF upload failed: ${error.message}`);
+  }
+};
+
+/**
+ * Delete file from Supabase Storage
+ */
+const deleteFromSupabase = async (fileName) => {
+  try {
+    const bucketName = process.env.SUPABASE_STORAGE_BUCKET || 'repertory-pdfs';
+    const { data, error } = await supabase.storage
+      .from(bucketName)
+      .remove([fileName]);
+
+    if (error) throw error;
+    return { success: true, data };
+  } catch (error) {
+    console.error('Supabase delete error:', error.message);
+    return { success: false, error: error.message };
   }
 };
 
@@ -148,6 +215,8 @@ const getStreamUrl = (publicId) => {
 
 module.exports = {
   uploadPDFToCloudinary,
+  uploadPDFToSupabase,
+  deleteFromSupabase,
   uploadExcelToCloudinary,
   deleteFromCloudinary,
   getSecureDownloadUrl,

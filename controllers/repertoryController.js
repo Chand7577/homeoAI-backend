@@ -195,25 +195,38 @@ const uploadPDFFile = async (req, res) => {
       console.log('Users can manually map medicine names using the UI');
     }
 
-    // 2. Try uploading to Cloudinary (with chunked upload for large files)
-    // Cloudinary free tier supports files up to 100MB with chunked upload
+    // 2. Upload PDF using Supabase Storage (primary) or Cloudinary (fallback)
     let pdfUrl = '';
-    let isCloudinary = false;
-    let cloudinaryResult = null;
+    let isCloudStorage = false;
+    let uploadResult = null;
 
-    try {
-      const { uploadPDFToCloudinary } = require('../services/uploadService');
-      const fileSizeInMB = req.file.size / (1024 * 1024);
-      console.log(`☁️ Attempting Cloudinary upload for ${fileSizeInMB.toFixed(2)} MB PDF...`);
-      
-      cloudinaryResult = await uploadPDFToCloudinary(req.file.path, req.file.originalname);
-      console.log('✅ Cloudinary upload complete:', cloudinaryResult.url);
-      pdfUrl = cloudinaryResult.url;
-      isCloudinary = true;
-    } catch (cloudinaryError) {
-      console.error('⚠️ Cloudinary upload failed, falling back to local server storage:', cloudinaryError.message);
-      console.log(`💾 File will be stored locally (ephemeral on Render free tier)`);
-      pdfUrl = `/uploads/${req.file.filename}`;
+    const { uploadPDFToSupabase, uploadPDFToCloudinary } = require('../services/uploadService');
+    const fileSizeInMB = req.file.size / (1024 * 1024);
+
+    if (process.env.SUPABASE_URL && (process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY)) {
+      try {
+        console.log(`⚡ Attempting Supabase Storage upload for ${fileSizeInMB.toFixed(2)} MB PDF...`);
+        uploadResult = await uploadPDFToSupabase(req.file.path, req.file.originalname);
+        console.log('✅ Supabase Storage upload complete:', uploadResult.url);
+        pdfUrl = uploadResult.url;
+        isCloudStorage = true;
+      } catch (supabaseErr) {
+        console.error('⚠️ Supabase upload failed:', supabaseErr.message);
+      }
+    }
+
+    if (!isCloudStorage) {
+      try {
+        console.log(`☁️ Attempting Cloudinary upload for ${fileSizeInMB.toFixed(2)} MB PDF...`);
+        uploadResult = await uploadPDFToCloudinary(req.file.path, req.file.originalname);
+        console.log('✅ Cloudinary upload complete:', uploadResult.url);
+        pdfUrl = uploadResult.url;
+        isCloudStorage = true;
+      } catch (cloudinaryError) {
+        console.error('⚠️ Cloudinary upload failed, falling back to local server storage:', cloudinaryError.message);
+        console.log(`💾 File will be stored locally (ephemeral on Render free tier)`);
+        pdfUrl = `/uploads/${req.file.filename}`;
+      }
     }
 
     // 3. Delete old Cloudinary file if exists and we successfully moved to a new Cloudinary upload
@@ -247,20 +260,20 @@ const uploadPDFFile = async (req, res) => {
     repertory.pdfUrl = pdfUrl;
     repertory.pdfName = req.file.originalname;
     
-    if (isCloudinary && cloudinaryResult) {
-      repertory.cloudinaryPdfUrl = cloudinaryResult.url;
-      repertory.cloudinaryPdfPublicId = cloudinaryResult.publicId;
+    if (isCloudStorage && uploadResult) {
+      repertory.cloudinaryPdfUrl = uploadResult.url;
+      repertory.cloudinaryPdfPublicId = uploadResult.publicId;
     } else {
-      // Clear Cloudinary fields if we are storing locally
+      // Clear Cloud fields if we are storing locally
       repertory.cloudinaryPdfUrl = undefined;
       repertory.cloudinaryPdfPublicId = undefined;
     }
 
     await repertory.save();
 
-    const storageMessage = isCloudinary 
-      ? 'PDF uploaded successfully to Cloudinary!'
-      : `PDF saved successfully to server local storage (${(req.file.size / 1024 / 1024).toFixed(2)} MB, bypassed Cloudinary limit).`;
+    const storageMessage = isCloudStorage 
+      ? 'PDF uploaded successfully to cloud storage!'
+      : `PDF saved successfully to server local storage (${(req.file.size / 1024 / 1024).toFixed(2)} MB).`;
 
     const aiMessage = extractedMappings && Object.keys(extractedMappings).length > 0
       ? ` AI extracted ${Object.keys(extractedMappings).length} medicine mappings. You can edit them in "Map Chapters" mode.`
@@ -275,7 +288,7 @@ const uploadPDFFile = async (req, res) => {
         bytes: req.file.size,
         chapterPages: repertory.chapterPages,
         aiExtractedCount: Object.keys(extractedMappings).length,
-        isStoredLocally: !isCloudinary
+        isStoredLocally: !isCloudStorage
       }
     });
   } catch (error) {
