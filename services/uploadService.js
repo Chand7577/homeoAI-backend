@@ -82,6 +82,12 @@ const uploadPDFToSupabase = async (filePath, originalName) => {
 
     if (error) {
       console.error('Supabase Storage upload error:', error);
+      if (error.code === 'NoSuchBucket' || error.message?.includes('Bucket not found')) {
+        throw new Error(`Supabase bucket "${bucketName}" does not exist. Please create a public bucket named "${bucketName}" in Supabase Storage Dashboard.`);
+      }
+      if (error.statusCode === '403' || error.message?.includes('security policy')) {
+        throw new Error(`Supabase Storage RLS policy error. Please set bucket "${bucketName}" to Public or add an insert policy in Supabase Dashboard.`);
+      }
       throw error;
     }
 
