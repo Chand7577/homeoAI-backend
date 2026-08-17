@@ -22,6 +22,8 @@ const io = new Server(server, {
       'http://localhost:3000',
       'https://homeoai13.netlify.app',
       'https://homeo-ai-nine.vercel.app',
+      'https://drjpnauthomeopath.in',      // Custom domain (Hostinger → Netlify)
+      'https://www.drjpnauthomeopath.in',  // www variant
       process.env.FRONTEND_URL
     ].filter(Boolean),
     methods: ['GET', 'POST', 'PUT', 'DELETE'],

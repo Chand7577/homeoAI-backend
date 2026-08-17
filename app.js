@@ -100,6 +100,8 @@ const allowedOrigins = [
   ...(process.env.NODE_ENV !== 'production' ? ['http://localhost:5173', 'http://localhost:3000'] : []),
   'https://homeoai13.netlify.app',
   'https://homeo-ai-nine.vercel.app',
+  'https://drjpnauthomeopath.in',       // Custom domain (Hostinger → Netlify)
+  'https://www.drjpnauthomeopath.in',   // www variant
   process.env.FRONTEND_URL
 ].filter(Boolean);
 
