@@ -18,7 +18,7 @@ const googleTranslateSingle = (text, targetLang = 'hi') => {
   const https = require('https');
   return new Promise((resolve) => {
     const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=' + targetLang + '&dt=t&q=' + encodeURIComponent(text.trim());
-    https.get(url, (res) => {
+    const req = https.get(url, { timeout: 1500 }, (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
@@ -30,7 +30,12 @@ const googleTranslateSingle = (text, targetLang = 'hi') => {
           resolve(text);
         }
       });
-    }).on('error', () => resolve(text));
+    });
+    req.on('error', () => resolve(text));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(text);
+    });
   });
 };
 
