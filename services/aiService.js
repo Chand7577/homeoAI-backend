@@ -918,25 +918,26 @@ Return the JSON now:
 };
 
 /**
- * Scans a PDF file page-by-page to detect exact physical page numbers for medicine headings.
- * Works fast on any size PDF, without high RAM or AI token limits.
+ * Scans a PDF file page-by-page using Gemini Vision to detect exact physical page numbers for medicine headings.
+ * Works for both text-based and scanned image PDFs.
+ * Strategy: Convert pages to images with pdftoppm, read top of each page with Gemini Vision.
  */
 const scanMedicinePagesFromPdf = async (filePathOrUrl) => {
-  const pdfParse = require('pdf-parse');
-  let pdfBuffer;
+  const { execSync, spawnSync } = require('child_process');
+  const path = require('path');
+  const os = require('os');
 
+  let pdfBuffer;
   if (filePathOrUrl.startsWith('http://') || filePathOrUrl.startsWith('https://')) {
     console.log(`🌐 Downloading PDF from URL for AI page scanning: ${filePathOrUrl}`);
     pdfBuffer = await new Promise((resolve, reject) => {
       const protocol = filePathOrUrl.startsWith('https://') ? require('https') : require('http');
       const chunks = [];
-      const request = protocol.get(filePathOrUrl, { timeout: 45000 }, (res) => {
-        // Follow redirects
+      const request = protocol.get(filePathOrUrl, { timeout: 60000 }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           const redirect = res.headers.location;
-          console.log(`↪️  Redirect to: ${redirect}`);
           const redirectProto = redirect.startsWith('https://') ? require('https') : require('http');
-          redirectProto.get(redirect, { timeout: 45000 }, (res2) => {
+          redirectProto.get(redirect, { timeout: 60000 }, (res2) => {
             res2.on('data', chunk => chunks.push(chunk));
             res2.on('end', () => resolve(Buffer.concat(chunks)));
             res2.on('error', reject);
@@ -951,166 +952,196 @@ const scanMedicinePagesFromPdf = async (filePathOrUrl) => {
       request.on('timeout', () => { request.destroy(); reject(new Error('PDF download timed out')); });
     });
   } else {
-    if (!fs.existsSync(filePathOrUrl)) {
-      throw new Error(`PDF file not found at ${filePathOrUrl}`);
-    }
+    if (!fs.existsSync(filePathOrUrl)) throw new Error(`PDF file not found at ${filePathOrUrl}`);
     pdfBuffer = fs.readFileSync(filePathOrUrl);
   }
 
   console.log(`📄 Scanning PDF pages for medicine headers... (${(pdfBuffer.length / 1024 / 1024).toFixed(2)} MB)`);
 
-  // Collect per-page text using pagerender callback (reliable across all PDFs)
+  // ── Step 1: Count pages using pdf-parse ──
+  const pdfParse = require('pdf-parse');
+  let totalPages = 0;
   const pageTexts = [];
-  const renderOptions = {
-    max: 0,
-    pagerender: async (pageData) => {
-      try {
-        const content = await pageData.getTextContent();
-        let lastY, text = '';
-        for (let item of content.items) {
-          if (lastY == item.transform[5] || !lastY) {
-            text += item.str;
-          } else {
-            text += '\n' + item.str;
+  try {
+    await pdfParse(pdfBuffer, {
+      max: 0,
+      pagerender: async (pageData) => {
+        try {
+          const content = await pageData.getTextContent();
+          let lastY, text = '';
+          for (let item of content.items) {
+            if (lastY == item.transform[5] || !lastY) { text += item.str; }
+            else { text += '\n' + item.str; }
+            lastY = item.transform[5];
           }
-          lastY = item.transform[5];
-        }
-        pageTexts.push(text);
-      } catch (e) {
-        pageTexts.push('');
+          pageTexts.push(text);
+        } catch (e) { pageTexts.push(''); }
+        return '';
       }
-      return '';
-    }
-  };
+    });
+    totalPages = pageTexts.length;
+  } catch (err) {
+    console.warn('⚠️ pdf-parse failed:', err.message);
+    return {};
+  }
+  console.log(`📚 Total physical PDF pages detected: ${totalPages}`);
 
-  await pdfParse(pdfBuffer, renderOptions);
-  console.log(`📚 Total physical PDF pages detected: ${pageTexts.length}`);
-  
+  // ── Step 2: Check if text-based PDF ──
+  const allText = pageTexts.join('\n');
+  const hasText = allText.replace(/\s/g, '').length > 500;
+
   const detectedMappings = {};
-  
+
   const ignoreSections = new Set([
-    'MATERIA MEDICA', 'REPERTORY', 'MIND', 'HEAD', 'EYES', 'EARS', 
+    'MATERIA MEDICA', 'REPERTORY', 'MIND', 'HEAD', 'EYES', 'EARS',
     'NOSE', 'FACE', 'MOUTH', 'THROAT', 'STOMACH', 'ABDOMEN', 'RECTUM',
     'URINARY ORGANS', 'MALE SEXUAL ORGANS', 'FEMALE SEXUAL ORGANS',
     'RESPIRATORY ORGANS', 'CIRCULATORY ORGANS', 'BACK', 'EXTREMITIES',
     'SLEEP', 'FEVER', 'SKIN', 'GENERALITIES', 'MODALITIES', 'PREFACE',
-    'CONTENTS', 'INDEX', 'INTRODUCTION'
+    'CONTENTS', 'INDEX', 'INTRODUCTION', 'HOMOEOPATHIC', 'HOMEOPATHIC',
+    'POCKET MANUAL', 'WILLIAM BOERICKE', 'BOERICKE'
   ]);
 
-  const knownRemedies = new Set([
-    "ABIES CANADENSIS", "ABIES NIGER", "ABROTANUM", "ABSINTHIUM", "ACETANILIDUM", "ACETICUM ACIDUM",
-    "ACONITUM NAPELLUS", "ACTAEA SPICATA", "ADONIS VERNALLIS", "AESCULUS HIPPOCASTANUM", "AETHUSA CYNAPIUM",
-    "AGARICUS MUSCARIUS", "AGNUS CASTUS", "ALLIUM CEPA", "ALLIUM SATIVUM", "ALOE SOCOTRINA",
-    "ALSTONIA SCHOLARIS", "ALUMINA", "AMBRA GRISEA", "AMMONIACUM DOREMA", "AMMONIUM CARBONICUM",
-    "AMMONIUM CAUSTICUM", "AMMONIUM MURIATICUM", "AMMONIUM PHOSPHORICUM", "AMYLIS NITRIS",
-    "ANACARDIUM ORIENTALE", "ANAGALLIS ARVENSIS", "ANHALONIUM LEWINII", "ANTHRACINUM",
-    "ANTIMONIUM CRUDUM", "ANTIMONIUM TARTARICUM", "ANTIPYRINUM", "APIS MELLIFICA", "APIUM GRAVEOLENS",
-    "APOCYNUM CANNABINUM", "ARGENTUM METALLICUM", "ARGENTUM NITRICUM", "ARNICA MONTANA", "ARSENICUM ALBUM",
-    "ARSENICUM IODATUM", "ARTEMISIA VULGARIS", "ARUM TRIPHYLLUM", "ASAFOETIDA", "ASARUM EUROPAEUM",
-    "ASCLEPIAS TUBEROSA", "ASTERIAS RUBENS", "AURUM METALLICUM", "AURUM MURIATICUM NATRONATUM",
-    "AVENA SATIVA", "AZADIRACHTA INDICA", "BAPTISIA TINCTORIA", "BARYTA CARBONICA", "BARYTA MURIATICA",
-    "BELLADONNA", "BELLIS PERENNIS", "BENZOICUM ACIDUM", "BERBERIS VULGARIS", "BISMUTHUM", "BORAX VENETA",
-    "BOVISTA LYCOPERDON", "BROMIUM", "BRYONIA ALBA", "BUFO RANA", "CACTUS GRANDIFLORUS",
-    "CADMIUM SULPHURICUM", "CALADIUM SEGUINUM", "CALCAREA CARBONICA", "CALCAREA FLUORICA",
-    "CALCAREA PHOSPHORICA", "CALCAREA SULPHURICA", "CALENDULA OFFICINALIS", "CAMPHORA",
-    "CANNABIS INDICA", "CANNABIS SATIVA", "CANTHARIS VESICATORIA", "CAPSICUM ANNUUM", "CARBO ANIMALIS",
-    "CARBO VEGETABILIS", "CARBOLICUM ACIDUM", "CARCINOSINUM", "CARDUUS MARIANUS", "CAULOPHYLLUM THALICTROIDES",
-    "CAUSTICUM", "CEANOTHUS AMERICANUS", "CEDRON", "CHAMOMILLA", "CHELIDONIUM MAJUS", "CHELONE GLABRA",
-    "CHENOPODIUM ANTHELMINTICUM", "CHIMAPHILA UMBELLATA", "CHINA OFFICINALIS", "CHININUM ARSENICOSUM",
-    "CHININUM SULPHURICUM", "CHIONANTHUS VIRGINICA", "CHLORALUM HYDRATUM", "CHOLESTERINUM",
-    "CICUTA VIROSA", "CINA MARITIMA", "CINCHONA OFFICINALIS", "CINERARIA MARITIMA", "CINNAMOMUM",
-    "CISTUS CANADENSIS", "CLEMATIS ERECTA", "COCA (ERYTHROXYLON COCA)", "COCCULUS INDICUS",
-    "COCCUS CACTI", "CODEINUM", "COFFEA CRUDA", "COLCHICUM AUTUMNALE", "COLLINSONIA CANADENSIS",
-    "COLOCYNTHIS", "CONDURANGO", "CONIUM MACULATUM", "CONVALLARIA MAJALIS", "COPAIVA OFFICINALIS",
-    "CORALLIUM RUBRUM", "CRATAEGUS OXACANTHA", "CROCUS SATIVUS", "CROTON TIGLIUM", "CUPRUM ARSENICOSUM",
-    "CUPRUM METALLICUM", "CURARE", "CYCLAMEN EUROPAEUM", "DAPHNE INDICA", "DIGITALIS PURPUREA",
-    "DIOSCOREA VILLOSA", "DOLICHOS PRURIENS", "DROSERA ROTUNDIFOLIA", "DULCAMARA", "ECHINACEA ANGUSTIFOLIA",
-    "ELATERIUM", "EQUISETUM HYEMALE", "ERIGERON CANADENSE", "EUCALYPTUS GLOBULUS", "EUPATORIUM PERFOLIATUM",
-    "EUPHORBIUM OFFICINARUM", "EUPHRASIA OFFICINALIS", "EUPIONUM", "FERRUM IODATUM", "FERRUM METALLICUM",
-    "FERRUM PHOSPHORICUM", "FERRUM PICRICUM", "FILIX MAS", "FORMICA RUFA", "FRAXINUS AMERICANA",
-    "FUCUS VESICULOSUS", "GAMBOGIA", "GAULTHERIA PROCUMBENS", "GELSEMIUM SEMPERVIRENS", "GENTIANA LUTEA",
-    "GERANIUM MACULATUM", "GINSENG", "GLONOINUM", "GNAPHILIUM POLYCEPHALUM", "GOSSYPIUM HERBACEUM",
-    "GRAPHITES", "GRATIOLA OFFICINALIS", "GRINDELIA ROBUSTA", "GUAEACUM OFFICINALE", "HAMAMELIS VIRGINICA",
-    "HECLA LAVA", "HEDEOMA PULEGIOIDES", "HELLEBORUS NIGER", "HELONIAS DIOICA", "HEPAR SULPHURIS CALCAREUM",
-    "HISTAMINUM", "HYDRASTIS CANADENSIS", "HYDROCOTYLE ASIATICA", "HYDROCYANICUM ACIDUM",
-    "HYOSCYAMUS NIGER", "HYPERICUM PERFORATUM", "IGNATIA AMARA", "INDIUM METALLICUM", "IODIUM",
-    "IPECACUANHA", "IRIS VERSICOLOR", "JABORANDI", "JATROPHA CURCAS", "JUGLANS CINEREA",
-    "JUGLANS REGIA", "JUSTICIA ADHATODA", "KALIUM ARSENICOSUM", "KALIUM BICHROMICUM", "KALIUM BROMATUM",
-    "KALIUM CARBONICUM", "KALIUM CHLORICUM", "KALIUM CYANATUM", "KALIUM IODATUM", "KALIUM MURIATICUM",
-    "KALIUM NITRICUM", "KALIUM PHOSPHORICUM", "KALIUM PERMANGANATUM", "KALIUM SILICICUM",
-    "KALIUM SULPHURICUM", "KALMIA LATIFOLIA", "KREOSOTUM", "LAC CANINUM", "LAC DEFLORATUM",
-    "LACHESIS MUTUS", "LACHNANTHES TINCTORIA", "LACTICUM ACIDUM", "LAPIS ALBUS", "LAPPA ARCTIUM",
-    "LATHYRUS SATIVUS", "LATRODECTUS MACTANS", "LAUROCERASUS", "LECITHINUM", "LEDUM PALUSTRE",
-    "LEMNA MINOR", "LEPTANDRA VIRGINICA", "LILIUM TIGRINUM", "LITHIUM CARBONICUM", "LOBELIA INFLATA",
-    "LYCOPODIUM CLAVATUM", "LYCOPERSICUM ESCULENTUM", "LYCOPUS VIRGINICUS", "LYSINUM (HYDROPHOBINUM)",
-    "MAGNESIA CARBONICA", "MAGNESIA MURIATICA", "MAGNESIA PHOSPHORICA", "MAGNESIA SULPHURICA",
-    "MANGANUM ACETICUM", "MANGIFERA INDICA", "MEDORRHINUM", "MELILOTUS OFFICINALIS", "MENYANTHES TRIFOLIATA",
-    "MEPHITIS MEPHITICA", "MERCURIUS SOLUBILIS", "MERCURIUS CORROSIVUS", "MERCURIUS CYANATUS",
-    "MERCURIUS DULCIS", "MERCURIUS IODATUS FLAVUS", "MERCURIUS IODATUS RUBER", "MERCURIUS VIVUS",
-    "MEZEREUM", "MILLEFOLIUM", "MORPHINUM", "MOSCHUS", "MUREX PURPUREA", "MURIATICUM ACIDUM",
-    "MYGALE LASIODORA", "MYRICA CERIFERA", "MYRISTICA SEBIFERA", "NAJA TRIPUDIANS", "NAPHTHALINUM",
-    "NATRUM ARSENICICUM", "NATRUM CARBONICUM", "NATRUM MURIATICUM", "NATRUM PHOSPHORICUM",
-    "NATRUM SALICYLICUM", "NATRUM SULPHURICUM", "NITRICUM ACIDUM", "NUX MOSCHATA", "NUX VOMICA",
-    "NYCTANTHES ARBOR-TRISTIS", "OCIMUM CANUM", "OENANTHE CROCATA", "OLEANDER (NERIUM OLEANDER)",
-    "OLEUM JECORIS ASELLI", "OLEUM SANTALI", "ONOSMODIUM VIRGINIANUM", "OPIUM (PAPAVER SOMNIFERUM)",
-    "ORIGANUM MAJORANA", "ORNITHOGALUM UMBELLATUM", "OXALICUM ACIDUM", "OXYTROPIS LAMBERTI",
-    "PAEONIA OFFICINALIS", "PALLADIUM METALLICUM", "PAREIRA BRAVA", "PARIS QUADRIFOLIA",
-    "PASSIFLORA INCARNATA", "PETROLEUM", "PETROSELINUM SATIVUM", "PHOSPHORICUM ACIDUM", "PHOSPHORUS",
-    "PHYSOSTIGMA VENENOSUM", "PHYTOLACCA DECANDRA", "PICRICUM ACIDUM", "PILOCARPINUM HYDROCHLORICUM",
-    "PLANTAGO MAJOR", "PLATINUM METALLICUM", "PLUMBUM METALLICUM", "PODOPHYLLUM PELTATUM",
-    "POPULUS TREMULOIDES", "PSORINUM", "PTELEA TRIFOLIATA", "PULSATILLA NIGRICANS", "PYROGENIUM",
-    "RADIUM BROMATUM", "RANUNCULUS BULBOSUS", "RANUNCULUS SCELERATUS", "RAPHANUS SATIVUS",
-    "RATANHIA PERUVIANA", "RHEUM PALMATUM", "RHODODENDRON CHRYSANTHUM", "RHUS TOXICODENDRON",
-    "RHUS VENENATA", "RICINUS COMMUNIS", "ROBINIA PSEUDACACIA", "RUTA GRAVEOLENS", "SABADILLA",
-    "SABAL SERRULATA", "SABINA", "SALICYLICUM ACIDUM", "SALVIA OFFICINALIS", "SAMBUCUS NIGER",
-    "SANGUINARIA CANADENSIS", "SANICULA AQUA", "SANTONINUM", "SARSAPARILLA OFFICINALIS",
-    "SCROPHULARIA NODOSA", "SECALE CORNUTUM", "SELENIUM METALLICUM", "SENECIO AUREUS", "SENEGA",
-    "SENNA", "SEPIA OFFICINALIS", "SILICEA TERRA", "SPIGELIA ANTHELMIA", "SPONGIA TOSTA",
-    "STANNUM METALLICUM", "STAPHYSAGRIA", "STELLARIA MEDIA", "STICTA PULMONARIA", "STRAMONIUM",
-    "STRONTIUM CARBONICUM", "STROPHANTHUS HISPIDUS", "STRYCHNINUM PURUM", "SULPHUR",
-    "SULPHURICUM ACIDUM", "SYMPHYTUM OFFICINALE", "SYPHILINUM", "TABACUM", "TARANTULA HISPANA",
-    "TARAXACUM OFFICINALE", "TELLURIUM METALLICUM", "TEREBINTHINA", "TEUCRIUM MARUM VERUM",
-    "THALLIUM METALLICUM", "THERIDION CURASSAVICUM", "THLASPI BURSA PASTORIS", "THUJA OCCIDENTALIS",
-    "THYROIDINUM", "TRILLIUM PENDULUM", "TUBERCULINUM BOVINUM", "URANIUM NITRICUM", "UREA PURA",
-    "URTICA URENS", "USTILAGO MAYDIS", "UVA URSI", "VALERIANA OFFICINALIS", "VARIOLINUM",
-    "VERATRUM ALBUM", "VERATRUM VIRIDE", "VERBASCUM THAPSUS", "VIBURNUM OPULUS", "VINCA MINOR",
-    "VIOLA TRICOLOR", "VISCUM ALBUM", "WYETHIA HELENIOIDES", "XANTHOXYLUM FRAXINEUM", "YOHIMBINUM",
-    "ZINCUM METALLICUM", "ZINCUM VALERIANICUM", "ZINGIBER OFFICINALE"
-  ]);
-
-  for (let idx = 0; idx < pageTexts.length; idx++) {
-    const physicalPage = idx + 1;
-    const pageContent = pageTexts[idx] || '';
-    const lines = pageContent.split('\n').map(l => l.trim()).filter(Boolean);
-    const topLines = lines.slice(0, 20);
-
-    for (let line of topLines) {
-      const upperLine = line.toUpperCase().replace(/[^A-Z\s\-\.]/g, ' ').replace(/\s+/g, ' ').trim();
-      if (!upperLine || upperLine.length < 3 || ignoreSections.has(upperLine)) continue;
-
-      if (knownRemedies.has(upperLine)) {
-        if (!detectedMappings[upperLine]) {
-          detectedMappings[upperLine] = physicalPage;
-        }
-      } else {
-        for (let remedy of knownRemedies) {
-          if (!detectedMappings[remedy] && upperLine.startsWith(remedy)) {
-            detectedMappings[remedy] = physicalPage;
-          }
-        }
-      }
-
-      if (/^[A-Z][A-Z\s\-\.]{3,40}$/.test(upperLine)) {
-        if (!ignoreSections.has(upperLine) && !detectedMappings[upperLine]) {
-          const words = upperLine.split(' ');
-          if (words.length <= 5 && !upperLine.includes('CHAPTER') && !upperLine.includes('PAGE')) {
+  if (hasText) {
+    // ── Text-based PDF: scan text per page ──
+    console.log('📝 Text-based PDF detected. Scanning page text for medicine headings...');
+    for (let idx = 0; idx < pageTexts.length; idx++) {
+      const physicalPage = idx + 1;
+      const lines = pageTexts[idx].split('\n').map(l => l.trim()).filter(Boolean);
+      const topLines = lines.slice(0, 10);
+      for (let line of topLines) {
+        const upperLine = line.toUpperCase().replace(/[^A-Z\s\-\.]/g, ' ').replace(/\s+/g, ' ').trim();
+        if (!upperLine || upperLine.length < 4 || ignoreSections.has(upperLine)) continue;
+        if (/^[A-Z][A-Z\s\-\.]{3,50}$/.test(upperLine) && !upperLine.includes('CHAPTER') && !upperLine.includes('PAGE')) {
+          if (!detectedMappings[upperLine]) {
             detectedMappings[upperLine] = physicalPage;
           }
         }
       }
     }
+    console.log(`✅ AI scan complete: mapped ${Object.keys(detectedMappings).length} medicines to physical PDF pages!`);
+    return detectedMappings;
   }
 
+  // ── Step 3: Scanned image PDF → Use pdftoppm + Gemini Vision ──
+  console.log('🖼️ Scanned image PDF detected. Switching to Gemini Vision page-by-page scan...');
+
+  const { getVisionModel } = require('../config/aiConfig');
+  const visionModel = getVisionModel();
+  if (!visionModel) {
+    console.warn('⚠️ No vision AI model available. Cannot scan image PDF.');
+    return {};
+  }
+
+  // Find pdftoppm binary
+  let pdftoppm = 'pdftoppm';
+  for (const loc of ['/opt/homebrew/bin/pdftoppm', '/usr/bin/pdftoppm', '/usr/local/bin/pdftoppm']) {
+    if (fs.existsSync(loc)) { pdftoppm = loc; break; }
+  }
+
+  // Write PDF to temp file
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-scan-'));
+  const tmpPdf = path.join(tmpDir, 'book.pdf');
+  const tmpImg = path.join(tmpDir, 'page');
+  fs.writeFileSync(tmpPdf, pdfBuffer);
+
+  // Process pages in batches of 30 to avoid timeout
+  // Skip first 10 pages (front matter), scan the rest
+  const startPage = 11;
+  const endPage = Math.min(totalPages, 900); // up to page 900
+  const BATCH_SIZE = 40;
+
+  console.log(`🔍 Scanning pages ${startPage}–${endPage} with Gemini Vision (batches of ${BATCH_SIZE})...`);
+
+  let lastFoundRemedy = null;
+  let consecutiveEmpty = 0;
+
+  for (let batchStart = startPage; batchStart <= endPage; batchStart += BATCH_SIZE) {
+    const batchEnd = Math.min(batchStart + BATCH_SIZE - 1, endPage);
+
+    // Convert this batch of pages to PNG images
+    try {
+      spawnSync(pdftoppm, ['-png', '-r', '72', '-f', String(batchStart), '-l', String(batchEnd), tmpPdf, tmpImg], { timeout: 30000 });
+    } catch (err) {
+      console.warn(`⚠️ pdftoppm failed for pages ${batchStart}-${batchEnd}:`, err.message);
+      continue;
+    }
+
+    // Build list of generated page images
+    const pageFiles = [];
+    for (let p = batchStart; p <= batchEnd; p++) {
+      const padded = String(p).padStart(4, '0');
+      const imgFile = `${tmpImg}-${padded}.png`;
+      if (fs.existsSync(imgFile)) pageFiles.push({ page: p, file: imgFile });
+    }
+
+    if (pageFiles.length === 0) continue;
+
+    // For each page in this batch, crop the top ~15% and ask Gemini what medicine is on this page
+    for (const { page, file } of pageFiles) {
+      try {
+        const imgData = fs.readFileSync(file).toString('base64');
+
+        const result = await visionModel.generateContent({
+          contents: [{
+            role: 'user',
+            parts: [
+              {
+                inlineData: { mimeType: 'image/png', data: imgData }
+              },
+              {
+                text: `This is page ${page} from a Homeopathic Materia Medica book (Boericke's Pocket Manual).
+
+Look at the TOP of this page and tell me: What is the MAIN MEDICINE NAME displayed as a heading?
+
+Rules:
+- The medicine name is in ALL CAPS at the very top (e.g. "ABIES CANADENSIS", "BELLADONNA", "SULPHUR")
+- The page header or continuation line at the very top may show the previous medicine AND the current medicine (like "ABROTANUM — ABSINTHIUM")
+- If this is a CONTINUATION page (the medicine started on a previous page), output the medicine name shown in the continuation header
+- If this is a NEW medicine START page (medicine name appears as a large main heading below the page header), output that new medicine name
+- Output ONLY the medicine name in ALL CAPS, nothing else
+- If no medicine heading is visible or this is a front matter / index page, output: NONE`
+              }
+            ]
+          }],
+          generationConfig: { temperature: 0, maxOutputTokens: 50 }
+        });
+
+        const rawText = result.response.candidates[0].content.parts[0].text.trim().toUpperCase();
+        const medicineName = rawText.replace(/[^A-Z\s\-\.\(\)]/g, ' ').replace(/\s+/g, ' ').trim();
+
+        if (medicineName && medicineName !== 'NONE' && medicineName.length >= 3 && !ignoreSections.has(medicineName)) {
+          // Only record first occurrence of each medicine
+          if (!detectedMappings[medicineName]) {
+            detectedMappings[medicineName] = page;
+            console.log(`📌 [Page ${page}] → ${medicineName}`);
+          }
+          lastFoundRemedy = medicineName;
+          consecutiveEmpty = 0;
+        } else {
+          consecutiveEmpty++;
+        }
+
+        // Clean up image file immediately to save disk space
+        try { fs.unlinkSync(file); } catch (e) {}
+
+        // Small delay to avoid rate-limiting Gemini
+        await new Promise(r => setTimeout(r, 80));
+
+      } catch (err) {
+        console.warn(`⚠️ Gemini Vision failed for page ${page}:`, err.message.substring(0, 80));
+        try { fs.unlinkSync(file); } catch (e) {}
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+
+    console.log(`✅ Batch ${batchStart}-${batchEnd} done. ${Object.keys(detectedMappings).length} medicines found so far.`);
+  }
+
+  // Cleanup temp dir
+  try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {}
+
+  console.log(`✅ AI scan complete: mapped ${Object.keys(detectedMappings).length} medicines to physical PDF pages!`);
   console.log(`✅ AI scan complete: mapped ${Object.keys(detectedMappings).length} medicines to physical PDF pages!`);
   return detectedMappings;
 };
@@ -1121,3 +1152,4 @@ module.exports = {
   extractChaptersFromPdf,
   scanMedicinePagesFromPdf
 };
+
