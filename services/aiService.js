@@ -1111,17 +1111,26 @@ const scanMedicinePagesFromPdf = async (filePathOrUrl) => {
           const dashParts = withoutPageNum.split(/\s*[—\-]+\s*/);
           const medicineName = dashParts[dashParts.length - 1].trim();
 
-          if (
-            medicineName.length >= 4 &&
-            /^[A-Z][A-Z\s\-\.]+$/.test(medicineName) &&
-            !ignoreSections.has(medicineName) &&
-            medicineName.split(' ').length <= 6
-          ) {
-            if (!detectedMappings[medicineName]) {
-              detectedMappings[medicineName] = p;
-              console.log(`📌 [Page ${p}] → ${medicineName}`);
+          // Cross-reference against known remedies list for maximum accuracy
+          let matchedRemedy = null;
+          
+          // Check exact match or startsWith against known remedies
+          for (const remedy of knownRemedies) {
+            if (medicineName === remedy || medicineName.startsWith(remedy)) {
+              matchedRemedy = remedy;
+              break;
             }
-            break; // Found the medicine for this page, move on
+          }
+
+          // Fallback: if not in known remedies, accept it if it looks like a valid capital remedy name
+          if (!matchedRemedy && medicineName.length >= 4 && /^[A-Z][A-Z\s\-\.]+$/.test(medicineName) && !ignoreSections.has(medicineName) && medicineName.split(' ').length <= 5) {
+            matchedRemedy = medicineName;
+          }
+
+          if (matchedRemedy && !detectedMappings[matchedRemedy]) {
+            detectedMappings[matchedRemedy] = p;
+            console.log(`📌 [Page ${p}] → ${matchedRemedy}`);
+            break; // Found medicine for this page
           }
         }
 
