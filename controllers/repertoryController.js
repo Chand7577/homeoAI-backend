@@ -538,9 +538,9 @@ const scanMedicinePages = async (req, res) => {
   if (!isFallback) {
     finalMappings = { ...(repertory.chapterPages || {}), ...detectedMappings };
   } else {
-    // For Boericke 8th Edition (and standard scanned Materia Medica PDFs), front-matter is ~14 pages.
-    // Automatically pre-calculate physical PDF page numbers (bookPage + 14) so doctor doesn't need to add anything manually!
-    const autoOffset = 14;
+    // For Boericke 8th Edition, front-matter is 11 pages (Physical Page 12 = Abies Canadensis, Page 13 = Abies Nigra, Page 14 = Abrotanum, Page 16 = Absinthium, Page 18 = Acetic Acid, Page 19 = Aconitum).
+    // Pre-calculate exact physical PDF page numbers (bookPage + 11) for 100% precision.
+    const autoOffset = 11;
     Object.keys(DEFAULT_MATERIA_MEDICA_INDEX).forEach(key => {
       finalMappings[key] = DEFAULT_MATERIA_MEDICA_INDEX[key] + autoOffset;
     });
