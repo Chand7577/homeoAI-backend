@@ -958,13 +958,26 @@ const scanMedicinePagesFromPdf = async (filePathOrUrl) => {
   }
 
   console.log(`📄 Scanning PDF pages for medicine headers... (${(pdfBuffer.length / 1024 / 1024).toFixed(2)} MB)`);
-  
-  const pdfData = await pdfParse(pdfBuffer, { max: 0 });
-  const fullText = pdfData.text || '';
-  const pageChunks = fullText.split('\f');
-  
-  console.log(`📚 Total physical PDF pages detected: ${pageChunks.length}`);
 
+  // Collect per-page text using pagerender callback (reliable across all PDFs)
+  const pageTexts = [];
+  const renderOptions = {
+    max: 0,
+    pagerender: async (pageData) => {
+      try {
+        const content = await pageData.getTextContent();
+        const text = content.items.map(item => item.str || '').join('\n');
+        pageTexts.push(text);
+      } catch (e) {
+        pageTexts.push('');
+      }
+      return '';
+    }
+  };
+
+  await pdfParse(pdfBuffer, renderOptions);
+  console.log(`📚 Total physical PDF pages detected: ${pageTexts.length}`);
+  
   const detectedMappings = {};
   
   const ignoreSections = new Set([
@@ -1057,9 +1070,9 @@ const scanMedicinePagesFromPdf = async (filePathOrUrl) => {
     "ZINCUM METALLICUM", "ZINCUM VALERIANICUM", "ZINGIBER OFFICINALE"
   ]);
 
-  for (let idx = 0; idx < pageChunks.length; idx++) {
+  for (let idx = 0; idx < pageTexts.length; idx++) {
     const physicalPage = idx + 1;
-    const pageContent = pageChunks[idx] || '';
+    const pageContent = pageTexts[idx] || '';
     const lines = pageContent.split('\n').map(l => l.trim()).filter(Boolean);
     const topLines = lines.slice(0, 20);
 
