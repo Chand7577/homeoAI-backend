@@ -1192,25 +1192,49 @@ const scanMedicinePagesFromPdf = async (filePathOrUrl) => {
           const dashParts = withoutPageNum.split(/\s*[—\-]+\s*/);
           const medicineName = dashParts[dashParts.length - 1].trim();
 
-          // Cross-reference against known remedies list for maximum accuracy
+          // ── Clean & Match OCR text against known remedies with Fuzzy Matching ──
           let matchedRemedy = null;
-          
-          // Check exact match or startsWith against known remedies
+          let bestScore = 0;
+
+          // Helper: Levenshtein similarity (0.0 to 1.0)
+          const getSimilarity = (a, b) => {
+            if (a === b) return 1.0;
+            const lenA = a.length, lenB = b.length;
+            if (!lenA || !lenB) return 0;
+            const matrix = Array.from({ length: lenB + 1 }, (_, i) => [i]);
+            for (let j = 0; j <= lenA; j++) matrix[0][j] = j;
+            for (let i = 1; i <= lenB; i++) {
+              for (let j = 1; j <= lenA; j++) {
+                if (b[i - 1] === a[j - 1]) matrix[i][j] = matrix[i - 1][j - 1];
+                else matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j] + 1);
+              }
+            }
+            const dist = matrix[lenB][lenA];
+            return 1.0 - dist / Math.max(lenA, lenB);
+          };
+
+          // Compare extracted text against all known medicines
           for (const remedy of knownRemedies) {
-            if (medicineName === remedy || medicineName.startsWith(remedy)) {
+            // 1. Direct or startsWith match
+            if (medicineName === remedy || medicineName.startsWith(remedy) || remedy.startsWith(medicineName)) {
               matchedRemedy = remedy;
               break;
             }
-          }
-
-          // Fallback: if not in known remedies, accept it if it looks like a valid capital remedy name
-          if (!matchedRemedy && medicineName.length >= 4 && /^[A-Z][A-Z\s\-\.]+$/.test(medicineName) && !ignoreSections.has(medicineName) && medicineName.split(' ').length <= 5) {
-            matchedRemedy = medicineName;
+            // 2. Contains match (e.g., "N AMMONIUM NURIATICUM" contains "AMMONIUM")
+            const ocrTokens = medicineName.split(' ');
+            const remedyTokens = remedy.split(' ');
+            if (remedyTokens[0].length >= 4 && ocrTokens.some(tok => getSimilarity(tok, remedyTokens[0]) > 0.8)) {
+              const score = getSimilarity(medicineName, remedy);
+              if (score > 0.55 && score > bestScore) {
+                bestScore = score;
+                matchedRemedy = remedy;
+              }
+            }
           }
 
           if (matchedRemedy && !detectedMappings[matchedRemedy]) {
             detectedMappings[matchedRemedy] = p;
-            console.log(`📌 [Page ${p}] → ${matchedRemedy}`);
+            console.log(`📌 [Page ${p}] → ${matchedRemedy} (Matched from OCR: "${medicineName}")`);
             break; // Found medicine for this page
           }
         }
