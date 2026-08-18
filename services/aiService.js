@@ -966,7 +966,15 @@ const scanMedicinePagesFromPdf = async (filePathOrUrl) => {
     pagerender: async (pageData) => {
       try {
         const content = await pageData.getTextContent();
-        const text = content.items.map(item => item.str || '').join('\n');
+        let lastY, text = '';
+        for (let item of content.items) {
+          if (lastY == item.transform[5] || !lastY) {
+            text += item.str;
+          } else {
+            text += '\n' + item.str;
+          }
+          lastY = item.transform[5];
+        }
         pageTexts.push(text);
       } catch (e) {
         pageTexts.push('');
