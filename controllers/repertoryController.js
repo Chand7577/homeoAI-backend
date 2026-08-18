@@ -532,16 +532,26 @@ const scanMedicinePages = async (req, res) => {
     "VARIOLINUM": 742, "VERATRUM ALBUM": 743, "VERATRUM VIRIDE": 748, "ZINCUM METALLICUM": 751
   };
 
-  const finalMappings = Object.keys(detectedMappings).length > 0
-    ? { ...(repertory.chapterPages || {}), ...detectedMappings }
-    : { ...(repertory.chapterPages || {}), ...DEFAULT_MATERIA_MEDICA_INDEX };
+  let finalMappings = {};
+  const isFallback = Object.keys(detectedMappings).length === 0;
+
+  if (!isFallback) {
+    finalMappings = { ...(repertory.chapterPages || {}), ...detectedMappings };
+  } else {
+    // For Boericke 8th Edition (and standard scanned Materia Medica PDFs), front-matter is ~14 pages.
+    // Automatically pre-calculate physical PDF page numbers (bookPage + 14) so doctor doesn't need to add anything manually!
+    const autoOffset = 14;
+    Object.keys(DEFAULT_MATERIA_MEDICA_INDEX).forEach(key => {
+      finalMappings[key] = DEFAULT_MATERIA_MEDICA_INDEX[key] + autoOffset;
+    });
+    repertory.pageOffset = autoOffset;
+  }
 
   repertory.chapterPages = finalMappings;
   repertory.markModified('chapterPages');
   await repertory.save();
 
-  const isFallback = Object.keys(detectedMappings).length === 0;
-  console.log(`✅ Saved ${Object.keys(finalMappings).length} medicine mappings to MongoDB (Fallback: ${isFallback})`);
+  console.log(`✅ Auto-mapped ${Object.keys(finalMappings).length} medicine pages (Physical page offset: ${repertory.pageOffset || 0})`);
   
   return res.json({
     success: true,
