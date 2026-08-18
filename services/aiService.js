@@ -923,13 +923,33 @@ Return the JSON now:
  */
 const scanMedicinePagesFromPdf = async (filePathOrUrl) => {
   const pdfParse = require('pdf-parse');
-  const axios = require('axios');
   let pdfBuffer;
 
   if (filePathOrUrl.startsWith('http://') || filePathOrUrl.startsWith('https://')) {
     console.log(`🌐 Downloading PDF from URL for AI page scanning: ${filePathOrUrl}`);
-    const response = await axios.get(filePathOrUrl, { responseType: 'arraybuffer', timeout: 45000 });
-    pdfBuffer = Buffer.from(response.data);
+    pdfBuffer = await new Promise((resolve, reject) => {
+      const protocol = filePathOrUrl.startsWith('https://') ? require('https') : require('http');
+      const chunks = [];
+      const request = protocol.get(filePathOrUrl, { timeout: 45000 }, (res) => {
+        // Follow redirects
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          const redirect = res.headers.location;
+          console.log(`↪️  Redirect to: ${redirect}`);
+          const redirectProto = redirect.startsWith('https://') ? require('https') : require('http');
+          redirectProto.get(redirect, { timeout: 45000 }, (res2) => {
+            res2.on('data', chunk => chunks.push(chunk));
+            res2.on('end', () => resolve(Buffer.concat(chunks)));
+            res2.on('error', reject);
+          }).on('error', reject);
+          return;
+        }
+        res.on('data', chunk => chunks.push(chunk));
+        res.on('end', () => resolve(Buffer.concat(chunks)));
+        res.on('error', reject);
+      });
+      request.on('error', reject);
+      request.on('timeout', () => { request.destroy(); reject(new Error('PDF download timed out')); });
+    });
   } else {
     if (!fs.existsSync(filePathOrUrl)) {
       throw new Error(`PDF file not found at ${filePathOrUrl}`);
