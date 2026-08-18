@@ -457,6 +457,47 @@ const streamPDF = async (req, res) => {
   fs.createReadStream(filePath).pipe(res);
 };
 
+// POST /api/repertories/:id/scan-medicine-pages
+const scanMedicinePages = async (req, res) => {
+  const repertory = await Repertory.findById(req.params.id);
+  if (!repertory) { res.status(404); throw new Error('Repertory not found'); }
+  if (!repertory.pdfUrl) { res.status(400); throw new Error('No PDF file uploaded for this reference manual yet'); }
+
+  console.log(`🤖 Starting page-by-page AI scanning for ${repertory.name}...`);
+  
+  const { scanMedicinePagesFromPdf } = require('../services/aiService');
+  
+  let targetPathOrUrl = repertory.pdfUrl;
+  if (repertory.pdfUrl.includes('/uploads/')) {
+    const filename = path.basename(repertory.pdfUrl);
+    targetPathOrUrl = path.join(__dirname, '../uploads', filename);
+  }
+
+  const detectedMappings = await scanMedicinePagesFromPdf(targetPathOrUrl);
+
+  if (Object.keys(detectedMappings).length > 0) {
+    const merged = {
+      ...(repertory.chapterPages || {}),
+      ...detectedMappings
+    };
+    repertory.chapterPages = merged;
+    repertory.markModified('chapterPages');
+    await repertory.save();
+    
+    console.log(`✅ Saved ${Object.keys(merged).length} scanned medicine mappings to MongoDB`);
+    return res.json({
+      success: true,
+      message: `Successfully scanned PDF and mapped ${Object.keys(detectedMappings).length} medicines!`,
+      data: repertory
+    });
+  } else {
+    return res.status(400).json({
+      success: false,
+      message: 'Could not detect medicine headings in this PDF file.'
+    });
+  }
+};
+
 module.exports = { 
   getRepertories, 
   getRepertory, 
@@ -469,5 +510,6 @@ module.exports = {
   updateChapterPages,
   getRepertoryChapters,
   streamPDF,
-  setExternalPdfUrl
+  setExternalPdfUrl,
+  scanMedicinePages
 };
