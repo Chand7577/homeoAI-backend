@@ -17,7 +17,7 @@ class UnifiedModelAdapter {
 
   async generateContent({ contents, generationConfig }) {
     if (this.provider === 'gemini') {
-      const modelsToTry = Array.from(new Set([this.modelName, 'gemini-2.0-flash', 'gemini-2.0-flash-lite']));
+      const modelsToTry = Array.from(new Set([this.modelName, 'gemini-2.5-flash', 'gemini-3.5-flash', 'gemini-2.0-flash']));
       let lastError = null;
 
       for (const mName of modelsToTry) {
