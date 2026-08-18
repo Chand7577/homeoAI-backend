@@ -1023,15 +1023,11 @@ const scanMedicinePagesFromPdf = async (filePathOrUrl) => {
     return detectedMappings;
   }
 
-  // ── Step 3: Scanned image PDF → Use pdftoppm + Gemini Vision ──
-  console.log('🖼️ Scanned image PDF detected. Switching to Gemini Vision page-by-page scan...');
+  // ── Step 3: Scanned image PDF → Use pdftoppm + FREE Tesseract OCR ──
+  console.log('🖼️ Scanned image PDF detected. Using FREE Tesseract OCR (no API key needed)...');
 
-  const { getVisionModel } = require('../config/aiConfig');
-  const visionModel = getVisionModel();
-  if (!visionModel) {
-    console.warn('⚠️ No vision AI model available. Cannot scan image PDF.');
-    return {};
-  }
+  const Tesseract = require('tesseract.js');
+  const sharp = require('sharp');
 
   // Find pdftoppm binary
   let pdftoppm = 'pdftoppm';
@@ -1045,104 +1041,110 @@ const scanMedicinePagesFromPdf = async (filePathOrUrl) => {
   const tmpImg = path.join(tmpDir, 'page');
   fs.writeFileSync(tmpPdf, pdfBuffer);
 
-  // Process pages in batches of 30 to avoid timeout
-  // Skip first 10 pages (front matter), scan the rest
+  // Create a single Tesseract worker (reused for all pages — much faster)
+  console.log('⚙️ Initializing Tesseract OCR worker...');
+  const worker = await Tesseract.createWorker('eng');
+  await worker.setParameters({
+    tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz.-()/',
+    tessedit_pageseg_mode: '6', // Assume a single block of text
+  });
+
   const startPage = 11;
-  const endPage = Math.min(totalPages, 900); // up to page 900
-  const BATCH_SIZE = 40;
+  const endPage = Math.min(totalPages, 900);
+  const BATCH_SIZE = 50;
 
-  console.log(`🔍 Scanning pages ${startPage}–${endPage} with Gemini Vision (batches of ${BATCH_SIZE})...`);
-
-  let lastFoundRemedy = null;
-  let consecutiveEmpty = 0;
+  console.log(`🔍 Scanning pages ${startPage}–${endPage} with Tesseract OCR (batches of ${BATCH_SIZE})...`);
 
   for (let batchStart = startPage; batchStart <= endPage; batchStart += BATCH_SIZE) {
     const batchEnd = Math.min(batchStart + BATCH_SIZE - 1, endPage);
 
-    // Convert this batch of pages to PNG images
-    try {
-      spawnSync(pdftoppm, ['-png', '-r', '72', '-f', String(batchStart), '-l', String(batchEnd), tmpPdf, tmpImg], { timeout: 30000 });
-    } catch (err) {
-      console.warn(`⚠️ pdftoppm failed for pages ${batchStart}-${batchEnd}:`, err.message);
+    // Convert batch of PDF pages to PNG images at 100 DPI (good for OCR, reasonable file size)
+    const spawnResult = spawnSync(
+      pdftoppm,
+      ['-png', '-r', '100', '-f', String(batchStart), '-l', String(batchEnd), tmpPdf, tmpImg],
+      { timeout: 60000 }
+    );
+    if (spawnResult.error) {
+      console.warn(`⚠️ pdftoppm failed for pages ${batchStart}-${batchEnd}:`, spawnResult.error.message);
       continue;
     }
 
-    // Build list of generated page images
-    const pageFiles = [];
     for (let p = batchStart; p <= batchEnd; p++) {
       const padded = String(p).padStart(4, '0');
       const imgFile = `${tmpImg}-${padded}.png`;
-      if (fs.existsSync(imgFile)) pageFiles.push({ page: p, file: imgFile });
-    }
+      if (!fs.existsSync(imgFile)) continue;
 
-    if (pageFiles.length === 0) continue;
-
-    // For each page in this batch, crop the top ~15% and ask Gemini what medicine is on this page
-    for (const { page, file } of pageFiles) {
       try {
-        const imgData = fs.readFileSync(file).toString('base64');
+        // Crop just the top 15% of the page — medicine heading is always there
+        const imgMeta = await sharp(imgFile).metadata();
+        const cropHeight = Math.floor((imgMeta.height || 300) * 0.15);
+        const croppedFile = `${tmpImg}-${padded}-crop.png`;
 
-        const result = await visionModel.generateContent({
-          contents: [{
-            role: 'user',
-            parts: [
-              {
-                inlineData: { mimeType: 'image/png', data: imgData }
-              },
-              {
-                text: `This is page ${page} from a Homeopathic Materia Medica book (Boericke's Pocket Manual).
+        await sharp(imgFile)
+          .extract({ left: 0, top: 0, width: imgMeta.width, height: cropHeight })
+          // Increase contrast and convert to grayscale for better OCR accuracy
+          .grayscale()
+          .normalize()
+          .toFile(croppedFile);
 
-Look at the TOP of this page and tell me: What is the MAIN MEDICINE NAME displayed as a heading?
+        // Run Tesseract on the cropped top strip
+        const { data: { text } } = await worker.recognize(croppedFile);
 
-Rules:
-- The medicine name is in ALL CAPS at the very top (e.g. "ABIES CANADENSIS", "BELLADONNA", "SULPHUR")
-- The page header or continuation line at the very top may show the previous medicine AND the current medicine (like "ABROTANUM — ABSINTHIUM")
-- If this is a CONTINUATION page (the medicine started on a previous page), output the medicine name shown in the continuation header
-- If this is a NEW medicine START page (medicine name appears as a large main heading below the page header), output that new medicine name
-- Output ONLY the medicine name in ALL CAPS, nothing else
-- If no medicine heading is visible or this is a front matter / index page, output: NONE`
-              }
-            ]
-          }],
-          generationConfig: { temperature: 0, maxOutputTokens: 50 }
-        });
+        // Parse out ALL-CAPS medicine heading from top lines
+        const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+        for (const line of lines.slice(0, 6)) {
+          // Clean OCR artifacts
+          const cleaned = line.toUpperCase()
+            .replace(/[^A-Z\s\-\.]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
 
-        const rawText = result.response.candidates[0].content.parts[0].text.trim().toUpperCase();
-        const medicineName = rawText.replace(/[^A-Z\s\-\.\(\)]/g, ' ').replace(/\s+/g, ' ').trim();
+          if (!cleaned || cleaned.length < 3) continue;
+          if (ignoreSections.has(cleaned)) continue;
 
-        if (medicineName && medicineName !== 'NONE' && medicineName.length >= 3 && !ignoreSections.has(medicineName)) {
-          // Only record first occurrence of each medicine
-          if (!detectedMappings[medicineName]) {
-            detectedMappings[medicineName] = page;
-            console.log(`📌 [Page ${page}] → ${medicineName}`);
+          // Look for a word that starts with a capital letter run (medicine heading pattern)
+          // Boericke headers look like: "ABIES CANADENSIS" or "2 ABIES NIGRA" or "ABROTANUM — ABSINTHIUM"
+          // Strip leading page numbers if present
+          const withoutPageNum = cleaned.replace(/^\d+\s+/, '').trim();
+
+          // Handle "MED A — MED B" pattern (continuation header): take the LAST medicine (current page's)
+          const dashParts = withoutPageNum.split(/\s*[—\-]+\s*/);
+          const medicineName = dashParts[dashParts.length - 1].trim();
+
+          if (
+            medicineName.length >= 4 &&
+            /^[A-Z][A-Z\s\-\.]+$/.test(medicineName) &&
+            !ignoreSections.has(medicineName) &&
+            medicineName.split(' ').length <= 6
+          ) {
+            if (!detectedMappings[medicineName]) {
+              detectedMappings[medicineName] = p;
+              console.log(`📌 [Page ${p}] → ${medicineName}`);
+            }
+            break; // Found the medicine for this page, move on
           }
-          lastFoundRemedy = medicineName;
-          consecutiveEmpty = 0;
-        } else {
-          consecutiveEmpty++;
         }
 
-        // Clean up image file immediately to save disk space
-        try { fs.unlinkSync(file); } catch (e) {}
-
-        // Small delay to avoid rate-limiting Gemini
-        await new Promise(r => setTimeout(r, 80));
+        // Clean up page files immediately to save disk
+        try { fs.unlinkSync(imgFile); } catch (e) {}
+        try { fs.unlinkSync(croppedFile); } catch (e) {}
 
       } catch (err) {
-        console.warn(`⚠️ Gemini Vision failed for page ${page}:`, err.message.substring(0, 80));
-        try { fs.unlinkSync(file); } catch (e) {}
-        await new Promise(r => setTimeout(r, 500));
+        console.warn(`⚠️ OCR failed for page ${p}:`, err.message.substring(0, 80));
+        try { fs.unlinkSync(imgFile); } catch (e) {}
       }
     }
 
     console.log(`✅ Batch ${batchStart}-${batchEnd} done. ${Object.keys(detectedMappings).length} medicines found so far.`);
   }
 
+  // Terminate Tesseract worker
+  try { await worker.terminate(); } catch (e) {}
+
   // Cleanup temp dir
   try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {}
 
-  console.log(`✅ AI scan complete: mapped ${Object.keys(detectedMappings).length} medicines to physical PDF pages!`);
-  console.log(`✅ AI scan complete: mapped ${Object.keys(detectedMappings).length} medicines to physical PDF pages!`);
+  console.log(`✅ Tesseract OCR scan complete: mapped ${Object.keys(detectedMappings).length} medicines to physical PDF pages!`);
   return detectedMappings;
 };
 
@@ -1152,4 +1154,5 @@ module.exports = {
   extractChaptersFromPdf,
   scanMedicinePagesFromPdf
 };
+
 
